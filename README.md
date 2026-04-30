@@ -27,9 +27,9 @@ src/00_download_data.py
 默认配置集中在 `src/fashion_trend/config.py`：
 
 - `DEFAULT_COMPETITION`：`h-and-m-personalized-fashion-recommendations`
-- `DEFAULT_DATA_DIR`：`data/raw`
+- `RAW_DIR`：项目根目录下的 `data/raw`
 
-默认会下载 `h-and-m-personalized-fashion-recommendations`，并保存到：
+默认会下载 `h-and-m-personalized-fashion-recommendations`，并保存到项目根目录下的：
 
 ```sh
 data/raw/h-and-m-personalized-fashion-recommendations/
@@ -65,7 +65,7 @@ uv run python src/00_download_data.py
 uv run python src/00_download_data.py --competition h-and-m-personalized-fashion-recommendations
 ```
 
-指定数据保存目录：
+指定数据保存根目录：
 
 ```sh
 uv run python src/00_download_data.py --data-dir data/raw
@@ -91,7 +91,7 @@ uv run python src/00_download_data.py --help
 
 ### 4. 下载行为说明
 
-- 默认目标目录：`data/raw/<competition>/`。
+- 默认目标目录：项目根目录下的 `data/raw/<competition>/`。
 - 默认行为：目标目录不存在或为空时下载；目标目录已有内容时跳过下载。
 - `--force`：忽略已有内容，重新调用 Kaggle 下载。
 - `--no-unzip`：保留下载得到的 zip 文件，不执行解压。

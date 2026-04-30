@@ -8,7 +8,7 @@ from pathlib import Path
 
 import kagglehub
 
-from fashion_trend.config import DEFAULT_COMPETITION, DEFAULT_DATA_DIR  # noqa: E402
+from fashion_trend.config import DEFAULT_COMPETITION, RAW_DIR  # noqa: E402
 
 Downloader = Callable[..., str | Path]
 
@@ -35,8 +35,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=DEFAULT_DATA_DIR,
-        help=f"Base data directory. Default: {DEFAULT_DATA_DIR}",
+        default=RAW_DIR,
+        help=f"Base data directory. Default: {RAW_DIR}",
     )
     parser.add_argument(
         "--no-unzip",
@@ -133,7 +133,7 @@ def kagglehub_competition_download(
 
 def download_competition(
     competition: str = DEFAULT_COMPETITION,
-    data_dir: Path = DEFAULT_DATA_DIR,
+    data_dir: Path = RAW_DIR,
     unzip: bool = True,
     force: bool = False,
     downloader: Downloader = kagglehub_competition_download,
@@ -144,7 +144,7 @@ def download_competition(
         competition (str, optional): Kaggle competition slug。Defaults to
             DEFAULT_COMPETITION.
         data_dir (Path, optional): 保存原始数据的根目录。Defaults to
-            DEFAULT_DATA_DIR.
+            RAW_DIR.
         unzip (bool, optional): 下载后是否解压目标目录下的 zip 文件。Defaults
             to True.
         force (bool, optional): 是否忽略已有文件并强制重新下载。Defaults to
