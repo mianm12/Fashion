@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Hashable, Iterator, Mapping
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import pyarrow as pa
@@ -10,7 +11,7 @@ import pyarrow.parquet as pq
 from fashion_trend import log
 from fashion_trend.config import PATH
 
-REQUIRED_COLUMNS = (
+REQUIRED_COLUMNS: tuple[str, ...] = (
     "t_dat",
     "customer_id",
     "article_id",
@@ -120,10 +121,12 @@ def read_transaction_chunks(
     Returns:
         Iterator[pd.DataFrame]: 可迭代的 CSV 分块读取器。
     """
+    pandas_dtype = cast(Mapping[Hashable, str], dtype)
+
     return pd.read_csv(
         csv_path,
         usecols=usecols,
-        dtype=dtype,
+        dtype=pandas_dtype,
         chunksize=chunksize,
     )
 
@@ -163,12 +166,8 @@ def scan_transaction_date_range(
         )
         chunk_min_date = parsed_dates.min()
         chunk_max_date = parsed_dates.max()
-        min_date = (
-            chunk_min_date if min_date is None else min(min_date, chunk_min_date)
-        )
-        max_date = (
-            chunk_max_date if max_date is None else max(max_date, chunk_max_date)
-        )
+        min_date = chunk_min_date if min_date is None else min(min_date, chunk_min_date)
+        max_date = chunk_max_date if max_date is None else max(max_date, chunk_max_date)
         total_rows += len(chunk)
 
     if total_rows == 0 or min_date is None or max_date is None:
@@ -205,7 +204,7 @@ def add_week_id(
     weekly_transactions["t_dat"] = parsed_dates
     weekly_transactions["week_id"] = week_ids
 
-    return weekly_transactions.loc[:, OUTPUT_COLUMNS]
+    return weekly_transactions[list(OUTPUT_COLUMNS)]
 
 
 def write_weekly_transactions(
