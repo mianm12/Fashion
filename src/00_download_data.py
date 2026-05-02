@@ -8,7 +8,7 @@ from pathlib import Path
 
 import kagglehub
 
-from fashion_trend.config import DEFAULT_COMPETITION, RAW_DIR  # noqa: E402
+from fashion_trend.config import DEFAULT_COMPETITION, RAW_DIR
 
 Downloader = Callable[..., str | Path]
 
