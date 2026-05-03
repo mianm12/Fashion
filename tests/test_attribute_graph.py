@@ -147,6 +147,41 @@ class AttributeGraphFileTests(unittest.TestCase):
                     graph_dir=tmp_path / "graph",
                 )
 
+    def test_build_attribute_graph_files_rolls_back_partial_publish_failure(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            clean_articles_path = tmp_path / "articles_clean.csv"
+            output_dir = tmp_path / "graph"
+            output_dir.mkdir()
+            sample_clean_articles().to_csv(clean_articles_path, index=False)
+
+            nodes_article_path = output_dir / "nodes_article.csv"
+            nodes_attribute_path = output_dir / "nodes_attribute.csv"
+            edges_article_attribute_path = output_dir / "edges_article_attribute.csv"
+            edges_attribute_hierarchy_path = (
+                output_dir / "edges_attribute_hierarchy.csv"
+            )
+            old_nodes_article = "article_id,article_node_id\nold,article_old\n"
+            old_nodes_attribute = "attr_id,attr_type\nold_attr,old_type\n"
+            nodes_article_path.write_text(old_nodes_article)
+            nodes_attribute_path.write_text(old_nodes_attribute)
+            edges_article_attribute_path.mkdir()
+
+            with self.assertRaises(OSError):
+                build_attribute_graph_files(
+                    clean_articles_path=clean_articles_path,
+                    graph_dir=output_dir,
+                )
+
+            self.assertEqual(nodes_article_path.read_text(), old_nodes_article)
+            self.assertEqual(nodes_attribute_path.read_text(), old_nodes_attribute)
+            self.assertTrue(edges_article_attribute_path.is_dir())
+            self.assertFalse(edges_attribute_hierarchy_path.exists())
+            self.assertEqual(list(output_dir.glob("*.tmp")), [])
+            self.assertEqual(list(output_dir.glob("*.bak")), [])
+
 
 if __name__ == "__main__":
     unittest.main()

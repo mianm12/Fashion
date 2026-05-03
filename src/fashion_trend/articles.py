@@ -319,16 +319,6 @@ def remove_file_if_exists(path: Path) -> None:
         pass
 
 
-def write_graph_csv_atomically(dataframe: pd.DataFrame, output_path: Path) -> None:
-    tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        tmp_output_path = write_csv_temp(dataframe, output_path)
-        tmp_output_path.replace(output_path)
-    except Exception:
-        remove_file_if_exists(tmp_output_path)
-        raise
-
-
 def read_clean_articles(clean_articles_path: Path) -> pd.DataFrame:
     if not clean_articles_path.exists():
         raise FileNotFoundError(f"商品 clean 文件不存在: {clean_articles_path}")
@@ -384,6 +374,64 @@ def build_attribute_graph_frames(clean_articles: pd.DataFrame) -> dict[str, pd.D
     }
 
 
+def cleanup_graph_publish_files(paths_by_name: dict[str, Path]) -> None:
+    for path in paths_by_name.values():
+        remove_file_if_exists(path)
+
+
+def rollback_graph_outputs(
+    output_paths: dict[str, Path],
+    backup_paths: dict[str, Path],
+) -> None:
+    for graph_name, output_path in output_paths.items():
+        if output_path.is_file():
+            output_path.unlink()
+
+        backup_path = backup_paths[graph_name]
+        if backup_path.exists():
+            backup_path.replace(output_path)
+
+
+def publish_graph_frames(
+    graph_frames: dict[str, pd.DataFrame],
+    graph_dir: Path,
+) -> None:
+    output_paths = {
+        graph_name: graph_dir / GRAPH_OUTPUT_FILENAMES[graph_name]
+        for graph_name in graph_frames
+    }
+    temp_paths = {
+        graph_name: output_path.with_suffix(output_path.suffix + ".tmp")
+        for graph_name, output_path in output_paths.items()
+    }
+    backup_paths = {
+        graph_name: output_path.with_suffix(output_path.suffix + ".bak")
+        for graph_name, output_path in output_paths.items()
+    }
+
+    try:
+        for graph_name, graph_frame in graph_frames.items():
+            temp_paths[graph_name] = write_csv_temp(graph_frame, output_paths[graph_name])
+
+        for graph_name, output_path in output_paths.items():
+            remove_file_if_exists(backup_paths[graph_name])
+            if output_path.is_file():
+                output_path.replace(backup_paths[graph_name])
+
+        for graph_name, temp_path in temp_paths.items():
+            temp_path.replace(output_paths[graph_name])
+    except Exception:
+        try:
+            rollback_graph_outputs(output_paths, backup_paths)
+        finally:
+            cleanup_graph_publish_files(temp_paths)
+            cleanup_graph_publish_files(backup_paths)
+        raise
+
+    cleanup_graph_publish_files(temp_paths)
+    cleanup_graph_publish_files(backup_paths)
+
+
 def build_attribute_graph_files(
     clean_articles_path: Path,
     graph_dir: Path,
@@ -392,13 +440,8 @@ def build_attribute_graph_files(
     graph_frames = build_attribute_graph_frames(clean_articles)
     graph_dir.mkdir(parents=True, exist_ok=True)
 
-    output_counts: dict[str, int] = {}
-    for graph_name, graph_frame in graph_frames.items():
-        output_path = graph_dir / GRAPH_OUTPUT_FILENAMES[graph_name]
-        write_graph_csv_atomically(graph_frame, output_path)
-        output_counts[graph_name] = len(graph_frame)
-
-    return output_counts
+    publish_graph_frames(graph_frames, graph_dir)
+    return {graph_name: len(graph_frame) for graph_name, graph_frame in graph_frames.items()}
 
 
 def restore_mvp_output(
