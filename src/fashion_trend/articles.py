@@ -92,6 +92,16 @@ def validate_no_missing_values(
         raise ValueError(f"{source_name} 存在缺失值字段: " + ", ".join(missing_columns))
 
 
+def validate_unique_values(
+    articles: pd.DataFrame,
+    columns: Sequence[str],
+    source_name: str,
+) -> None:
+    duplicate_mask = articles.duplicated(subset=list(columns), keep=False)
+    if duplicate_mask.any():
+        raise ValueError(f"{source_name} 存在重复字段值: " + ", ".join(columns))
+
+
 def normalize_article_identifiers(articles: pd.DataFrame) -> pd.DataFrame:
     normalized = articles.copy()
     normalized[ARTICLE_ID_COLUMN] = normalized[ARTICLE_ID_COLUMN].astype("string")
@@ -108,6 +118,11 @@ def build_clean_article_frames(raw_articles: pd.DataFrame) -> tuple[pd.DataFrame
     validate_no_missing_values(
         raw_articles,
         CLEAN_ARTICLE_COLUMNS,
+        source_name="原始 articles.csv",
+    )
+    validate_unique_values(
+        raw_articles,
+        [ARTICLE_ID_COLUMN],
         source_name="原始 articles.csv",
     )
 
@@ -356,6 +371,21 @@ def validate_graph_references(
 
 
 def build_attribute_graph_frames(clean_articles: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    validate_required_columns(
+        clean_articles.columns.tolist(),
+        [ARTICLE_ID_COLUMN],
+        source_name="articles_clean.csv",
+    )
+    validate_no_missing_values(
+        clean_articles,
+        [ARTICLE_ID_COLUMN],
+        source_name="articles_clean.csv",
+    )
+    validate_unique_values(
+        clean_articles,
+        [ARTICLE_ID_COLUMN],
+        source_name="articles_clean.csv",
+    )
     nodes_article = build_article_nodes(clean_articles)
     nodes_attribute = build_attribute_nodes(clean_articles)
     edges_article_attribute = build_article_attribute_edges(clean_articles)

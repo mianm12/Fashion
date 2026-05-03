@@ -75,6 +75,13 @@ class CleanArticleFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "colour_group_name"):
             build_clean_article_frames(raw_articles)
 
+    def test_build_clean_article_frames_rejects_duplicate_article_ids(self) -> None:
+        raw_articles = sample_raw_articles()
+        raw_articles.loc[1, "article_id"] = raw_articles.loc[0, "article_id"]
+
+        with self.assertRaisesRegex(ValueError, "article_id"):
+            build_clean_article_frames(raw_articles)
+
 
 class CleanArticleFileTests(unittest.TestCase):
     def test_clean_articles_file_writes_mvp_and_clean_outputs(self) -> None:

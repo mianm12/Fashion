@@ -10,6 +10,7 @@ from fashion_trend.articles import (
     ATTRIBUTE_COLUMNS,
     build_article_attribute_edges,
     build_article_nodes,
+    build_attribute_graph_frames,
     build_attribute_hierarchy_edges,
     build_attribute_graph_files,
     build_attribute_nodes,
@@ -109,6 +110,13 @@ class AttributeGraphBuilderTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(ValueError, "colour_group_name"):
                     builder(clean_articles)
+
+    def test_build_attribute_graph_frames_rejects_duplicate_article_ids(self) -> None:
+        clean_articles = sample_clean_articles()
+        clean_articles.loc[1, "article_id"] = clean_articles.loc[0, "article_id"]
+
+        with self.assertRaisesRegex(ValueError, "article_id"):
+            build_attribute_graph_frames(clean_articles)
 
 
 class AttributeGraphFileTests(unittest.TestCase):
