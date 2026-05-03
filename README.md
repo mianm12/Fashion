@@ -16,7 +16,7 @@
 
 数据文件体积较大，`data/` 目录默认不会包含到版本库。
 
-## 下载数据集
+### 下载数据集
 
 下载入口位于：
 
@@ -37,7 +37,7 @@ data/raw/h-and-m-personalized-fashion-recommendations/
 
 脚本会自动创建目标目录；如果目标目录已经存在且非空，默认会跳过重新下载。需要重新下载时使用 `--force`。
 
-### 1. 准备环境
+#### 1. 准备环境
 
 项目使用 Python 3.13+，并通过 `uv` 管理依赖。首次运行前先安装依赖：
 
@@ -49,7 +49,7 @@ uv sync
 
 如果需要配置 Kaggle API 凭据，请只放在本机安全位置或环境变量中，不要将 `kaggle.json`、Token、密码等敏感信息提交到仓库。
 
-### 2. 执行下载
+#### 2. 执行下载
 
 ```sh
 uv run python src/00_download_data.py
@@ -57,7 +57,7 @@ uv run python src/00_download_data.py
 
 脚本会自动创建目标目录，并默认解压下载得到的 zip 文件。
 
-### 3. 常用参数
+#### 3. 常用参数
 
 指定其他 Kaggle competition slug：
 
@@ -89,7 +89,7 @@ uv run python src/00_download_data.py --force
 uv run python src/00_download_data.py --help
 ```
 
-### 4. 下载行为说明
+#### 4. 下载行为说明
 
 - 默认目标目录：项目根目录下的 `data/raw/<competition>/`。
 - 默认行为：目标目录不存在或为空时下载；目标目录已有内容时跳过下载。
@@ -97,7 +97,7 @@ uv run python src/00_download_data.py --help
 - `--no-unzip`：保留下载得到的 zip 文件，不执行解压。
 - 默认解压：脚本会解压目标目录下的 zip 文件，并拒绝解压会逃逸出目标目录的异常路径。
 
-## 数据目录结构
+### 数据目录结构
 
 下载完成后，目录大致如下：
 
@@ -112,15 +112,100 @@ data/
         +-- ...
 ```
 
-## 项目结构
+## 数据预处理
 
-```text
-src/
-+-- 00_download_data.py
-+-- fashion_trend/
-    +-- __init__.py
-    +-- config.py
+### 1. transactions_train.csv
+
+| 字段               | 处理方式               | 用途               |
+| :----------------- | :--------------------- | :----------------- |
+| `t_dat`            | 转日期，生成 `week_id` | 时间划分、周级聚合 |
+| `customer_id`      | 保留字符串             | 推荐任务用户标识   |
+| `article_id`       | 转字符串，保留前导 0   | 连接商品表         |
+| `price`            | 保留，可选使用         | 可选销售额热度     |
+| `sales_channel_id` | 保留，可选统计         | 可选渠道分析       |
+
+利用`t_dat`生成`week_id`:
+
+$$
+\mathrm{week\_id} = \left\lfloor \frac{t_{\mathrm{dat}} - t_{\min}}{7} \right\rfloor
+$$
+
+输出文件:
+
+```sh
+data/interim/transactions_train_weekly.parquet
 ```
 
-- `src/00_download_data.py`：命令行入口，负责解析参数、下载 Kaggle 数据、跳过重复下载和解压 zip 文件。
-- `src/fashion_trend/config.py`：集中维护默认 Kaggle competition slug 和默认数据根目录。
+### 2. articles.csv
+
+| 字段                           | MVP 是否使用 |    稳妥版是否使用 | 说明             | 推荐用途                                           |
+| ------------------------------ | -----------: | ----------------: | ---------------- | -------------------------------------------------- |
+| `article_id`                   |         必须 |              必须 | 商品唯一编号     | 连接 `transactions_train.csv`，构建商品节点        |
+| `product_code`                 |           否 |              可选 | 商品款式族编号   | 可分析同款不同色；MVP 不需要                       |
+| `prod_name`                    |       展示用 |            展示用 | 商品名称         | 推荐结果展示，不建议作为模型特征                   |
+| `product_type_no`              |           否 |            可保留 | 商品类型编号     | 与 `product_type_name` 对应，主要作映射            |
+| `product_type_name`            |           是 |                是 | 商品具体类型     | 核心属性字段，适合做品类趋势                       |
+| `product_group_name`           |           是 |                是 | 商品大类         | 可与 `product_type_name` 构成品类层级              |
+| `graphical_appearance_no`      |           否 |            可保留 | 图案外观编号     | 与 `graphical_appearance_name` 对应，主要作映射    |
+| `graphical_appearance_name`    |           是 |                是 | 图案 / 外观      | 适合分析 Solid、Stripe、Print 等风格趋势           |
+| `colour_group_code`            |           否 |            可保留 | 颜色编号         | 与 `colour_group_name` 对应，主要作映射            |
+| `colour_group_name`            |           是 |                是 | 具体颜色         | 核心属性字段，适合做颜色趋势                       |
+| `perceived_colour_value_id`    |           否 |            可保留 | 感知颜色明暗编号 | 与 `perceived_colour_value_name` 对应，主要作映射  |
+| `perceived_colour_value_name`  |           否 |                是 | 感知颜色明暗     | 可增强颜色趋势，如 Dark、Light、Dusty              |
+| `perceived_colour_master_id`   |           否 |            可保留 | 主色系编号       | 与 `perceived_colour_master_name` 对应，主要作映射 |
+| `perceived_colour_master_name` |           否 |                是 | 主色系           | 可与 `colour_group_name` 构成颜色层级              |
+| `department_no`                |           否 |            可保留 | 部门编号         | 与 `department_name` 对应，主要作映射              |
+| `department_name`              |           否 |              可选 | 商品部门         | 粒度较细，容易稀疏；可作为增强字段                 |
+| `index_code`                   |           否 |            可保留 | 业务线编号       | 与 `index_name` 对应，主要作映射                   |
+| `index_name`                   |           否 |                是 | 业务线           | 可用于构建组织层级，解释性较好                     |
+| `index_group_no`               |           否 |            可保留 | 业务大类编号     | 与 `index_group_name` 对应，主要作映射             |
+| `index_group_name`             |           否 |                是 | 业务大类         | 可区分 Ladieswear、Menswear、Baby/Children 等大类  |
+| `section_no`                   |           否 |            可保留 | 商品区域编号     | 与 `section_name` 对应，主要作映射                 |
+| `section_name`                 |           否 |                是 | 商品区域         | 适合构建组织层级，解释性较强                       |
+| `garment_group_no`             |           否 |            可保留 | 服装组别编号     | 与 `garment_group_name` 对应，主要作映射           |
+| `garment_group_name`           |           是 |                是 | 服装组别         | 核心属性字段，适合分析服装风格 / 材质趋势          |
+| `detail_desc`                  |           否 | 展示用 / 可选增强 | 商品文本描述     | 可用于推荐展示；若进模型需要 NLP，MVP 不建议       |
+
+本轮会先对 `articles.csv` 做字段过滤和基础校验，在 `data/interim/` 下生成两份中间表，再基于中间表构建属性图。
+
+MVP 版中间表只保留商品标识、展示字段和 5 个核心属性字段：
+
+| 字段 | 处理方式 | 用途 |
+| :--- | :--- | :--- |
+| `article_id` | 转字符串，保留前导 0 | 连接交易表、构建商品节点 |
+| `product_code` | 转字符串 | 审查同款族，暂不作为核心属性 |
+| `prod_name` | 保留字符串 | 推荐结果展示 |
+| `product_group_name` | 保留字符串 | 核心属性，商品大类 |
+| `product_type_name` | 保留字符串 | 核心属性，商品小类 |
+| `garment_group_name` | 保留字符串 | 核心属性，服装组别 |
+| `colour_group_name` | 保留字符串 | 核心属性，具体颜色 |
+| `graphical_appearance_name` | 保留字符串 | 核心属性，图案 / 外观 |
+
+输出文件:
+
+```sh
+data/interim/articles_clean_mvp.csv
+```
+
+稳妥版中间表在 MVP 版基础上增加 5 个层级属性字段，用于后续构建属性层级边：
+
+| 字段 | 处理方式 | 用途 |
+| :--- | :--- | :--- |
+| `perceived_colour_master_name` | 保留字符串 | 与 `colour_group_name` 构成颜色层级 |
+| `index_group_name` | 保留字符串 | 与 `index_name` 构成业务层级 |
+| `index_name` | 保留字符串 | 与 `section_name` 构成业务线到区域层级 |
+| `section_name` | 保留字符串 | 与 `department_name` 构成区域到部门层级 |
+| `department_name` | 保留字符串 | 部门层级叶子属性 |
+
+输出文件:
+
+```sh
+data/interim/articles_clean.csv
+```
+
+清洗规则:
+
+- 只输出本轮所需字段，不携带 `detail_desc`、编号映射字段或图片字段。
+- `article_id` 必须按字符串读取，避免丢失前导 0。
+- 输出字段存在缺失值时直接失败，不静默填充。
+- `articles_clean_mvp.csv` 和 `articles_clean.csv` 的行数、`article_id` 集合必须与原始 `articles.csv` 保持一致。
