@@ -37,4 +37,6 @@ PATH = {
     "raw_customers": RAW_HM_DIR / "customers.csv",
     # ---------------- Interim data ----------------
     "interim_transactions_weekly": INTERIM_DIR / "transactions_train_weekly.parquet",
+    "interim_articles_clean_mvp": INTERIM_DIR / "articles_clean_mvp.csv",
+    "interim_articles_clean": INTERIM_DIR / "articles_clean.csv",
 }

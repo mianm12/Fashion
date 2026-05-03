@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pandas as pd
 
@@ -8,6 +10,7 @@ from fashion_trend.articles import (
     CLEAN_ARTICLE_COLUMNS,
     MVP_ARTICLE_COLUMNS,
     build_clean_article_frames,
+    clean_articles_file,
     validate_required_columns,
 )
 
@@ -71,6 +74,40 @@ class CleanArticleFrameTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "colour_group_name"):
             build_clean_article_frames(raw_articles)
+
+
+class CleanArticleFileTests(unittest.TestCase):
+    def test_clean_articles_file_writes_mvp_and_clean_outputs(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            raw_path = tmp_path / "articles.csv"
+            mvp_output_path = tmp_path / "articles_clean_mvp.csv"
+            clean_output_path = tmp_path / "articles_clean.csv"
+            sample_raw_articles().to_csv(raw_path, index=False)
+
+            row_count = clean_articles_file(
+                raw_articles_path=raw_path,
+                mvp_output_path=mvp_output_path,
+                clean_output_path=clean_output_path,
+            )
+
+            self.assertEqual(row_count, 2)
+            mvp_articles = pd.read_csv(mvp_output_path, dtype={"article_id": "string"})
+            clean_articles = pd.read_csv(clean_output_path, dtype={"article_id": "string"})
+            self.assertEqual(list(mvp_articles.columns), list(MVP_ARTICLE_COLUMNS))
+            self.assertEqual(list(clean_articles.columns), list(CLEAN_ARTICLE_COLUMNS))
+            self.assertEqual(mvp_articles["article_id"].tolist(), ["0108775015", "0108775044"])
+            self.assertEqual(clean_articles["article_id"].tolist(), ["0108775015", "0108775044"])
+
+    def test_clean_articles_file_fails_when_input_missing(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            with self.assertRaisesRegex(FileNotFoundError, "原始商品文件不存在"):
+                clean_articles_file(
+                    raw_articles_path=tmp_path / "missing.csv",
+                    mvp_output_path=tmp_path / "articles_clean_mvp.csv",
+                    clean_output_path=tmp_path / "articles_clean.csv",
+                )
 
 
 if __name__ == "__main__":
