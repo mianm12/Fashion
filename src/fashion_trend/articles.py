@@ -112,6 +112,16 @@ def remove_file_if_exists(path: Path) -> None:
         pass
 
 
+def restore_mvp_output(
+    mvp_output_path: Path,
+    mvp_backup_path: Path,
+    mvp_had_previous_output: bool,
+) -> None:
+    remove_file_if_exists(mvp_output_path)
+    if mvp_had_previous_output:
+        mvp_backup_path.replace(mvp_output_path)
+
+
 def clean_articles_file(
     raw_articles_path: Path,
     mvp_output_path: Path,
@@ -122,6 +132,9 @@ def clean_articles_file(
 
     mvp_tmp_output_path = mvp_output_path.with_suffix(mvp_output_path.suffix + ".tmp")
     clean_tmp_output_path = clean_output_path.with_suffix(clean_output_path.suffix + ".tmp")
+    mvp_backup_path = mvp_output_path.with_suffix(mvp_output_path.suffix + ".bak")
+    mvp_had_previous_output = False
+    mvp_final_replace_started = False
     try:
         mvp_tmp_output_path = write_csv_temp(mvp_articles, mvp_output_path)
         clean_tmp_output_path = write_csv_temp(clean_articles, clean_output_path)
@@ -133,11 +146,29 @@ def clean_articles_file(
         if set(mvp_articles["article_id"]) != set(clean_articles["article_id"]):
             raise RuntimeError("clean_mvp 与 clean 的 article_id 集合不一致。")
 
+        remove_file_if_exists(mvp_backup_path)
+        if mvp_output_path.exists():
+            mvp_output_path.replace(mvp_backup_path)
+            mvp_had_previous_output = True
+
         mvp_tmp_output_path.replace(mvp_output_path)
+        mvp_final_replace_started = True
         clean_tmp_output_path.replace(clean_output_path)
+        remove_file_if_exists(mvp_backup_path)
     except Exception:
-        remove_file_if_exists(mvp_tmp_output_path)
-        remove_file_if_exists(clean_tmp_output_path)
+        try:
+            if mvp_final_replace_started:
+                restore_mvp_output(
+                    mvp_output_path,
+                    mvp_backup_path,
+                    mvp_had_previous_output,
+                )
+            elif mvp_had_previous_output:
+                mvp_backup_path.replace(mvp_output_path)
+        finally:
+            remove_file_if_exists(mvp_tmp_output_path)
+            remove_file_if_exists(clean_tmp_output_path)
+            remove_file_if_exists(mvp_backup_path)
         raise
 
     return len(clean_articles)

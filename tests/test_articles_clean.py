@@ -126,6 +126,31 @@ class CleanArticleFileTests(unittest.TestCase):
             self.assertFalse(mvp_output_path.with_suffix(".csv.tmp").exists())
             self.assertFalse(clean_output_path.with_suffix(".csv.tmp").exists())
 
+    def test_clean_articles_file_restores_mvp_when_second_final_replace_fails(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            raw_path = tmp_path / "articles.csv"
+            mvp_output_path = tmp_path / "articles_clean_mvp.csv"
+            clean_output_path = tmp_path / "articles_clean.csv"
+            sample_raw_articles().to_csv(raw_path, index=False)
+            mvp_output_path.write_text("previous mvp output\n", encoding="utf-8")
+            clean_output_path.mkdir()
+
+            with self.assertRaises(OSError):
+                clean_articles_file(
+                    raw_articles_path=raw_path,
+                    mvp_output_path=mvp_output_path,
+                    clean_output_path=clean_output_path,
+                )
+
+            self.assertEqual(mvp_output_path.read_text(encoding="utf-8"), "previous mvp output\n")
+            self.assertTrue(clean_output_path.is_dir())
+            self.assertFalse(mvp_output_path.with_suffix(".csv.tmp").exists())
+            self.assertFalse(clean_output_path.with_suffix(".csv.tmp").exists())
+            self.assertFalse(mvp_output_path.with_suffix(".csv.bak").exists())
+
     def test_clean_articles_file_fails_when_input_missing(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
