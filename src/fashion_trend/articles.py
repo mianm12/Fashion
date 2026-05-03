@@ -123,9 +123,15 @@ def make_edge_type(attr_type: str) -> str:
 
 
 def build_article_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    required_columns = ["article_id", "product_code", "prod_name"]
     validate_required_columns(
         clean_articles.columns.tolist(),
-        ["article_id", "product_code", "prod_name"],
+        required_columns,
+        source_name="articles_clean.csv",
+    )
+    validate_no_missing_values(
+        clean_articles,
+        required_columns,
         source_name="articles_clean.csv",
     )
     article_nodes = clean_articles.loc[
@@ -143,6 +149,11 @@ def build_article_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
 def build_attribute_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
     validate_required_columns(
         clean_articles.columns.tolist(),
+        ATTRIBUTE_COLUMNS,
+        source_name="articles_clean.csv",
+    )
+    validate_no_missing_values(
+        clean_articles,
         ATTRIBUTE_COLUMNS,
         source_name="articles_clean.csv",
     )
@@ -183,9 +194,15 @@ def build_attribute_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_article_attribute_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    required_columns = ["article_id", *ATTRIBUTE_COLUMNS]
     validate_required_columns(
         clean_articles.columns.tolist(),
-        ["article_id", *ATTRIBUTE_COLUMNS],
+        required_columns,
+        source_name="articles_clean.csv",
+    )
+    validate_no_missing_values(
+        clean_articles,
+        required_columns,
         source_name="articles_clean.csv",
     )
 
@@ -218,9 +235,19 @@ def build_article_attribute_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_attribute_hierarchy_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    required_columns = tuple(
+        dict.fromkeys(
+            column for relation in HIERARCHY_RELATIONS for column in relation[:2]
+        )
+    )
     validate_required_columns(
         clean_articles.columns.tolist(),
-        [column for relation in HIERARCHY_RELATIONS for column in relation[:2]],
+        required_columns,
+        source_name="articles_clean.csv",
+    )
+    validate_no_missing_values(
+        clean_articles,
+        required_columns,
         source_name="articles_clean.csv",
     )
 

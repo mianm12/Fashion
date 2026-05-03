@@ -92,6 +92,21 @@ class AttributeGraphBuilderTests(unittest.TestCase):
         self.assertEqual(section_edge["relation_type"], "section_contains_department")
         self.assertEqual(int(section_edge["edge_weight"]), 2)
 
+    def test_graph_builders_reject_missing_attribute_values(self) -> None:
+        builders = (
+            build_attribute_nodes,
+            build_article_attribute_edges,
+            build_attribute_hierarchy_edges,
+        )
+
+        for builder in builders:
+            with self.subTest(builder=builder.__name__):
+                clean_articles = sample_clean_articles()
+                clean_articles.loc[0, "colour_group_name"] = pd.NA
+
+                with self.assertRaisesRegex(ValueError, "colour_group_name"):
+                    builder(clean_articles)
+
 
 if __name__ == "__main__":
     unittest.main()
