@@ -39,4 +39,9 @@ PATH = {
     "interim_transactions_weekly": INTERIM_DIR / "transactions_train_weekly.parquet",
     "interim_articles_clean_mvp": INTERIM_DIR / "articles_clean_mvp.csv",
     "interim_articles_clean": INTERIM_DIR / "articles_clean.csv",
+    # ---------------- Processed graph data ----------------
+    "graph_nodes_article": GRAPH_DIR / "nodes_article.csv",
+    "graph_nodes_attribute": GRAPH_DIR / "nodes_attribute.csv",
+    "graph_edges_article_attribute": GRAPH_DIR / "edges_article_attribute.csv",
+    "graph_edges_attribute_hierarchy": GRAPH_DIR / "edges_attribute_hierarchy.csv",
 }

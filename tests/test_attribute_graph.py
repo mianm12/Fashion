@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pandas as pd
 
@@ -9,6 +11,7 @@ from fashion_trend.articles import (
     build_article_attribute_edges,
     build_article_nodes,
     build_attribute_hierarchy_edges,
+    build_attribute_graph_files,
     build_attribute_nodes,
 )
 
@@ -106,6 +109,43 @@ class AttributeGraphBuilderTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(ValueError, "colour_group_name"):
                     builder(clean_articles)
+
+
+class AttributeGraphFileTests(unittest.TestCase):
+    def test_build_attribute_graph_files_writes_all_outputs(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            clean_articles_path = tmp_path / "articles_clean.csv"
+            output_dir = tmp_path / "graph"
+            sample_clean_articles().to_csv(clean_articles_path, index=False)
+
+            output_counts = build_attribute_graph_files(
+                clean_articles_path=clean_articles_path,
+                graph_dir=output_dir,
+            )
+
+            self.assertEqual(output_counts["nodes_article"], 3)
+            self.assertEqual(
+                output_counts["edges_article_attribute"],
+                3 * len(ATTRIBUTE_COLUMNS),
+            )
+            self.assertTrue((output_dir / "nodes_article.csv").exists())
+            self.assertTrue((output_dir / "nodes_attribute.csv").exists())
+            self.assertTrue((output_dir / "edges_article_attribute.csv").exists())
+            self.assertTrue((output_dir / "edges_attribute_hierarchy.csv").exists())
+
+            nodes_attribute = pd.read_csv(output_dir / "nodes_attribute.csv")
+            edges = pd.read_csv(output_dir / "edges_article_attribute.csv")
+            self.assertTrue(set(edges["attr_id"]).issubset(set(nodes_attribute["attr_id"])))
+
+    def test_build_attribute_graph_files_fails_when_clean_input_missing(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            with self.assertRaisesRegex(FileNotFoundError, "商品 clean 文件不存在"):
+                build_attribute_graph_files(
+                    clean_articles_path=tmp_path / "articles_clean.csv",
+                    graph_dir=tmp_path / "graph",
+                )
 
 
 if __name__ == "__main__":

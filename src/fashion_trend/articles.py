@@ -62,6 +62,13 @@ HIERARCHY_RELATIONS: tuple[tuple[str, str, str], ...] = (
     ("section_name", "department_name", "section_contains_department"),
 )
 
+GRAPH_OUTPUT_FILENAMES: dict[str, str] = {
+    "nodes_article": "nodes_article.csv",
+    "nodes_attribute": "nodes_attribute.csv",
+    "edges_article_attribute": "edges_article_attribute.csv",
+    "edges_attribute_hierarchy": "edges_attribute_hierarchy.csv",
+}
+
 
 def validate_required_columns(
     actual_columns: Sequence[str],
@@ -310,6 +317,88 @@ def remove_file_if_exists(path: Path) -> None:
         path.unlink()
     except FileNotFoundError:
         pass
+
+
+def write_graph_csv_atomically(dataframe: pd.DataFrame, output_path: Path) -> None:
+    tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    try:
+        tmp_output_path = write_csv_temp(dataframe, output_path)
+        tmp_output_path.replace(output_path)
+    except Exception:
+        remove_file_if_exists(tmp_output_path)
+        raise
+
+
+def read_clean_articles(clean_articles_path: Path) -> pd.DataFrame:
+    if not clean_articles_path.exists():
+        raise FileNotFoundError(f"商品 clean 文件不存在: {clean_articles_path}")
+
+    return pd.read_csv(
+        clean_articles_path,
+        dtype={
+            "article_id": "string",
+            "product_code": "string",
+        },
+    )
+
+
+def validate_graph_references(
+    nodes_article: pd.DataFrame,
+    nodes_attribute: pd.DataFrame,
+    edges_article_attribute: pd.DataFrame,
+    edges_attribute_hierarchy: pd.DataFrame,
+) -> None:
+    article_node_ids = set(nodes_article["article_node_id"])
+    attr_ids = set(nodes_attribute["attr_id"])
+
+    missing_article_nodes = set(edges_article_attribute["article_node_id"]) - article_node_ids
+    if missing_article_nodes:
+        raise RuntimeError("商品-属性边引用了不存在的商品节点。")
+
+    missing_attr_nodes = set(edges_article_attribute["attr_id"]) - attr_ids
+    if missing_attr_nodes:
+        raise RuntimeError("商品-属性边引用了不存在的属性节点。")
+
+    missing_parent_nodes = set(edges_attribute_hierarchy["parent_attr_id"]) - attr_ids
+    missing_child_nodes = set(edges_attribute_hierarchy["child_attr_id"]) - attr_ids
+    if missing_parent_nodes or missing_child_nodes:
+        raise RuntimeError("属性层级边引用了不存在的属性节点。")
+
+
+def build_attribute_graph_frames(clean_articles: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    nodes_article = build_article_nodes(clean_articles)
+    nodes_attribute = build_attribute_nodes(clean_articles)
+    edges_article_attribute = build_article_attribute_edges(clean_articles)
+    edges_attribute_hierarchy = build_attribute_hierarchy_edges(clean_articles)
+    validate_graph_references(
+        nodes_article,
+        nodes_attribute,
+        edges_article_attribute,
+        edges_attribute_hierarchy,
+    )
+    return {
+        "nodes_article": nodes_article,
+        "nodes_attribute": nodes_attribute,
+        "edges_article_attribute": edges_article_attribute,
+        "edges_attribute_hierarchy": edges_attribute_hierarchy,
+    }
+
+
+def build_attribute_graph_files(
+    clean_articles_path: Path,
+    graph_dir: Path,
+) -> dict[str, int]:
+    clean_articles = read_clean_articles(clean_articles_path)
+    graph_frames = build_attribute_graph_frames(clean_articles)
+    graph_dir.mkdir(parents=True, exist_ok=True)
+
+    output_counts: dict[str, int] = {}
+    for graph_name, graph_frame in graph_frames.items():
+        output_path = graph_dir / GRAPH_OUTPUT_FILENAMES[graph_name]
+        write_graph_csv_atomically(graph_frame, output_path)
+        output_counts[graph_name] = len(graph_frame)
+
+    return output_counts
 
 
 def restore_mvp_output(
