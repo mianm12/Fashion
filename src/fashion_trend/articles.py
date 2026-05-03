@@ -98,11 +98,18 @@ def read_articles_csv(raw_articles_path: Path) -> pd.DataFrame:
     )
 
 
-def write_csv_atomically(dataframe: pd.DataFrame, output_path: Path) -> None:
+def write_csv_temp(dataframe: pd.DataFrame, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
     dataframe.to_csv(tmp_output_path, index=False)
-    tmp_output_path.replace(output_path)
+    return tmp_output_path
+
+
+def remove_file_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def clean_articles_file(
@@ -113,14 +120,24 @@ def clean_articles_file(
     raw_articles = read_articles_csv(raw_articles_path)
     mvp_articles, clean_articles = build_clean_article_frames(raw_articles)
 
-    write_csv_atomically(mvp_articles, mvp_output_path)
-    write_csv_atomically(clean_articles, clean_output_path)
+    mvp_tmp_output_path = mvp_output_path.with_suffix(mvp_output_path.suffix + ".tmp")
+    clean_tmp_output_path = clean_output_path.with_suffix(clean_output_path.suffix + ".tmp")
+    try:
+        mvp_tmp_output_path = write_csv_temp(mvp_articles, mvp_output_path)
+        clean_tmp_output_path = write_csv_temp(clean_articles, clean_output_path)
 
-    if len(mvp_articles) != len(clean_articles):
-        raise RuntimeError(
-            f"clean_mvp 与 clean 行数不一致: {len(mvp_articles)} != {len(clean_articles)}"
-        )
-    if set(mvp_articles["article_id"]) != set(clean_articles["article_id"]):
-        raise RuntimeError("clean_mvp 与 clean 的 article_id 集合不一致。")
+        if len(mvp_articles) != len(clean_articles):
+            raise RuntimeError(
+                f"clean_mvp 与 clean 行数不一致: {len(mvp_articles)} != {len(clean_articles)}"
+            )
+        if set(mvp_articles["article_id"]) != set(clean_articles["article_id"]):
+            raise RuntimeError("clean_mvp 与 clean 的 article_id 集合不一致。")
+
+        mvp_tmp_output_path.replace(mvp_output_path)
+        clean_tmp_output_path.replace(clean_output_path)
+    except Exception:
+        remove_file_if_exists(mvp_tmp_output_path)
+        remove_file_if_exists(clean_tmp_output_path)
+        raise
 
     return len(clean_articles)

@@ -92,12 +92,39 @@ class CleanArticleFileTests(unittest.TestCase):
             )
 
             self.assertEqual(row_count, 2)
-            mvp_articles = pd.read_csv(mvp_output_path, dtype={"article_id": "string"})
-            clean_articles = pd.read_csv(clean_output_path, dtype={"article_id": "string"})
+            csv_dtype = {"article_id": "string", "product_code": "string"}
+            mvp_articles = pd.read_csv(mvp_output_path, dtype=csv_dtype)
+            clean_articles = pd.read_csv(clean_output_path, dtype=csv_dtype)
             self.assertEqual(list(mvp_articles.columns), list(MVP_ARTICLE_COLUMNS))
             self.assertEqual(list(clean_articles.columns), list(CLEAN_ARTICLE_COLUMNS))
             self.assertEqual(mvp_articles["article_id"].tolist(), ["0108775015", "0108775044"])
             self.assertEqual(clean_articles["article_id"].tolist(), ["0108775015", "0108775044"])
+            self.assertEqual(mvp_articles["product_code"].tolist(), ["0108775", "0108775"])
+            self.assertEqual(clean_articles["product_code"].tolist(), ["0108775", "0108775"])
+
+    def test_clean_articles_file_does_not_replace_either_output_when_second_write_fails(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            raw_path = tmp_path / "articles.csv"
+            mvp_output_path = tmp_path / "mvp" / "articles_clean_mvp.csv"
+            clean_output_path = tmp_path / "blocked" / "articles_clean.csv"
+            sample_raw_articles().to_csv(raw_path, index=False)
+            mvp_output_path.parent.mkdir()
+            mvp_output_path.write_text("previous mvp output\n", encoding="utf-8")
+            clean_output_path.parent.write_text("not a directory\n", encoding="utf-8")
+
+            with self.assertRaises(OSError):
+                clean_articles_file(
+                    raw_articles_path=raw_path,
+                    mvp_output_path=mvp_output_path,
+                    clean_output_path=clean_output_path,
+                )
+
+            self.assertEqual(mvp_output_path.read_text(encoding="utf-8"), "previous mvp output\n")
+            self.assertFalse(mvp_output_path.with_suffix(".csv.tmp").exists())
+            self.assertFalse(clean_output_path.with_suffix(".csv.tmp").exists())
 
     def test_clean_articles_file_fails_when_input_missing(self) -> None:
         with TemporaryDirectory() as tmp_dir:
