@@ -36,6 +36,32 @@ CLEAN_ARTICLE_COLUMNS: tuple[str, ...] = (
     *HIERARCHY_ATTRIBUTE_COLUMNS,
 )
 
+ATTRIBUTE_COLUMNS: tuple[str, ...] = (
+    *CORE_ATTRIBUTE_COLUMNS,
+    *HIERARCHY_ATTRIBUTE_COLUMNS,
+)
+
+LEVEL_BY_ATTRIBUTE: dict[str, str] = {
+    "product_group_name": "parent",
+    "product_type_name": "child",
+    "perceived_colour_master_name": "parent",
+    "colour_group_name": "child",
+    "index_group_name": "parent",
+    "index_name": "parent_child",
+    "section_name": "parent_child",
+    "department_name": "child",
+    "garment_group_name": "flat",
+    "graphical_appearance_name": "flat",
+}
+
+HIERARCHY_RELATIONS: tuple[tuple[str, str, str], ...] = (
+    ("product_group_name", "product_type_name", "product_group_contains_type"),
+    ("perceived_colour_master_name", "colour_group_name", "colour_master_contains_colour"),
+    ("index_group_name", "index_name", "index_group_contains_index"),
+    ("index_name", "section_name", "index_contains_section"),
+    ("section_name", "department_name", "section_contains_department"),
+)
+
 
 def validate_required_columns(
     actual_columns: Sequence[str],
@@ -82,6 +108,153 @@ def build_clean_article_frames(raw_articles: pd.DataFrame) -> tuple[pd.DataFrame
     mvp_articles = normalized_articles.loc[:, list(MVP_ARTICLE_COLUMNS)].copy()
     clean_articles = normalized_articles.loc[:, list(CLEAN_ARTICLE_COLUMNS)].copy()
     return mvp_articles, clean_articles
+
+
+def make_attr_id(attr_type: str, attr_value: str) -> str:
+    return f"{attr_type}::{attr_value}"
+
+
+def make_article_node_id(article_id: str) -> str:
+    return f"article_{article_id}"
+
+
+def make_edge_type(attr_type: str) -> str:
+    return "has_" + attr_type.removesuffix("_name")
+
+
+def build_article_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    validate_required_columns(
+        clean_articles.columns.tolist(),
+        ["article_id", "product_code", "prod_name"],
+        source_name="articles_clean.csv",
+    )
+    article_nodes = clean_articles.loc[
+        :, ["article_id", "product_code", "prod_name"]
+    ].copy()
+    article_nodes["article_id"] = article_nodes["article_id"].astype("string")
+    article_nodes.insert(
+        1,
+        "article_node_id",
+        article_nodes["article_id"].map(make_article_node_id),
+    )
+    return article_nodes[["article_id", "article_node_id", "product_code", "prod_name"]]
+
+
+def build_attribute_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    validate_required_columns(
+        clean_articles.columns.tolist(),
+        ATTRIBUTE_COLUMNS,
+        source_name="articles_clean.csv",
+    )
+
+    frames: list[pd.DataFrame] = []
+    for attr_type in ATTRIBUTE_COLUMNS:
+        counts = (
+            clean_articles.groupby(attr_type, dropna=False)
+            .size()
+            .reset_index(name="article_count")
+            .rename(columns={attr_type: "attr_value"})
+        )
+        counts["attr_type"] = attr_type
+        frames.append(counts)
+
+    attribute_nodes = pd.concat(frames, ignore_index=True)
+    attribute_nodes["attr_value"] = attribute_nodes["attr_value"].astype("string")
+    attribute_nodes["attr_id"] = attribute_nodes.apply(
+        lambda row: make_attr_id(row["attr_type"], row["attr_value"]),
+        axis=1,
+    )
+    attribute_nodes["attr_node_id"] = attribute_nodes["attr_id"]
+    attribute_nodes["is_core_attr"] = attribute_nodes["attr_type"].isin(
+        CORE_ATTRIBUTE_COLUMNS
+    ).astype("int8")
+    attribute_nodes["level"] = attribute_nodes["attr_type"].map(LEVEL_BY_ATTRIBUTE)
+    return attribute_nodes[
+        [
+            "attr_id",
+            "attr_type",
+            "attr_value",
+            "attr_node_id",
+            "article_count",
+            "is_core_attr",
+            "level",
+        ]
+    ].sort_values(["attr_type", "attr_value"], ignore_index=True)
+
+
+def build_article_attribute_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    validate_required_columns(
+        clean_articles.columns.tolist(),
+        ["article_id", *ATTRIBUTE_COLUMNS],
+        source_name="articles_clean.csv",
+    )
+
+    edges: list[pd.DataFrame] = []
+    for attr_type in ATTRIBUTE_COLUMNS:
+        edge_frame = clean_articles.loc[:, ["article_id", attr_type]].copy()
+        edge_frame = edge_frame.rename(columns={attr_type: "attr_value"})
+        edge_frame["article_id"] = edge_frame["article_id"].astype("string")
+        edge_frame["attr_value"] = edge_frame["attr_value"].astype("string")
+        edge_frame["article_node_id"] = edge_frame["article_id"].map(make_article_node_id)
+        edge_frame["attr_type"] = attr_type
+        edge_frame["attr_id"] = edge_frame["attr_value"].map(
+            lambda value: make_attr_id(attr_type, value)
+        )
+        edge_frame["edge_type"] = make_edge_type(attr_type)
+        edge_frame["edge_weight"] = 1.0
+        edges.append(edge_frame)
+
+    return pd.concat(edges, ignore_index=True)[
+        [
+            "article_id",
+            "article_node_id",
+            "attr_id",
+            "attr_type",
+            "attr_value",
+            "edge_type",
+            "edge_weight",
+        ]
+    ]
+
+
+def build_attribute_hierarchy_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    validate_required_columns(
+        clean_articles.columns.tolist(),
+        [column for relation in HIERARCHY_RELATIONS for column in relation[:2]],
+        source_name="articles_clean.csv",
+    )
+
+    hierarchy_edges: list[pd.DataFrame] = []
+    for parent_attr_type, child_attr_type, relation_type in HIERARCHY_RELATIONS:
+        relation_counts = (
+            clean_articles.groupby([parent_attr_type, child_attr_type], dropna=False)
+            .size()
+            .reset_index(name="edge_weight")
+        )
+        relation_counts["parent_attr_type"] = parent_attr_type
+        relation_counts["child_attr_type"] = child_attr_type
+        relation_counts["parent_attr_id"] = relation_counts[parent_attr_type].map(
+            lambda value: make_attr_id(parent_attr_type, str(value))
+        )
+        relation_counts["child_attr_id"] = relation_counts[child_attr_type].map(
+            lambda value: make_attr_id(child_attr_type, str(value))
+        )
+        relation_counts["relation_type"] = relation_type
+        hierarchy_edges.append(relation_counts)
+
+    return pd.concat(hierarchy_edges, ignore_index=True)[
+        [
+            "parent_attr_id",
+            "child_attr_id",
+            "parent_attr_type",
+            "child_attr_type",
+            "relation_type",
+            "edge_weight",
+        ]
+    ].sort_values(
+        ["parent_attr_type", "child_attr_type", "parent_attr_id", "child_attr_id"],
+        ignore_index=True,
+    )
 
 
 def read_articles_csv(raw_articles_path: Path) -> pd.DataFrame:
