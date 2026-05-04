@@ -396,6 +396,20 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "占比和不等于 1"):
             validate_attribute_week_heat(heat)
 
+    def test_validate_attribute_week_heat_uses_strict_absolute_share_tolerance(
+        self,
+    ) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_indices = heat.index[
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        ]
+        heat.loc[week0_colour_indices[0], "heat_share"] = (
+            0.999995 - heat.loc[week0_colour_indices[1], "heat_share"]
+        )
+
+        with self.assertRaisesRegex(ValueError, "占比和不等于 1"):
+            validate_attribute_week_heat(heat)
+
     def test_validate_attribute_week_heat_rejects_duplicate_rank_in_type(self) -> None:
         heat = sample_attribute_week_heat()
         week0_colour_indices = heat.index[

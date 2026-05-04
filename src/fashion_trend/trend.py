@@ -329,7 +329,9 @@ def validate_attribute_week_heat(attribute_week_heat: pd.DataFrame) -> None:
     share_totals = attribute_week_heat.groupby(["week_id", "attr_type"])[
         "heat_share"
     ].sum()
-    invalid_share_totals = share_totals[~np.isclose(share_totals, 1.0, atol=1e-9)]
+    invalid_share_totals = share_totals[
+        ~np.isclose(share_totals, 1.0, atol=1e-9, rtol=0)
+    ]
     if not invalid_share_totals.empty:
         raise ValueError("属性周热度表存在 week_id + attr_type 占比和不等于 1 的分组。")
 
