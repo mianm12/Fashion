@@ -406,6 +406,35 @@ def validate_attribute_week_heat(attribute_week_heat: pd.DataFrame) -> None:
     if not invalid_share_totals.empty:
         raise ValueError("属性周热度表存在 week_id + attr_type 占比和不等于 1 的分组。")
 
+    expected_type_total_heat = attribute_week_heat.groupby(["week_id", "attr_type"])[
+        "heat_cnt"
+    ].transform("sum")
+    if not (
+        attribute_week_heat["type_total_heat"].to_numpy()
+        == expected_type_total_heat.to_numpy()
+    ).all():
+        raise ValueError("属性周热度表存在 type_total_heat 与 heat_cnt 分组求和不一致。")
+
+    expected_heat_share = (
+        attribute_week_heat["heat_cnt"] / attribute_week_heat["type_total_heat"]
+    )
+    if not np.allclose(
+        attribute_week_heat["heat_share"].to_numpy(dtype=float),
+        expected_heat_share.to_numpy(dtype=float),
+        atol=1e-9,
+        rtol=0,
+    ):
+        raise ValueError("属性周热度表存在 heat_share 与 heat_cnt / type_total_heat 不一致。")
+
+    expected_log_heat = np.log1p(attribute_week_heat["heat_cnt"])
+    if not np.allclose(
+        attribute_week_heat["log_heat"].to_numpy(dtype=float),
+        expected_log_heat.to_numpy(dtype=float),
+        atol=1e-9,
+        rtol=0,
+    ):
+        raise ValueError("属性周热度表存在 log_heat 与 log1p(heat_cnt) 不一致。")
+
     rank_counts = attribute_week_heat.groupby(["week_id", "attr_type"])[
         "rank_in_type"
     ].nunique()
@@ -417,6 +446,19 @@ def validate_attribute_week_heat(attribute_week_heat: pd.DataFrame) -> None:
     ].min()
     if (min_ranks != 1).any():
         raise ValueError("属性周热度表存在 rank_in_type 未从 1 开始的分组。")
+    max_ranks = attribute_week_heat.groupby(["week_id", "attr_type"])[
+        "rank_in_type"
+    ].max()
+    if not max_ranks.equals(row_counts):
+        raise ValueError("属性周热度表存在 rank_in_type 不连续的分组。")
+
+    ranked_heat = attribute_week_heat.sort_values(
+        ["week_id", "attr_type", "heat_cnt", "attr_id"],
+        ascending=[True, True, False, True],
+    ).copy()
+    expected_ranks = ranked_heat.groupby(["week_id", "attr_type"]).cumcount().add(1)
+    if not (ranked_heat["rank_in_type"].to_numpy() == expected_ranks.to_numpy()).all():
+        raise ValueError("属性周热度表存在 rank_in_type 排序不符合热度降序规则。")
 
 
 def remove_file_if_exists(path: Path) -> None:

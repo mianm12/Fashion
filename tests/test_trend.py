@@ -469,6 +469,39 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "占比和不等于 1"):
             validate_attribute_week_heat(heat)
 
+    def test_validate_attribute_week_heat_rejects_inconsistent_type_total_heat(
+        self,
+    ) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_mask = (
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        )
+        heat.loc[week0_colour_mask, "type_total_heat"] = 999
+
+        with self.assertRaisesRegex(ValueError, "type_total_heat"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_inconsistent_heat_share(
+        self,
+    ) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_indices = heat.index[
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        ]
+        heat.loc[week0_colour_indices, "heat_share"] = [0.5, 0.5]
+
+        with self.assertRaisesRegex(ValueError, "heat_share"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_inconsistent_log_heat(
+        self,
+    ) -> None:
+        heat = sample_attribute_week_heat()
+        heat.loc[0, "log_heat"] = 999.0
+
+        with self.assertRaisesRegex(ValueError, "log_heat"):
+            validate_attribute_week_heat(heat)
+
     def test_validate_attribute_week_heat_uses_strict_absolute_share_tolerance(
         self,
     ) -> None:
@@ -503,6 +536,30 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         heat.loc[week0_colour_indices, "rank_in_type"] = [2, 3]
 
         with self.assertRaisesRegex(ValueError, "未从 1 开始"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_non_consecutive_rank_in_type(
+        self,
+    ) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_indices = heat.index[
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        ]
+        heat.loc[week0_colour_indices, "rank_in_type"] = [1, 3]
+
+        with self.assertRaisesRegex(ValueError, "rank_in_type 不连续"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_rank_in_type_sort_mismatch(
+        self,
+    ) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_indices = heat.index[
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        ]
+        heat.loc[week0_colour_indices, "rank_in_type"] = [2, 1]
+
+        with self.assertRaisesRegex(ValueError, "rank_in_type 排序"):
             validate_attribute_week_heat(heat)
 
     def test_validate_attribute_week_heat_rejects_non_positive_heat_values(
