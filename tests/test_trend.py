@@ -10,15 +10,27 @@ import pandas as pd
 from fashion_trend.trend import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
+    ATTRIBUTE_WEEK_TARGET_COLUMNS,
+    TREND_MODEL_SAMPLE_COLUMNS,
     build_article_week_sales_frame,
+    build_attribute_graph_features_frame,
     build_attribute_week_heat_frame,
+    build_attribute_week_target_frame,
+    build_trend_model_samples_frame,
     read_article_attribute_edges,
+    read_attribute_hierarchy_edges,
+    read_attribute_nodes,
     read_article_week_sales,
+    read_attribute_week_target,
     read_weekly_transactions,
     validate_article_attribute_edges_for_heat,
+    validate_attribute_nodes_for_heat,
     validate_article_week_sales,
     validate_attribute_week_heat,
+    validate_attribute_week_target,
+    validate_trend_model_samples,
     write_trend_csv,
+    write_trend_parquet,
 )
 
 
@@ -96,10 +108,124 @@ def sample_article_attribute_edges() -> pd.DataFrame:
     )
 
 
+def sample_attribute_nodes() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "attr_id": [
+                "colour_group_name::Black",
+                "colour_group_name::White",
+                "colour_group_name::Blue",
+                "product_type_name::Vest top",
+                "product_type_name::Bra",
+                "product_type_name::Dress",
+            ],
+            "attr_type": [
+                "colour_group_name",
+                "colour_group_name",
+                "colour_group_name",
+                "product_type_name",
+                "product_type_name",
+                "product_type_name",
+            ],
+            "attr_value": ["Black", "White", "Blue", "Vest top", "Bra", "Dress"],
+            "attr_node_id": [
+                "colour_group_name::Black",
+                "colour_group_name::White",
+                "colour_group_name::Blue",
+                "product_type_name::Vest top",
+                "product_type_name::Bra",
+                "product_type_name::Dress",
+            ],
+            "article_count": [2, 1, 0, 2, 1, 0],
+            "is_core_attr": [1, 1, 1, 1, 1, 1],
+            "level": ["child", "child", "child", "child", "child", "child"],
+        }
+    )
+
+
 def sample_attribute_week_heat() -> pd.DataFrame:
     return build_attribute_week_heat_frame(
         sample_attribute_article_week_sales(),
         sample_article_attribute_edges(),
+        sample_attribute_nodes(),
+    )
+
+
+def sample_long_attribute_week_heat() -> pd.DataFrame:
+    records: list[dict[str, object]] = []
+    for week_id, black_heat, white_heat, blue_heat in [
+        (0, 2, 1, 0),
+        (1, 1, 0, 0),
+        (2, 3, 1, 0),
+        (3, 4, 1, 0),
+        (4, 8, 2, 0),
+        (5, 4, 4, 2),
+    ]:
+        colour_total = black_heat + white_heat + blue_heat
+        for attr_id, attr_value, heat_cnt in [
+            ("colour_group_name::Black", "Black", black_heat),
+            ("colour_group_name::White", "White", white_heat),
+            ("colour_group_name::Blue", "Blue", blue_heat),
+        ]:
+            records.append(
+                {
+                    "week_id": week_id,
+                    "attr_id": attr_id,
+                    "attr_type": "colour_group_name",
+                    "attr_value": attr_value,
+                    "heat_cnt": heat_cnt,
+                    "type_total_heat": colour_total,
+                    "heat_share": heat_cnt / colour_total if colour_total else 0.0,
+                    "log_heat": math.log1p(heat_cnt),
+                    "rank_in_type": 1,
+                }
+            )
+        product_total = 1
+        for attr_id, attr_value, heat_cnt in [
+            ("product_type_name::Vest top", "Vest top", 1),
+            ("product_type_name::Bra", "Bra", 0),
+            ("product_type_name::Dress", "Dress", 0),
+        ]:
+            records.append(
+                {
+                    "week_id": week_id,
+                    "attr_id": attr_id,
+                    "attr_type": "product_type_name",
+                    "attr_value": attr_value,
+                    "heat_cnt": heat_cnt,
+                    "type_total_heat": product_total,
+                    "heat_share": heat_cnt / product_total,
+                    "log_heat": math.log1p(heat_cnt),
+                    "rank_in_type": 1,
+                }
+            )
+    heat = pd.DataFrame(records).sort_values(
+        ["week_id", "attr_type", "heat_cnt", "attr_id"],
+        ascending=[True, True, False, True],
+        ignore_index=True,
+    )
+    heat["rank_in_type"] = (
+        heat.groupby(["week_id", "attr_type"]).cumcount().add(1).astype("int64")
+    )
+    return heat.loc[:, list(ATTRIBUTE_WEEK_HEAT_COLUMNS)]
+
+
+def sample_attribute_hierarchy_edges() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "parent_attr_id": [
+                "colour_group_name::Black",
+                "product_type_name::Vest top",
+            ],
+            "child_attr_id": [
+                "colour_group_name::White",
+                "product_type_name::Bra",
+            ],
+            "parent_attr_type": ["colour_group_name", "product_type_name"],
+            "child_attr_type": ["colour_group_name", "product_type_name"],
+            "relation_type": ["test_contains_colour", "test_contains_type"],
+            "edge_weight": [2, 1],
+        }
     )
 
 
@@ -368,10 +494,33 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "attr_value"):
                 read_article_attribute_edges(input_path)
 
+    def test_build_attribute_week_heat_frame_builds_complete_attribute_week_panel(
+        self,
+    ) -> None:
+        heat = build_attribute_week_heat_frame(
+            sample_attribute_article_week_sales(),
+            sample_article_attribute_edges(),
+            sample_attribute_nodes(),
+        )
+
+        self.assertEqual(len(heat), 12)
+        self.assertEqual(heat.columns.tolist(), list(ATTRIBUTE_WEEK_HEAT_COLUMNS))
+        self.assertEqual(set(heat["week_id"]), {0, 1})
+        self.assertEqual(set(heat["attr_id"]), set(sample_attribute_nodes()["attr_id"]))
+
+        zero_row = heat[
+            (heat["week_id"] == 0)
+            & (heat["attr_id"] == "colour_group_name::Blue")
+        ].iloc[0]
+        self.assertEqual(int(zero_row["heat_cnt"]), 0)
+        self.assertEqual(float(zero_row["heat_share"]), 0.0)
+        self.assertEqual(float(zero_row["log_heat"]), 0.0)
+
     def test_build_attribute_week_heat_frame_calculates_heat_metrics(self) -> None:
         heat = build_attribute_week_heat_frame(
             sample_attribute_article_week_sales(),
             sample_article_attribute_edges(),
+            sample_attribute_nodes(),
         )
 
         self.assertEqual(heat.columns.tolist(), list(ATTRIBUTE_WEEK_HEAT_COLUMNS))
@@ -396,6 +545,12 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
                     "type_total_heat": 3,
                     "rank_in_type": 2,
                 },
+                {
+                    "attr_id": "colour_group_name::Blue",
+                    "heat_cnt": 0,
+                    "type_total_heat": 3,
+                    "rank_in_type": 3,
+                },
             ],
         )
         self.assertTrue(math.isclose(float(week0_colour.iloc[0]["heat_share"]), 2 / 3))
@@ -406,7 +561,7 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
 
         week1_product = heat[
             (heat["week_id"] == 1) & (heat["attr_type"] == "product_type_name")
-        ]
+        ].sort_values("rank_in_type")
         self.assertEqual(
             week1_product[
                 ["attr_id", "heat_cnt", "type_total_heat", "rank_in_type"]
@@ -417,7 +572,19 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
                     "heat_cnt": 1,
                     "type_total_heat": 1,
                     "rank_in_type": 1,
-                }
+                },
+                {
+                    "attr_id": "product_type_name::Bra",
+                    "heat_cnt": 0,
+                    "type_total_heat": 1,
+                    "rank_in_type": 2,
+                },
+                {
+                    "attr_id": "product_type_name::Dress",
+                    "heat_cnt": 0,
+                    "type_total_heat": 1,
+                    "rank_in_type": 3,
+                },
             ],
         )
         self.assertTrue(math.isclose(float(week1_product.iloc[0]["heat_share"]), 1.0))
@@ -429,7 +596,35 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         sales.loc[len(sales)] = [0, "0999999999", 1, 1, 0.10]
 
         with self.assertRaisesRegex(ValueError, "无法映射到属性边"):
-            build_attribute_week_heat_frame(sales, sample_article_attribute_edges())
+            build_attribute_week_heat_frame(
+                sales,
+                sample_article_attribute_edges(),
+                sample_attribute_nodes(),
+            )
+
+    def test_build_attribute_week_heat_frame_rejects_attribute_node_metadata_mismatch(
+        self,
+    ) -> None:
+        for column, value in [
+            ("attr_type", "product_type_name"),
+            ("attr_value", "Noir"),
+        ]:
+            with self.subTest(column=column):
+                nodes = sample_attribute_nodes()
+                nodes.loc[
+                    nodes["attr_id"] == "colour_group_name::Black",
+                    column,
+                ] = value
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    f"colour_group_name::Black.*{column}",
+                ):
+                    build_attribute_week_heat_frame(
+                        sample_attribute_article_week_sales(),
+                        sample_article_attribute_edges(),
+                        nodes,
+                    )
 
     def test_validate_article_attribute_edges_for_heat_rejects_duplicate_edges(
         self,
@@ -458,6 +653,19 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "week_id, attr_id"):
             validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_incomplete_expected_panel(
+        self,
+    ) -> None:
+        complete_heat = sample_attribute_week_heat()
+        heat = complete_heat.drop(index=0).reset_index(drop=True)
+
+        with self.assertRaisesRegex(ValueError, "完整 week_id x attr_id 面板"):
+            validate_attribute_week_heat(
+                heat,
+                expected_week_ids=sorted(complete_heat["week_id"].unique()),
+                expected_attribute_nodes=sample_attribute_nodes(),
+            )
 
     def test_validate_attribute_week_heat_rejects_invalid_share_total(self) -> None:
         heat = sample_attribute_week_heat()
@@ -488,7 +696,7 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         week0_colour_indices = heat.index[
             (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
         ]
-        heat.loc[week0_colour_indices, "heat_share"] = [0.5, 0.5]
+        heat.loc[week0_colour_indices, "heat_share"] = [0.5, 0.5, 0.0]
 
         with self.assertRaisesRegex(ValueError, "heat_share"):
             validate_attribute_week_heat(heat)
@@ -533,7 +741,7 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         week0_colour_indices = heat.index[
             (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
         ]
-        heat.loc[week0_colour_indices, "rank_in_type"] = [2, 3]
+        heat.loc[week0_colour_indices, "rank_in_type"] = [2, 3, 4]
 
         with self.assertRaisesRegex(ValueError, "未从 1 开始"):
             validate_attribute_week_heat(heat)
@@ -545,7 +753,7 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         week0_colour_indices = heat.index[
             (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
         ]
-        heat.loc[week0_colour_indices, "rank_in_type"] = [1, 3]
+        heat.loc[week0_colour_indices, "rank_in_type"] = [1, 3, 4]
 
         with self.assertRaisesRegex(ValueError, "rank_in_type 不连续"):
             validate_attribute_week_heat(heat)
@@ -557,21 +765,304 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
         week0_colour_indices = heat.index[
             (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
         ]
-        heat.loc[week0_colour_indices, "rank_in_type"] = [2, 1]
+        heat.loc[week0_colour_indices, "rank_in_type"] = [2, 1, 3]
 
         with self.assertRaisesRegex(ValueError, "rank_in_type 排序"):
             validate_attribute_week_heat(heat)
 
-    def test_validate_attribute_week_heat_rejects_non_positive_heat_values(
+    def test_validate_attribute_week_heat_rejects_negative_heat_values(
         self,
     ) -> None:
-        for column in ["heat_cnt", "heat_share"]:
+        for column in ["heat_cnt", "type_total_heat", "heat_share", "log_heat"]:
             with self.subTest(column=column):
                 heat = sample_attribute_week_heat()
-                heat.loc[0, column] = 0
+                heat.loc[0, column] = -1
 
                 with self.assertRaisesRegex(ValueError, column):
                     validate_attribute_week_heat(heat)
+
+
+class AttributeWeekTargetFrameTests(unittest.TestCase):
+    def test_build_attribute_week_target_frame_calculates_next_week_targets(
+        self,
+    ) -> None:
+        target = build_attribute_week_target_frame(sample_attribute_week_heat())
+
+        self.assertEqual(target.columns.tolist(), list(ATTRIBUTE_WEEK_TARGET_COLUMNS))
+        self.assertEqual(len(target), 6)
+        self.assertEqual(set(target["week_id"]), {0})
+
+        black = target[target["attr_id"] == "colour_group_name::Black"].iloc[0]
+        self.assertEqual(int(black["heat_t"]), 2)
+        self.assertEqual(int(black["heat_t1"]), 1)
+        self.assertTrue(math.isclose(float(black["share_t"]), 2 / 3))
+        self.assertTrue(math.isclose(float(black["share_t1"]), 1.0))
+        self.assertTrue(
+            math.isclose(
+                float(black["target_growth"]),
+                math.log((1.0 + 1e-6) / ((2 / 3) + 1e-6)),
+            )
+        )
+        self.assertTrue(
+            math.isclose(float(black["target_log_heat_t1"]), math.log1p(1))
+        )
+        self.assertEqual(int(black["target_rank_in_type_t1"]), 1)
+
+    def test_validate_attribute_week_target_rejects_inconsistent_growth(
+        self,
+    ) -> None:
+        target = build_attribute_week_target_frame(sample_attribute_week_heat())
+        target.loc[0, "target_growth"] = 999.0
+
+        with self.assertRaisesRegex(ValueError, "target_growth"):
+            validate_attribute_week_target(target)
+
+    def test_validate_attribute_week_target_rejects_non_positive_epsilon(
+        self,
+    ) -> None:
+        target = build_attribute_week_target_frame(sample_attribute_week_heat())
+
+        with self.assertRaisesRegex(ValueError, "epsilon"):
+            validate_attribute_week_target(target, epsilon=0)
+
+    def test_validate_attribute_week_target_rejects_non_finite_numeric_values(
+        self,
+    ) -> None:
+        target = build_attribute_week_target_frame(sample_attribute_week_heat())
+        target["heat_t"] = target["heat_t"].astype("float64")
+        target.loc[0, "heat_t"] = float("inf")
+
+        with self.assertRaisesRegex(ValueError, "非有限"):
+            validate_attribute_week_target(target)
+
+    def test_validate_attribute_week_target_rejects_inconsistent_log_heat_t1(
+        self,
+    ) -> None:
+        target = build_attribute_week_target_frame(sample_attribute_week_heat())
+        target.loc[0, "target_log_heat_t1"] = 999.0
+
+        with self.assertRaisesRegex(ValueError, "target_log_heat_t1"):
+            validate_attribute_week_target(target)
+
+    def test_validate_attribute_week_target_rejects_share_greater_than_one(
+        self,
+    ) -> None:
+        target = build_attribute_week_target_frame(sample_attribute_week_heat())
+        target.loc[0, "share_t"] = 1.1
+
+        with self.assertRaisesRegex(ValueError, "share 大于 1"):
+            validate_attribute_week_target(target)
+
+    def test_validate_attribute_week_target_rejects_duplicate_week_attr(
+        self,
+    ) -> None:
+        target = build_attribute_week_target_frame(sample_attribute_week_heat())
+        target.loc[len(target)] = target.loc[0]
+
+        with self.assertRaisesRegex(ValueError, "week_id, attr_id"):
+            validate_attribute_week_target(target)
+
+
+class TrendModelSamplesFrameTests(unittest.TestCase):
+    def test_build_trend_model_samples_frame_uses_lags_and_targets(self) -> None:
+        heat = sample_long_attribute_week_heat()
+        target = build_attribute_week_target_frame(heat)
+        samples = build_trend_model_samples_frame(
+            heat,
+            target,
+            sample_attribute_nodes(),
+            sample_attribute_hierarchy_edges(),
+        )
+
+        self.assertEqual(samples.columns.tolist(), list(TREND_MODEL_SAMPLE_COLUMNS))
+        self.assertEqual(set(samples["week_id"]), {4})
+
+        black = samples[samples["attr_id"] == "colour_group_name::Black"].iloc[0]
+        self.assertEqual(int(black["heat_t"]), 8)
+        self.assertEqual(int(black["heat_lag_1"]), 4)
+        self.assertEqual(int(black["heat_lag_4"]), 2)
+        self.assertTrue(math.isclose(float(black["heat_ma_4"]), (1 + 3 + 4 + 8) / 4))
+        self.assertTrue(
+            math.isclose(
+                float(black["growth_lag_1"]),
+                math.log((black["share_t"] + 1e-6) / (black["share_lag_1"] + 1e-6)),
+            )
+        )
+        self.assertEqual(int(black["child_count"]), 1)
+        self.assertEqual(int(black["parent_count"]), 0)
+        self.assertEqual(int(black["degree"]), 1)
+        self.assertEqual(int(black["history_total_heat_t"]), 18)
+        self.assertEqual(int(black["history_active_weeks_t"]), 5)
+        self.assertFalse(bool(black["is_trend_eligible_t"]))
+        self.assertIn("target_growth", samples.columns)
+
+    def test_validate_trend_model_samples_rejects_missing_target(self) -> None:
+        heat = sample_long_attribute_week_heat()
+        target = build_attribute_week_target_frame(heat).drop(columns=["target_growth"])
+
+        with self.assertRaisesRegex(ValueError, "target_growth"):
+            build_trend_model_samples_frame(
+                heat,
+                target,
+                sample_attribute_nodes(),
+                sample_attribute_hierarchy_edges(),
+            )
+
+    def test_build_trend_model_samples_frame_rejects_missing_target_key(self) -> None:
+        heat = sample_long_attribute_week_heat()
+        target = build_attribute_week_target_frame(heat)
+        target = target[
+            ~(
+                (target["week_id"] == 4)
+                & (target["attr_id"] == "colour_group_name::Black")
+            )
+        ].copy()
+
+        with self.assertRaisesRegex(ValueError, "趋势标签表.*缺失.*1"):
+            build_trend_model_samples_frame(
+                heat,
+                target,
+                sample_attribute_nodes(),
+                sample_attribute_hierarchy_edges(),
+            )
+
+    def test_build_trend_model_samples_frame_rejects_stale_target_values(
+        self,
+    ) -> None:
+        heat = sample_long_attribute_week_heat()
+        target = build_attribute_week_target_frame(heat)
+        black_week4_mask = (
+            (target["week_id"] == 4)
+            & (target["attr_id"] == "colour_group_name::Black")
+        )
+        target.loc[black_week4_mask, "heat_t1"] = 9
+        target.loc[black_week4_mask, "share_t1"] = 0.9
+        target.loc[black_week4_mask, "target_log_heat_t1"] = math.log1p(9)
+        target.loc[black_week4_mask, "target_growth"] = math.log(
+            (0.9 + 1e-6)
+            / (float(target.loc[black_week4_mask, "share_t"].iloc[0]) + 1e-6)
+        )
+
+        with self.assertRaisesRegex(ValueError, "属性趋势标签表.*不一致"):
+            build_trend_model_samples_frame(
+                heat,
+                target,
+                sample_attribute_nodes(),
+                sample_attribute_hierarchy_edges(),
+            )
+
+    def test_build_trend_model_samples_frame_rejects_missing_target_before_min_lag(
+        self,
+    ) -> None:
+        heat = sample_long_attribute_week_heat()
+        target = build_attribute_week_target_frame(heat)
+        target = target[
+            ~(
+                (target["week_id"] == 0)
+                & (target["attr_id"] == "colour_group_name::Black")
+            )
+        ].copy()
+
+        with self.assertRaisesRegex(ValueError, "属性趋势标签表.*不一致.*缺失.*1"):
+            build_trend_model_samples_frame(
+                heat,
+                target,
+                sample_attribute_nodes(),
+                sample_attribute_hierarchy_edges(),
+                min_lag_weeks=4,
+            )
+
+    def test_build_attribute_graph_features_frame_rejects_unknown_edge_node(
+        self,
+    ) -> None:
+        edges = sample_attribute_hierarchy_edges()
+        edges.loc[0, "parent_attr_id"] = "colour_group_name::Missing"
+
+        with self.assertRaisesRegex(ValueError, "属性层级边表.*无法映射.*Missing"):
+            build_attribute_graph_features_frame(sample_attribute_nodes(), edges)
+
+    def test_build_attribute_graph_features_frame_rejects_unknown_child_node(
+        self,
+    ) -> None:
+        edges = sample_attribute_hierarchy_edges()
+        edges.loc[0, "child_attr_id"] = "colour_group_name::Missing"
+
+        with self.assertRaisesRegex(ValueError, "属性层级边表.*无法映射.*Missing"):
+            build_attribute_graph_features_frame(sample_attribute_nodes(), edges)
+
+    def test_build_attribute_graph_features_frame_rejects_duplicate_edges(
+        self,
+    ) -> None:
+        edges = sample_attribute_hierarchy_edges()
+        edges.loc[len(edges)] = edges.loc[0]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "parent_attr_id, child_attr_id, relation_type",
+        ):
+            build_attribute_graph_features_frame(sample_attribute_nodes(), edges)
+
+    def test_build_attribute_graph_features_frame_rejects_non_positive_edge_weight(
+        self,
+    ) -> None:
+        for edge_weight in [0, -1]:
+            with self.subTest(edge_weight=edge_weight):
+                edges = sample_attribute_hierarchy_edges()
+                edges.loc[0, "edge_weight"] = edge_weight
+
+                with self.assertRaisesRegex(ValueError, "edge_weight"):
+                    build_attribute_graph_features_frame(sample_attribute_nodes(), edges)
+
+    def test_build_trend_model_samples_frame_keeps_feature_window_fixed_at_four(
+        self,
+    ) -> None:
+        heat = sample_long_attribute_week_heat()
+        week6 = heat[heat["week_id"] == 5].copy()
+        week6["week_id"] = 6
+        heat = (
+            pd.concat([heat, week6], ignore_index=True)
+            .sort_values(
+                ["week_id", "attr_type", "heat_cnt", "attr_id"],
+                ascending=[True, True, False, True],
+                ignore_index=True,
+            )
+        )
+        heat["rank_in_type"] = (
+            heat.groupby(["week_id", "attr_type"]).cumcount().add(1).astype("int64")
+        )
+        heat = heat.loc[:, list(ATTRIBUTE_WEEK_HEAT_COLUMNS)]
+        target = build_attribute_week_target_frame(heat)
+
+        samples = build_trend_model_samples_frame(
+            heat,
+            target,
+            sample_attribute_nodes(),
+            sample_attribute_hierarchy_edges(),
+            min_lag_weeks=5,
+        )
+
+        self.assertEqual(set(samples["week_id"]), {5})
+        for lag in range(1, 5):
+            self.assertIn(f"heat_lag_{lag}", samples.columns)
+            self.assertIn(f"share_lag_{lag}", samples.columns)
+
+        black = samples[samples["attr_id"] == "colour_group_name::Black"].iloc[0]
+        self.assertTrue(math.isclose(float(black["heat_ma_4"]), (3 + 4 + 8 + 4) / 4))
+
+    def test_build_trend_model_samples_frame_rejects_too_small_min_lag_weeks(
+        self,
+    ) -> None:
+        heat = sample_long_attribute_week_heat()
+        target = build_attribute_week_target_frame(heat)
+
+        with self.assertRaisesRegex(ValueError, "min_lag_weeks 必须大于等于 4"):
+            build_trend_model_samples_frame(
+                heat,
+                target,
+                sample_attribute_nodes(),
+                sample_attribute_hierarchy_edges(),
+                min_lag_weeks=1,
+            )
 
 
 if __name__ == "__main__":
