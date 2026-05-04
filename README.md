@@ -39,7 +39,7 @@ data/raw/h-and-m-personalized-fashion-recommendations/
 
 #### 1. 准备环境
 
-项目使用 Python 3.13+，并通过 `uv` 管理依赖。首次运行前先安装依赖：
+项目使用 Python 3.10 至 3.12，并通过 `uv` 管理依赖。首次运行前先安装依赖：
 
 ```sh
 uv sync
