@@ -12,6 +12,8 @@ from fashion_trend.trend import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     build_article_week_sales_frame,
     build_attribute_week_heat_frame,
+    read_article_attribute_edges,
+    read_article_week_sales,
     read_weekly_transactions,
     validate_article_attribute_edges_for_heat,
     validate_article_week_sales,
@@ -236,6 +238,46 @@ class ArticleWeekSalesFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "article_id"):
             validate_article_week_sales(sales)
 
+    def test_read_article_week_sales_preserves_article_id_as_string(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "article_week_sales.csv"
+            sample_article_week_sales().to_csv(input_path, index=False)
+
+            sales = read_article_week_sales(input_path)
+
+            self.assertEqual(sales["article_id"].dtype.name, "string")
+            self.assertEqual(sales.loc[0, "article_id"], "0108775015")
+
+    def test_read_article_week_sales_rejects_missing_file(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "article_week_sales.csv"
+
+            with self.assertRaisesRegex(FileNotFoundError, "商品周销量表不存在"):
+                read_article_week_sales(input_path)
+
+    def test_read_article_week_sales_reports_missing_required_column(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "article_week_sales.csv"
+            sample_article_week_sales().drop(columns=["sales_cnt"]).to_csv(
+                input_path,
+                index=False,
+            )
+
+            with self.assertRaisesRegex(ValueError, "sales_cnt"):
+                read_article_week_sales(input_path)
+
+    def test_read_article_week_sales_reports_invalid_numeric_value(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "article_week_sales.csv"
+            input_path.write_text(
+                "week_id,article_id,sales_cnt,sales_user_cnt,sales_amount\n"
+                "0,0108775015,not_int,1,0.10\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "无法读取商品周销量表"):
+                read_article_week_sales(input_path)
+
 
 class TrendCsvWriteTests(unittest.TestCase):
     def test_write_trend_csv_creates_parent_directory(self) -> None:
@@ -295,6 +337,37 @@ class TrendCsvWriteTests(unittest.TestCase):
 
 
 class AttributeWeekHeatFrameTests(unittest.TestCase):
+    def test_read_article_attribute_edges_preserves_string_dtypes(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "article_attribute_edges.csv"
+            sample_article_attribute_edges().to_csv(input_path, index=False)
+
+            edges = read_article_attribute_edges(input_path)
+
+            self.assertEqual(edges["article_id"].dtype.name, "string")
+            self.assertEqual(edges["attr_id"].dtype.name, "string")
+            self.assertEqual(edges["attr_type"].dtype.name, "string")
+            self.assertEqual(edges["attr_value"].dtype.name, "string")
+            self.assertEqual(edges.loc[0, "article_id"], "0108775015")
+
+    def test_read_article_attribute_edges_rejects_missing_file(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "article_attribute_edges.csv"
+
+            with self.assertRaisesRegex(FileNotFoundError, "商品-属性边表不存在"):
+                read_article_attribute_edges(input_path)
+
+    def test_read_article_attribute_edges_reports_missing_required_column(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "article_attribute_edges.csv"
+            sample_article_attribute_edges().drop(columns=["attr_value"]).to_csv(
+                input_path,
+                index=False,
+            )
+
+            with self.assertRaisesRegex(ValueError, "attr_value"):
+                read_article_attribute_edges(input_path)
+
     def test_build_attribute_week_heat_frame_calculates_heat_metrics(self) -> None:
         heat = build_attribute_week_heat_frame(
             sample_attribute_article_week_sales(),
