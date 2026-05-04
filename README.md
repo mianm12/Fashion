@@ -16,7 +16,7 @@ H&M transactions_train.csv
     -> 趋势感知 Top-N 推荐
 ```
 
-现阶段已经完成到属性周热度聚合层：
+现阶段已经完成到趋势训练样本层：
 
 | 阶段 | 状态 | 主要产物 |
 | :--- | :--- | :--- |
@@ -26,7 +26,9 @@ H&M transactions_train.csv
 | 商品属性层次图 | 已实现 | `nodes_article.csv`、`nodes_attribute.csv`、`edges_article_attribute.csv`、`edges_attribute_hierarchy.csv` |
 | 商品周销量 | 已实现 | `article_week_sales.csv` |
 | 属性周热度 | 已实现 | `attribute_week_heat.csv` |
-| 趋势标签、趋势样本、模型训练、推荐评价 | 尚未实现 | 后续将生成 `attribute_week_target.csv`、`trend_model_samples.parquet` 和推荐评价结果 |
+| 趋势标签 | 已实现 | `attribute_week_target.csv` |
+| 趋势样本 | 已实现 | `trend_model_samples.parquet` |
+| 模型训练、推荐评价 | 尚未实现 | 后续模型和推荐结果 |
 
 ## 数据集
 
@@ -149,6 +151,8 @@ uv run python src/03_clean_articles.py
 uv run python src/04_build_attribute_graph.py
 uv run python src/05_compute_article_week_sales.py
 uv run python src/06_compute_attribute_week_heat.py
+uv run python src/07_build_trend_targets.py
+uv run python src/08_build_trend_model_samples.py
 ```
 
 ### 1. transactions_train.csv
@@ -358,6 +362,8 @@ uv run python src/05_compute_article_week_sales.py
 
 基于 `article_week_sales.csv` 和 `data/processed/graph/edges_article_attribute.csv`，使用商品周销量中的 `sales_cnt` 作为购买次数热度，将商品热度映射到商品关联属性节点。
 
+`attribute_week_heat.csv` 是完整属性-周面板：每个 `week_id` 都覆盖 `nodes_attribute.csv` 中的全部 `attr_id`。无观测购买的属性周不会被丢弃，而是保留 `heat_cnt = 0`、`heat_share = 0`、`log_heat = 0`。
+
 输出文件:
 
 ```sh
@@ -393,14 +399,36 @@ uv run python src/06_compute_attribute_week_heat.py
 
 属性周热度默认覆盖当前属性图中的全部 10 个属性字段。后续如果只分析 MVP 核心属性，可通过 `nodes_attribute.csv` 的 `is_core_attr = 1` 过滤。
 
+### 6. attribute_week_target.csv
+
+基于完整 `attribute_week_heat.csv` 构造下一周趋势标签。输出文件：
+
+```sh
+data/processed/trend/attribute_week_target.csv
+```
+
+每行表示一个属性在当前周 `t` 的目标，包含下一周热度、下一周热度占比、占比增长和下一周排名等字段。其中占比增长使用平滑后的对数增长：
+
+```text
+target_growth = log((share_t1 + 1e-6) / (share_t + 1e-6))
+```
+
+### 7. trend_model_samples.parquet
+
+基于完整 `attribute_week_heat.csv` 和 `attribute_week_target.csv` 构造趋势训练样本。输出文件：
+
+```sh
+data/processed/features/trend_model_samples.parquet
+```
+
+样本表只使用当前周及历史周特征，包括 lag、移动平均、增长率、图结构和时间特征；`t+1` 信息只保留在目标字段中，避免训练特征泄漏未来信息。
+
 ## 后续阶段
 
-`docs/gpt-research/implementation-plan.md` 中的后续阶段还没有落地到代码，README 先按计划记录边界：
+模型训练和推荐评价还没有落地到代码，README 先按计划记录边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
-| 趋势标签 | `data/processed/trend/attribute_week_target.csv` | 基于 `attribute_week_heat.csv` 构造下一周热度、占比增长和排名标签 |
-| 趋势样本 | `data/processed/features/trend_model_samples.parquet` | 构造 lag、移动平均、增长率、图结构和时间特征 |
 | 趋势模型 | 模型文件和趋势预测结果 | 先做 Last Week、Moving Average、EWMA baseline，再考虑 LightGBM |
 | 推荐模块 | Top-12 推荐列表和评价结果 | 将趋势分映射回商品，结合近期热门、用户历史属性偏好和 Item-CF 候选做轻量重排序 |
 
@@ -419,3 +447,5 @@ uv run python -m unittest discover -s tests -v
 - articles 清洗字段、缺失值、重复 `article_id` 和文件写出回滚。
 - 属性节点、商品-属性边、属性层级边的结构和引用完整性。
 - 商品周销量、属性周热度的聚合、读取、写出和派生字段校验。
+- 趋势标签的下一周目标计算、公式一致性和异常输入校验。
+- 趋势样本的 lag、移动窗口、图特征合入、目标合入和标签表与当前热度表一致性校验。
