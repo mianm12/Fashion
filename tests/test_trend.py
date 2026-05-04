@@ -23,6 +23,18 @@ def sample_weekly_transactions() -> pd.DataFrame:
     )
 
 
+def sample_article_week_sales() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "week_id": [0],
+            "article_id": ["0108775015"],
+            "sales_cnt": [1],
+            "sales_user_cnt": [1],
+            "sales_amount": [0.10],
+        }
+    )
+
+
 class ArticleWeekSalesFrameTests(unittest.TestCase):
     def test_build_article_week_sales_frame_aggregates_sales_by_week_and_article(
         self,
@@ -91,6 +103,48 @@ class ArticleWeekSalesFrameTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "week_id, article_id"):
+            validate_article_week_sales(sales)
+
+    def test_validate_article_week_sales_rejects_non_positive_sales_count(
+        self,
+    ) -> None:
+        sales = sample_article_week_sales()
+        sales.loc[0, "sales_cnt"] = 0
+
+        with self.assertRaisesRegex(ValueError, "sales_cnt"):
+            validate_article_week_sales(sales)
+
+    def test_validate_article_week_sales_rejects_non_positive_sales_user_count(
+        self,
+    ) -> None:
+        sales = sample_article_week_sales()
+        sales.loc[0, "sales_user_cnt"] = 0
+
+        with self.assertRaisesRegex(ValueError, "sales_user_cnt"):
+            validate_article_week_sales(sales)
+
+    def test_validate_article_week_sales_rejects_negative_sales_amount(self) -> None:
+        sales = sample_article_week_sales()
+        sales.loc[0, "sales_amount"] = -0.01
+
+        with self.assertRaisesRegex(ValueError, "sales_amount"):
+            validate_article_week_sales(sales)
+
+    def test_validate_article_week_sales_rejects_missing_required_output_column(
+        self,
+    ) -> None:
+        sales = sample_article_week_sales().drop(columns=["sales_amount"])
+
+        with self.assertRaisesRegex(ValueError, "sales_amount"):
+            validate_article_week_sales(sales)
+
+    def test_validate_article_week_sales_rejects_missing_required_output_value(
+        self,
+    ) -> None:
+        sales = sample_article_week_sales()
+        sales.loc[0, "article_id"] = pd.NA
+
+        with self.assertRaisesRegex(ValueError, "article_id"):
             validate_article_week_sales(sales)
 
 
