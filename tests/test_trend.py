@@ -9,8 +9,11 @@ import pandas as pd
 
 from fashion_trend.trend import (
     ARTICLE_WEEK_SALES_COLUMNS,
+    ATTRIBUTE_WEEK_HEAT_COLUMNS,
     build_article_week_sales_frame,
+    build_attribute_week_heat_frame,
     read_weekly_transactions,
+    validate_article_attribute_edges_for_heat,
     validate_article_week_sales,
     write_trend_csv,
 )
@@ -35,6 +38,57 @@ def sample_article_week_sales() -> pd.DataFrame:
             "sales_cnt": [1],
             "sales_user_cnt": [1],
             "sales_amount": [0.10],
+        }
+    )
+
+
+def sample_attribute_article_week_sales() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "week_id": [0, 0, 1],
+            "article_id": ["0108775015", "0110065001", "0108775015"],
+            "sales_cnt": [2, 1, 1],
+            "sales_user_cnt": [2, 1, 1],
+            "sales_amount": [0.30, 0.30, 0.40],
+        }
+    )
+
+
+def sample_article_attribute_edges() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "article_id": [
+                "0108775015",
+                "0108775015",
+                "0110065001",
+                "0110065001",
+            ],
+            "article_node_id": [
+                "article_0108775015",
+                "article_0108775015",
+                "article_0110065001",
+                "article_0110065001",
+            ],
+            "attr_id": [
+                "colour_group_name::Black",
+                "product_type_name::Vest top",
+                "colour_group_name::White",
+                "product_type_name::Bra",
+            ],
+            "attr_type": [
+                "colour_group_name",
+                "product_type_name",
+                "colour_group_name",
+                "product_type_name",
+            ],
+            "attr_value": ["Black", "Vest top", "White", "Bra"],
+            "edge_type": [
+                "has_colour_group",
+                "has_product_type",
+                "has_colour_group",
+                "has_product_type",
+            ],
+            "edge_weight": [1.0, 1.0, 1.0, 1.0],
         }
     )
 
@@ -230,6 +284,62 @@ class TrendCsvWriteTests(unittest.TestCase):
             self.assertIn('"garment_group_name::Under-, Nightwear"', lines[1])
             self.assertIn('"Under-, Nightwear"', lines[1])
             self.assertFalse(output_path.with_suffix(".csv.tmp").exists())
+
+
+class AttributeWeekHeatFrameTests(unittest.TestCase):
+    def test_build_attribute_week_heat_frame_calculates_heat_metrics(self) -> None:
+        heat = build_attribute_week_heat_frame(
+            sample_attribute_article_week_sales(),
+            sample_article_attribute_edges(),
+        )
+
+        self.assertEqual(heat.columns.tolist(), list(ATTRIBUTE_WEEK_HEAT_COLUMNS))
+
+        week0_colour = heat[
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        ].sort_values("rank_in_type")
+        self.assertEqual(
+            week0_colour[
+                ["attr_id", "heat_cnt", "type_total_heat", "rank_in_type"]
+            ].to_dict("records"),
+            [
+                {
+                    "attr_id": "colour_group_name::Black",
+                    "heat_cnt": 2,
+                    "type_total_heat": 3,
+                    "rank_in_type": 1,
+                },
+                {
+                    "attr_id": "colour_group_name::White",
+                    "heat_cnt": 1,
+                    "type_total_heat": 3,
+                    "rank_in_type": 2,
+                },
+            ],
+        )
+        self.assertTrue(math.isclose(float(week0_colour.iloc[0]["heat_share"]), 2 / 3))
+        self.assertTrue(math.isclose(float(week0_colour.iloc[1]["heat_share"]), 1 / 3))
+        self.assertTrue(
+            math.isclose(float(week0_colour.iloc[0]["log_heat"]), math.log1p(2))
+        )
+
+    def test_build_attribute_week_heat_frame_rejects_unmapped_sales_articles(
+        self,
+    ) -> None:
+        sales = sample_attribute_article_week_sales()
+        sales.loc[len(sales)] = [0, "0999999999", 1, 1, 0.10]
+
+        with self.assertRaisesRegex(ValueError, "无法映射到属性边"):
+            build_attribute_week_heat_frame(sales, sample_article_attribute_edges())
+
+    def test_validate_article_attribute_edges_for_heat_rejects_duplicate_edges(
+        self,
+    ) -> None:
+        edges = sample_article_attribute_edges()
+        edges.loc[len(edges)] = edges.loc[0]
+
+        with self.assertRaisesRegex(ValueError, "article_id, attr_id"):
+            validate_article_attribute_edges_for_heat(edges)
 
 
 if __name__ == "__main__":
