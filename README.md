@@ -1,6 +1,32 @@
 # Fashion
 
-时尚推荐相关实验项目，当前主要提供 Kaggle H&M 个性化时尚推荐数据集的下载入口和基础目录约定。
+时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量与属性周热度，为后续属性趋势预测和 Top-N 推荐做准备。
+
+## 研究主线
+
+本项目参考 `docs/gpt-research/implementation-plan.md`，把原始 H&M 推荐任务收缩为更容易复现和解释的两段式课题：
+
+```text
+H&M articles.csv
+    -> 商品属性层次图
+H&M transactions_train.csv
+    -> 周级商品销量
+    -> 属性周热度
+    -> 属性趋势预测
+    -> 趋势感知 Top-N 推荐
+```
+
+现阶段已经完成到属性周热度聚合层：
+
+| 阶段 | 状态 | 主要产物 |
+| :--- | :--- | :--- |
+| 数据下载 | 已实现 | `data/raw/h-and-m-personalized-fashion-recommendations/` |
+| 周级交易表 | 已实现 | `data/interim/transactions_train_weekly.parquet` |
+| articles 清洗 | 已实现 | `articles_clean_mvp.csv`、`articles_clean.csv` |
+| 商品属性层次图 | 已实现 | `nodes_article.csv`、`nodes_attribute.csv`、`edges_article_attribute.csv`、`edges_attribute_hierarchy.csv` |
+| 商品周销量 | 已实现 | `article_week_sales.csv` |
+| 属性周热度 | 已实现 | `attribute_week_heat.csv` |
+| 趋势标签、趋势样本、模型训练、推荐评价 | 尚未实现 | 后续将生成 `attribute_week_target.csv`、`trend_model_samples.parquet` 和推荐评价结果 |
 
 ## 数据集
 
@@ -97,7 +123,7 @@ uv run python src/00_download_data.py --help
 - `--no-unzip`：保留下载得到的 zip 文件，不执行解压。
 - 默认解压：脚本会解压目标目录下的 zip 文件，并拒绝解压会逃逸出目标目录的异常路径。
 
-### 数据目录结构
+### 下载目录结构
 
 下载完成后，目录大致如下：
 
@@ -113,6 +139,17 @@ data/
 ```
 
 ## 数据预处理
+
+当前已实现流水线按下面顺序运行：
+
+```sh
+uv run python src/00_download_data.py
+uv run python src/02_build_weekly_transactions.py
+uv run python src/03_clean_articles.py
+uv run python src/04_build_attribute_graph.py
+uv run python src/05_compute_article_week_sales.py
+uv run python src/06_compute_attribute_week_heat.py
+```
 
 ### 1. transactions_train.csv
 
@@ -136,35 +173,41 @@ $$
 data/interim/transactions_train_weekly.parquet
 ```
 
+运行命令:
+
+```sh
+uv run python src/02_build_weekly_transactions.py
+```
+
 ### 2. articles.csv
 
-| 字段                           | MVP 是否使用 |    稳妥版是否使用 | 说明             | 推荐用途                                           |
-| ------------------------------ | -----------: | ----------------: | ---------------- | -------------------------------------------------- |
-| `article_id`                   |         必须 |              必须 | 商品唯一编号     | 连接 `transactions_train.csv`，构建商品节点        |
-| `product_code`                 |           否 |              可选 | 商品款式族编号   | 可分析同款不同色；MVP 不需要                       |
-| `prod_name`                    |       展示用 |            展示用 | 商品名称         | 推荐结果展示，不建议作为模型特征                   |
-| `product_type_no`              |           否 |            可保留 | 商品类型编号     | 与 `product_type_name` 对应，主要作映射            |
-| `product_type_name`            |           是 |                是 | 商品具体类型     | 核心属性字段，适合做品类趋势                       |
-| `product_group_name`           |           是 |                是 | 商品大类         | 可与 `product_type_name` 构成品类层级              |
-| `graphical_appearance_no`      |           否 |            可保留 | 图案外观编号     | 与 `graphical_appearance_name` 对应，主要作映射    |
-| `graphical_appearance_name`    |           是 |                是 | 图案 / 外观      | 适合分析 Solid、Stripe、Print 等风格趋势           |
-| `colour_group_code`            |           否 |            可保留 | 颜色编号         | 与 `colour_group_name` 对应，主要作映射            |
-| `colour_group_name`            |           是 |                是 | 具体颜色         | 核心属性字段，适合做颜色趋势                       |
-| `perceived_colour_value_id`    |           否 |            可保留 | 感知颜色明暗编号 | 与 `perceived_colour_value_name` 对应，主要作映射  |
-| `perceived_colour_value_name`  |           否 |                是 | 感知颜色明暗     | 可增强颜色趋势，如 Dark、Light、Dusty              |
-| `perceived_colour_master_id`   |           否 |            可保留 | 主色系编号       | 与 `perceived_colour_master_name` 对应，主要作映射 |
-| `perceived_colour_master_name` |           否 |                是 | 主色系           | 可与 `colour_group_name` 构成颜色层级              |
-| `department_no`                |           否 |            可保留 | 部门编号         | 与 `department_name` 对应，主要作映射              |
-| `department_name`              |           否 |              可选 | 商品部门         | 粒度较细，容易稀疏；可作为增强字段                 |
-| `index_code`                   |           否 |            可保留 | 业务线编号       | 与 `index_name` 对应，主要作映射                   |
-| `index_name`                   |           否 |                是 | 业务线           | 可用于构建组织层级，解释性较好                     |
-| `index_group_no`               |           否 |            可保留 | 业务大类编号     | 与 `index_group_name` 对应，主要作映射             |
-| `index_group_name`             |           否 |                是 | 业务大类         | 可区分 Ladieswear、Menswear、Baby/Children 等大类  |
-| `section_no`                   |           否 |            可保留 | 商品区域编号     | 与 `section_name` 对应，主要作映射                 |
-| `section_name`                 |           否 |                是 | 商品区域         | 适合构建组织层级，解释性较强                       |
-| `garment_group_no`             |           否 |            可保留 | 服装组别编号     | 与 `garment_group_name` 对应，主要作映射           |
-| `garment_group_name`           |           是 |                是 | 服装组别         | 核心属性字段，适合分析服装风格 / 材质趋势          |
-| `detail_desc`                  |           否 | 展示用 / 可选增强 | 商品文本描述     | 可用于推荐展示；若进模型需要 NLP，MVP 不建议       |
+| 字段                           | 当前 MVP 是否保留 | 当前稳妥版是否保留 | 说明             | 推荐用途                                           |
+| ------------------------------ | ----------------: | -----------------: | ---------------- | -------------------------------------------------- |
+| `article_id`                   |              必须 |               必须 | 商品唯一编号     | 连接 `transactions_train.csv`，构建商品节点        |
+| `product_code`                 |              保留 |               保留 | 商品款式族编号   | 可分析同款不同色；当前用于审查和后续扩展           |
+| `prod_name`                    |            展示用 |             展示用 | 商品名称         | 推荐结果展示，不建议作为模型特征                   |
+| `product_type_no`              |                否 |                 否 | 商品类型编号     | 与 `product_type_name` 对应，主要作映射            |
+| `product_type_name`            |                是 |                 是 | 商品具体类型     | 核心属性字段，适合做品类趋势                       |
+| `product_group_name`           |                是 |                 是 | 商品大类         | 可与 `product_type_name` 构成品类层级              |
+| `graphical_appearance_no`      |                否 |                 否 | 图案外观编号     | 与 `graphical_appearance_name` 对应，主要作映射    |
+| `graphical_appearance_name`    |                是 |                 是 | 图案 / 外观      | 适合分析 Solid、Stripe、Print 等风格趋势           |
+| `colour_group_code`            |                否 |                 否 | 颜色编号         | 与 `colour_group_name` 对应，主要作映射            |
+| `colour_group_name`            |                是 |                 是 | 具体颜色         | 核心属性字段，适合做颜色趋势                       |
+| `perceived_colour_value_id`    |                否 |                 否 | 感知颜色明暗编号 | 与 `perceived_colour_value_name` 对应，主要作映射  |
+| `perceived_colour_value_name`  |                否 |                 否 | 感知颜色明暗     | 可作为后续增强字段，当前清洗表未保留               |
+| `perceived_colour_master_id`   |                否 |                 否 | 主色系编号       | 与 `perceived_colour_master_name` 对应，主要作映射 |
+| `perceived_colour_master_name` |                否 |                 是 | 主色系           | 可与 `colour_group_name` 构成颜色层级              |
+| `department_no`                |                否 |                 否 | 部门编号         | 与 `department_name` 对应，主要作映射              |
+| `department_name`              |                否 |                 是 | 商品部门         | 粒度较细，容易稀疏；当前用于属性层级边             |
+| `index_code`                   |                否 |                 否 | 业务线编号       | 与 `index_name` 对应，主要作映射                   |
+| `index_name`                   |                否 |                 是 | 业务线           | 可用于构建组织层级，解释性较好                     |
+| `index_group_no`               |                否 |                 否 | 业务大类编号     | 与 `index_group_name` 对应，主要作映射             |
+| `index_group_name`             |                否 |                 是 | 业务大类         | 可区分 Ladieswear、Menswear、Baby/Children 等大类  |
+| `section_no`                   |                否 |                 否 | 商品区域编号     | 与 `section_name` 对应，主要作映射                 |
+| `section_name`                 |                否 |                 是 | 商品区域         | 适合构建组织层级，解释性较强                       |
+| `garment_group_no`             |                否 |                 否 | 服装组别编号     | 与 `garment_group_name` 对应，主要作映射           |
+| `garment_group_name`           |                是 |                 是 | 服装组别         | 核心属性字段，适合分析服装风格 / 材质趋势          |
+| `detail_desc`                  |                否 |                 否 | 商品文本描述     | 可用于后续 NLP 增强；当前清洗表未保留              |
 
 本轮会先对 `articles.csv` 做字段过滤和基础校验，在 `data/interim/` 下生成两份中间表，再基于中间表构建属性图。
 
@@ -203,6 +246,12 @@ data/interim/articles_clean_mvp.csv
 data/interim/articles_clean.csv
 ```
 
+运行命令:
+
+```sh
+uv run python src/03_clean_articles.py
+```
+
 清洗规则:
 
 - 只输出本轮所需字段，不携带 `detail_desc`、编号映射字段或图片字段。
@@ -211,7 +260,75 @@ data/interim/articles_clean.csv
 - `articles_clean_mvp.csv` 和 `articles_clean.csv` 的行数、`article_id` 集合必须与原始 `articles.csv` 保持一致。
 - 中间表和属性图 CSV 全字段使用双引号引用，避免 VS Code / DuckDB 等工具按前几万行采样时把后续含逗号的属性值误解析成额外列。
 
-### 3. article_week_sales.csv
+### 3. 商品属性层次图
+
+基于 `data/interim/articles_clean.csv` 构建静态商品属性层次图。这里不引入 Neo4j，而是使用可审查的节点表和边表 CSV。
+
+运行命令:
+
+```sh
+uv run python src/04_build_attribute_graph.py
+```
+
+输出文件:
+
+```sh
+data/processed/graph/nodes_article.csv
+data/processed/graph/nodes_attribute.csv
+data/processed/graph/edges_article_attribute.csv
+data/processed/graph/edges_attribute_hierarchy.csv
+```
+
+#### nodes_article.csv
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `article_id` | 原始商品 ID，保留前导 0 |
+| `article_node_id` | 图中商品节点 ID，格式为 `article_<article_id>` |
+| `product_code` | 商品款式族编号 |
+| `prod_name` | 商品名称，用于展示 |
+
+#### nodes_attribute.csv
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `attr_id` | 属性节点唯一 ID，格式为 `attr_type::attr_value` |
+| `attr_type` | 属性类型，即来源字段名 |
+| `attr_value` | 属性取值 |
+| `attr_node_id` | 图中属性节点 ID，当前与 `attr_id` 一致 |
+| `article_count` | 关联到该属性的商品数量 |
+| `is_core_attr` | 5 个核心属性为 `1`，层级增强属性为 `0` |
+| `level` | 属性在层级图中的角色：`parent`、`child`、`parent_child` 或 `flat` |
+
+#### edges_article_attribute.csv
+
+每个商品会连接到 `articles_clean.csv` 中 10 个属性字段，因此该表是后续把商品销量映射到属性热度的核心桥梁。
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `article_id` | 原始商品 ID |
+| `article_node_id` | 商品节点 ID |
+| `attr_id` | 属性节点 ID |
+| `attr_type` | 属性类型 |
+| `attr_value` | 属性取值 |
+| `edge_type` | 商品到属性的边类型，如 `has_colour_group` |
+| `edge_weight` | 当前固定为 `1.0` |
+
+#### edges_attribute_hierarchy.csv
+
+属性层级边基于同一商品中的父子属性共现关系生成，`edge_weight` 表示父子组合关联的商品数量。
+
+| 父字段 | 子字段 | 关系 |
+| :--- | :--- | :--- |
+| `product_group_name` | `product_type_name` | `product_group_contains_type` |
+| `perceived_colour_master_name` | `colour_group_name` | `colour_master_contains_colour` |
+| `index_group_name` | `index_name` | `index_group_contains_index` |
+| `index_name` | `section_name` | `index_contains_section` |
+| `section_name` | `department_name` | `section_contains_department` |
+
+图构建会校验商品-属性边和属性层级边都能引用到已生成的节点；如果引用不完整会直接失败。
+
+### 4. article_week_sales.csv
 
 基于 `data/interim/transactions_train_weekly.parquet`，按 `week_id + article_id` 聚合每个商品每周购买次数、购买用户数和销售额。
 
@@ -237,7 +354,7 @@ uv run python src/05_compute_article_week_sales.py
 | `sales_user_cnt` | 商品每周购买用户数 |
 | `sales_amount` | 商品每周销售额 |
 
-### 4. attribute_week_heat.csv
+### 5. attribute_week_heat.csv
 
 基于 `article_week_sales.csv` 和 `data/processed/graph/edges_article_attribute.csv`，使用商品周销量中的 `sales_cnt` 作为购买次数热度，将商品热度映射到商品关联属性节点。
 
@@ -266,3 +383,39 @@ uv run python src/06_compute_attribute_week_heat.py
 | `heat_share` | `heat_cnt / type_total_heat` |
 | `log_heat` | `log1p(heat_cnt)` |
 | `rank_in_type` | 属性在同类型内的周热度排名 |
+
+计算规则:
+
+- `heat_cnt`：某属性关联商品在该周的 `sales_cnt` 求和。
+- `type_total_heat`：同一 `week_id + attr_type` 下所有属性的 `heat_cnt` 总和。
+- `heat_share`：属性在同类型属性内的热度占比。
+- `rank_in_type`：同一 `week_id + attr_type` 下按 `heat_cnt` 降序排名，热度相同则按 `attr_id` 稳定排序。
+
+属性周热度默认覆盖当前属性图中的全部 10 个属性字段。后续如果只分析 MVP 核心属性，可通过 `nodes_attribute.csv` 的 `is_core_attr = 1` 过滤。
+
+## 后续阶段
+
+`docs/gpt-research/implementation-plan.md` 中的后续阶段还没有落地到代码，README 先按计划记录边界：
+
+| 阶段 | 计划产物 | 说明 |
+| :--- | :--- | :--- |
+| 趋势标签 | `data/processed/trend/attribute_week_target.csv` | 基于 `attribute_week_heat.csv` 构造下一周热度、占比增长和排名标签 |
+| 趋势样本 | `data/processed/features/trend_model_samples.parquet` | 构造 lag、移动平均、增长率、图结构和时间特征 |
+| 趋势模型 | 模型文件和趋势预测结果 | 先做 Last Week、Moving Average、EWMA baseline，再考虑 LightGBM |
+| 推荐模块 | Top-12 推荐列表和评价结果 | 将趋势分映射回商品，结合近期热门、用户历史属性偏好和 Item-CF 候选做轻量重排序 |
+
+后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
+
+## 验证
+
+当前测试使用标准库 `unittest`，不依赖真实 H&M 数据：
+
+```sh
+uv run python -m unittest discover -s tests -v
+```
+
+已覆盖的核心逻辑包括：
+
+- articles 清洗字段、缺失值、重复 `article_id` 和文件写出回滚。
+- 属性节点、商品-属性边、属性层级边的结构和引用完整性。
+- 商品周销量、属性周热度的聚合、读取、写出和派生字段校验。
