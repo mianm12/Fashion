@@ -224,7 +224,7 @@ data/processed/trend/article_week_sales.csv
 运行命令:
 
 ```sh
-PYTHONPATH=src .venv/bin/python src/05_compute_article_week_sales.py
+uv run python src/05_compute_article_week_sales.py
 ```
 
 输出字段:
@@ -239,7 +239,7 @@ PYTHONPATH=src .venv/bin/python src/05_compute_article_week_sales.py
 
 ### 4. attribute_week_heat.csv
 
-基于 `article_week_sales.csv` 和 `data/processed/graph/edges_article_attribute.csv`，将商品周销量映射到商品关联属性节点。
+基于 `article_week_sales.csv` 和 `data/processed/graph/edges_article_attribute.csv`，使用商品周销量中的 `sales_cnt` 作为购买次数热度，将商品热度映射到商品关联属性节点。
 
 输出文件:
 
@@ -250,7 +250,7 @@ data/processed/trend/attribute_week_heat.csv
 运行命令:
 
 ```sh
-PYTHONPATH=src .venv/bin/python src/06_compute_attribute_week_heat.py
+uv run python src/06_compute_attribute_week_heat.py
 ```
 
 输出字段:
@@ -261,8 +261,8 @@ PYTHONPATH=src .venv/bin/python src/06_compute_attribute_week_heat.py
 | `attr_id` | 属性节点编号 |
 | `attr_type` | 属性类型 |
 | `attr_value` | 属性值 |
-| `heat_cnt` | 属性周热度 |
-| `type_total_heat` | 同类型属性周总热度 |
-| `heat_share` | 属性在同类型周热度中的占比 |
-| `log_heat` | 对数热度 |
+| `heat_cnt` | 关联商品 `sales_cnt` 求和 |
+| `type_total_heat` | 同类型属性本周 `heat_cnt` 总和 |
+| `heat_share` | `heat_cnt / type_total_heat` |
+| `log_heat` | `log1p(heat_cnt)` |
 | `rank_in_type` | 属性在同类型内的周热度排名 |
