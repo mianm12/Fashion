@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pandas as pd
 
@@ -9,6 +11,7 @@ from fashion_trend.trend import (
     ARTICLE_WEEK_SALES_COLUMNS,
     build_article_week_sales_frame,
     validate_article_week_sales,
+    write_trend_csv,
 )
 
 
@@ -146,6 +149,36 @@ class ArticleWeekSalesFrameTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "article_id"):
             validate_article_week_sales(sales)
+
+
+class TrendCsvWriteTests(unittest.TestCase):
+    def test_write_trend_csv_quotes_all_fields(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "attribute_week_heat.csv"
+            dataframe = pd.DataFrame(
+                {
+                    "week_id": [0],
+                    "attr_id": ["garment_group_name::Under-, Nightwear"],
+                    "attr_type": ["garment_group_name"],
+                    "attr_value": ["Under-, Nightwear"],
+                    "heat_cnt": [2],
+                    "type_total_heat": [2],
+                    "heat_share": [1.0],
+                    "log_heat": [1.0986122886681098],
+                    "rank_in_type": [1],
+                }
+            )
+
+            write_trend_csv(dataframe, output_path)
+
+            lines = output_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(
+                lines[0],
+                '"week_id","attr_id","attr_type","attr_value","heat_cnt","type_total_heat","heat_share","log_heat","rank_in_type"',
+            )
+            self.assertIn('"garment_group_name::Under-, Nightwear"', lines[1])
+            self.assertIn('"Under-, Nightwear"', lines[1])
+            self.assertFalse(output_path.with_suffix(".csv.tmp").exists())
 
 
 if __name__ == "__main__":

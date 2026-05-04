@@ -22,6 +22,7 @@ INTERIM_DIR = DATA_DIR / "interim"
 
 PROCESSED_DIR = DATA_DIR / "processed"
 GRAPH_DIR = PROCESSED_DIR / "graph"
+TREND_DIR = PROCESSED_DIR / "trend"
 
 MODEL_DIR = DATA_DIR / "models"
 
@@ -44,4 +45,7 @@ PATH = {
     "graph_nodes_attribute": GRAPH_DIR / "nodes_attribute.csv",
     "graph_edges_article_attribute": GRAPH_DIR / "edges_article_attribute.csv",
     "graph_edges_attribute_hierarchy": GRAPH_DIR / "edges_attribute_hierarchy.csv",
+    # ---------------- Processed trend data ----------------
+    "trend_article_week_sales": TREND_DIR / "article_week_sales.csv",
+    "trend_attribute_week_heat": TREND_DIR / "attribute_week_heat.csv",
 }

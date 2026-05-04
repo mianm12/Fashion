@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
@@ -91,6 +93,21 @@ def validate_positive_values(
         raise ValueError(f"{source_name} 存在非正值字段: " + ", ".join(invalid_columns))
 
 
+def read_weekly_transactions(weekly_transactions_path: Path) -> pd.DataFrame:
+    if not weekly_transactions_path.exists():
+        raise FileNotFoundError(f"周级交易表不存在: {weekly_transactions_path}")
+
+    try:
+        return pd.read_parquet(
+            weekly_transactions_path,
+            columns=list(WEEKLY_TRANSACTION_COLUMNS),
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"周级交易表缺少必要字段: {weekly_transactions_path}"
+        ) from exc
+
+
 def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.DataFrame:
     validate_required_columns(
         weekly_transactions.columns.tolist(),
@@ -156,3 +173,21 @@ def validate_article_week_sales(article_week_sales: pd.DataFrame) -> None:
         ["sales_amount"],
         source_name="商品周销量表",
     )
+
+
+def remove_file_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def write_trend_csv(dataframe: pd.DataFrame, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    try:
+        dataframe.to_csv(tmp_output_path, index=False, quoting=csv.QUOTE_ALL)
+        tmp_output_path.replace(output_path)
+    except Exception:
+        remove_file_if_exists(tmp_output_path)
+        raise
