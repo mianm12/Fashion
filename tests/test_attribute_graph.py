@@ -146,6 +146,33 @@ class AttributeGraphFileTests(unittest.TestCase):
             edges = pd.read_csv(output_dir / "edges_article_attribute.csv")
             self.assertTrue(set(edges["attr_id"]).issubset(set(nodes_attribute["attr_id"])))
 
+    def test_graph_outputs_quote_all_fields_for_csv_auto_detection(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            clean_articles_path = tmp_path / "articles_clean.csv"
+            output_dir = tmp_path / "graph"
+            sample_clean_articles().to_csv(clean_articles_path, index=False)
+
+            build_attribute_graph_files(
+                clean_articles_path=clean_articles_path,
+                graph_dir=output_dir,
+            )
+
+            edges_lines = (output_dir / "edges_article_attribute.csv").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            comma_value_line = next(
+                line for line in edges_lines if "Under-, Nightwear" in line
+            )
+            self.assertEqual(
+                edges_lines[0],
+                '"article_id","article_node_id","attr_id","attr_type","attr_value","edge_type","edge_weight"',
+            )
+            self.assertIn(
+                '"garment_group_name::Under-, Nightwear"', comma_value_line
+            )
+            self.assertIn('"Under-, Nightwear"', comma_value_line)
+
     def test_build_attribute_graph_files_fails_when_clean_input_missing(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

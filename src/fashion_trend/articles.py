@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from typing import Sequence
 
@@ -323,7 +324,7 @@ def read_articles_csv(raw_articles_path: Path) -> pd.DataFrame:
 def write_csv_temp(dataframe: pd.DataFrame, output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    dataframe.to_csv(tmp_output_path, index=False)
+    dataframe.to_csv(tmp_output_path, index=False, quoting=csv.QUOTE_ALL)
     return tmp_output_path
 
 

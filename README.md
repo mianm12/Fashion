@@ -209,3 +209,4 @@ data/interim/articles_clean.csv
 - `article_id` 必须按字符串读取，避免丢失前导 0。
 - 输出字段存在缺失值时直接失败，不静默填充。
 - `articles_clean_mvp.csv` 和 `articles_clean.csv` 的行数、`article_id` 集合必须与原始 `articles.csv` 保持一致。
+- 中间表和属性图 CSV 全字段使用双引号引用，避免 VS Code / DuckDB 等工具按前几万行采样时把后续含逗号的属性值误解析成额外列。
