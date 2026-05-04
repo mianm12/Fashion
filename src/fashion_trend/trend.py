@@ -240,6 +240,33 @@ def validate_all_sales_articles_have_attribute_edges(
         )
 
 
+def read_article_week_sales(article_week_sales_path: Path) -> pd.DataFrame:
+    if not article_week_sales_path.exists():
+        raise FileNotFoundError(f"商品周销量表不存在: {article_week_sales_path}")
+
+    return pd.read_csv(
+        article_week_sales_path,
+        usecols=list(ARTICLE_WEEK_SALES_COLUMNS),
+        dtype={"article_id": "string"},
+    )
+
+
+def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataFrame:
+    if not article_attribute_edges_path.exists():
+        raise FileNotFoundError(f"商品-属性边表不存在: {article_attribute_edges_path}")
+
+    return pd.read_csv(
+        article_attribute_edges_path,
+        usecols=list(ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS),
+        dtype={
+            "article_id": "string",
+            "attr_id": "string",
+            "attr_type": "string",
+            "attr_value": "string",
+        },
+    )
+
+
 def build_attribute_week_heat_frame(
     article_week_sales: pd.DataFrame,
     article_attribute_edges: pd.DataFrame,
