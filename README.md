@@ -210,3 +210,59 @@ data/interim/articles_clean.csv
 - 输出字段存在缺失值时直接失败，不静默填充。
 - `articles_clean_mvp.csv` 和 `articles_clean.csv` 的行数、`article_id` 集合必须与原始 `articles.csv` 保持一致。
 - 中间表和属性图 CSV 全字段使用双引号引用，避免 VS Code / DuckDB 等工具按前几万行采样时把后续含逗号的属性值误解析成额外列。
+
+### 3. article_week_sales.csv
+
+基于 `data/interim/transactions_train_weekly.parquet`，按 `week_id + article_id` 聚合每个商品每周购买次数、购买用户数和销售额。
+
+输出文件:
+
+```sh
+data/processed/trend/article_week_sales.csv
+```
+
+运行命令:
+
+```sh
+PYTHONPATH=src .venv/bin/python src/05_compute_article_week_sales.py
+```
+
+输出字段:
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `week_id` | 周编号 |
+| `article_id` | 商品唯一编号，保留前导 0 |
+| `sales_cnt` | 商品每周购买次数 |
+| `sales_user_cnt` | 商品每周购买用户数 |
+| `sales_amount` | 商品每周销售额 |
+
+### 4. attribute_week_heat.csv
+
+基于 `article_week_sales.csv` 和 `data/processed/graph/edges_article_attribute.csv`，将商品周销量映射到商品关联属性节点。
+
+输出文件:
+
+```sh
+data/processed/trend/attribute_week_heat.csv
+```
+
+运行命令:
+
+```sh
+PYTHONPATH=src .venv/bin/python src/06_compute_attribute_week_heat.py
+```
+
+输出字段:
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `week_id` | 周编号 |
+| `attr_id` | 属性节点编号 |
+| `attr_type` | 属性类型 |
+| `attr_value` | 属性值 |
+| `heat_cnt` | 属性周热度 |
+| `type_total_heat` | 同类型属性周总热度 |
+| `heat_share` | 属性在同类型周热度中的占比 |
+| `log_heat` | 对数热度 |
+| `rank_in_type` | 属性在同类型内的周热度排名 |
