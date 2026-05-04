@@ -5,8 +5,10 @@ from fashion_trend.config import PATH
 from fashion_trend.trend import (
     build_attribute_week_heat_frame,
     read_article_attribute_edges,
+    read_attribute_nodes,
     read_article_week_sales,
     validate_article_attribute_edges_for_heat,
+    validate_attribute_nodes_for_heat,
     validate_article_week_sales,
     validate_attribute_week_heat,
     write_trend_csv,
@@ -29,11 +31,20 @@ def compute_attribute_week_heat() -> dict[str, int]:
     )
     validate_article_attribute_edges_for_heat(article_attribute_edges)
 
+    log.info(f"输入属性节点表: {PATH['graph_nodes_attribute']}", source=LOG_SOURCE)
+    attribute_nodes = read_attribute_nodes(PATH["graph_nodes_attribute"])
+    validate_attribute_nodes_for_heat(attribute_nodes)
+
     attribute_week_heat = build_attribute_week_heat_frame(
         article_week_sales,
         article_attribute_edges,
+        attribute_nodes,
     )
-    validate_attribute_week_heat(attribute_week_heat)
+    validate_attribute_week_heat(
+        attribute_week_heat,
+        expected_week_ids=sorted(article_week_sales["week_id"].unique()),
+        expected_attribute_nodes=attribute_nodes,
+    )
     write_trend_csv(attribute_week_heat, PATH["trend_attribute_week_heat"])
 
     return {
