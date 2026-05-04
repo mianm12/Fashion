@@ -15,6 +15,7 @@ from fashion_trend.trend import (
     read_weekly_transactions,
     validate_article_attribute_edges_for_heat,
     validate_article_week_sales,
+    validate_attribute_week_heat,
     write_trend_csv,
 )
 
@@ -90,6 +91,13 @@ def sample_article_attribute_edges() -> pd.DataFrame:
             ],
             "edge_weight": [1.0, 1.0, 1.0, 1.0],
         }
+    )
+
+
+def sample_attribute_week_heat() -> pd.DataFrame:
+    return build_attribute_week_heat_frame(
+        sample_attribute_article_week_sales(),
+        sample_article_attribute_edges(),
     )
 
 
@@ -323,6 +331,24 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
             math.isclose(float(week0_colour.iloc[0]["log_heat"]), math.log1p(2))
         )
 
+        week1_product = heat[
+            (heat["week_id"] == 1) & (heat["attr_type"] == "product_type_name")
+        ]
+        self.assertEqual(
+            week1_product[
+                ["attr_id", "heat_cnt", "type_total_heat", "rank_in_type"]
+            ].to_dict("records"),
+            [
+                {
+                    "attr_id": "product_type_name::Vest top",
+                    "heat_cnt": 1,
+                    "type_total_heat": 1,
+                    "rank_in_type": 1,
+                }
+            ],
+        )
+        self.assertTrue(math.isclose(float(week1_product.iloc[0]["heat_share"]), 1.0))
+
     def test_build_attribute_week_heat_frame_rejects_unmapped_sales_articles(
         self,
     ) -> None:
@@ -340,6 +366,68 @@ class AttributeWeekHeatFrameTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "article_id, attr_id"):
             validate_article_attribute_edges_for_heat(edges)
+
+    def test_validate_article_attribute_edges_for_heat_rejects_inconsistent_attr_id(
+        self,
+    ) -> None:
+        edges = sample_article_attribute_edges()
+        edges.loc[2, "attr_id"] = "colour_group_name::Black"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "colour_group_name::Black.*colour_group_name=Black.*colour_group_name=White",
+        ):
+            validate_article_attribute_edges_for_heat(edges)
+
+    def test_validate_attribute_week_heat_rejects_duplicate_week_attr(self) -> None:
+        heat = sample_attribute_week_heat()
+        heat.loc[len(heat)] = heat.loc[0]
+
+        with self.assertRaisesRegex(ValueError, "week_id, attr_id"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_invalid_share_total(self) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_mask = (
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        )
+        heat.loc[week0_colour_mask.idxmax(), "heat_share"] = 0.5
+
+        with self.assertRaisesRegex(ValueError, "占比和不等于 1"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_duplicate_rank_in_type(self) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_indices = heat.index[
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        ]
+        heat.loc[week0_colour_indices[1], "rank_in_type"] = 1
+
+        with self.assertRaisesRegex(ValueError, "重复 rank_in_type"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_rank_not_starting_at_one(
+        self,
+    ) -> None:
+        heat = sample_attribute_week_heat()
+        week0_colour_indices = heat.index[
+            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        ]
+        heat.loc[week0_colour_indices, "rank_in_type"] = [2, 3]
+
+        with self.assertRaisesRegex(ValueError, "未从 1 开始"):
+            validate_attribute_week_heat(heat)
+
+    def test_validate_attribute_week_heat_rejects_non_positive_heat_values(
+        self,
+    ) -> None:
+        for column in ["heat_cnt", "heat_share"]:
+            with self.subTest(column=column):
+                heat = sample_attribute_week_heat()
+                heat.loc[0, column] = 0
+
+                with self.assertRaisesRegex(ValueError, column):
+                    validate_attribute_week_heat(heat)
 
 
 if __name__ == "__main__":

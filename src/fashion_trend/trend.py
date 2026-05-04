@@ -206,6 +206,24 @@ def validate_article_attribute_edges_for_heat(
         source_name="商品-属性边表",
     )
 
+    attr_pairs = article_attribute_edges.loc[
+        :, ["attr_id", "attr_type", "attr_value"]
+    ].drop_duplicates()
+    attr_pair_counts = attr_pairs.groupby("attr_id").size()
+    inconsistent_attr_ids = attr_pair_counts[attr_pair_counts > 1].index.tolist()
+    if inconsistent_attr_ids:
+        attr_id = inconsistent_attr_ids[0]
+        pairs = attr_pairs[attr_pairs["attr_id"] == attr_id].loc[
+            :, ["attr_type", "attr_value"]
+        ]
+        pair_examples = ", ".join(
+            f"{row.attr_type}={row.attr_value}" for row in pairs.itertuples()
+        )
+        raise ValueError(
+            "商品-属性边表存在 attr_id 映射到多个 attr_type + attr_value: "
+            f"{attr_id} -> {pair_examples}"
+        )
+
 
 def validate_all_sales_articles_have_attribute_edges(
     article_week_sales: pd.DataFrame,
