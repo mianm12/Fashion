@@ -10,6 +10,7 @@ import pandas as pd
 from fashion_trend.trend import (
     ARTICLE_WEEK_SALES_COLUMNS,
     build_article_week_sales_frame,
+    read_weekly_transactions,
     validate_article_week_sales,
     write_trend_csv,
 )
@@ -39,6 +40,29 @@ def sample_article_week_sales() -> pd.DataFrame:
 
 
 class ArticleWeekSalesFrameTests(unittest.TestCase):
+    def test_read_weekly_transactions_rejects_missing_file(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "weekly_transactions.parquet"
+
+            with self.assertRaisesRegex(FileNotFoundError, "周级交易表不存在"):
+                read_weekly_transactions(input_path)
+
+    def test_read_weekly_transactions_reports_missing_required_field(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "weekly_transactions.parquet"
+            sample_weekly_transactions().drop(columns=["price"]).to_parquet(input_path)
+
+            with self.assertRaisesRegex(ValueError, "price"):
+                read_weekly_transactions(input_path)
+
+    def test_read_weekly_transactions_reports_unreadable_file(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "weekly_transactions.parquet"
+            input_path.write_text("not a parquet file", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "无法读取周级交易表"):
+                read_weekly_transactions(input_path)
+
     def test_build_article_week_sales_frame_aggregates_sales_by_week_and_article(
         self,
     ) -> None:
@@ -152,6 +176,33 @@ class ArticleWeekSalesFrameTests(unittest.TestCase):
 
 
 class TrendCsvWriteTests(unittest.TestCase):
+    def test_write_trend_csv_creates_parent_directory(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "nested" / "attribute_week_heat.csv"
+
+            write_trend_csv(sample_article_week_sales(), output_path)
+
+            self.assertTrue(output_path.exists())
+
+    def test_write_trend_csv_replaces_existing_file(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "attribute_week_heat.csv"
+            output_path.write_text("stale", encoding="utf-8")
+
+            write_trend_csv(sample_article_week_sales(), output_path)
+
+            self.assertNotEqual(output_path.read_text(encoding="utf-8"), "stale")
+
+    def test_write_trend_csv_removes_tmp_file_when_replace_fails(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "attribute_week_heat.csv"
+            output_path.mkdir()
+
+            with self.assertRaises(OSError):
+                write_trend_csv(sample_article_week_sales(), output_path)
+
+            self.assertFalse(output_path.with_suffix(".csv.tmp").exists())
+
     def test_write_trend_csv_quotes_all_fields(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             output_path = Path(tmp_dir) / "attribute_week_heat.csv"

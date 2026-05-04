@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 WEEKLY_TRANSACTION_COLUMNS: tuple[str, ...] = (
     "week_id",
@@ -98,14 +100,23 @@ def read_weekly_transactions(weekly_transactions_path: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"周级交易表不存在: {weekly_transactions_path}")
 
     try:
+        parquet_file = pq.ParquetFile(weekly_transactions_path)
+    except (OSError, ValueError, pa.ArrowException) as exc:
+        raise ValueError(f"无法读取周级交易表: {weekly_transactions_path}") from exc
+
+    validate_required_columns(
+        parquet_file.schema_arrow.names,
+        WEEKLY_TRANSACTION_COLUMNS,
+        source_name="周级交易表",
+    )
+
+    try:
         return pd.read_parquet(
             weekly_transactions_path,
             columns=list(WEEKLY_TRANSACTION_COLUMNS),
         )
-    except ValueError as exc:
-        raise ValueError(
-            f"周级交易表缺少必要字段: {weekly_transactions_path}"
-        ) from exc
+    except (OSError, ValueError, pa.ArrowException) as exc:
+        raise ValueError(f"无法读取周级交易表: {weekly_transactions_path}") from exc
 
 
 def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.DataFrame:
