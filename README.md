@@ -1,6 +1,6 @@
 # Fashion
 
-时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量与属性周热度，为后续属性趋势预测和 Top-N 推荐做准备。
+时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量、属性周热度和基础属性趋势预测 baseline，为后续趋势感知 Top-N 推荐做准备。
 
 ## 研究主线
 
@@ -453,7 +453,7 @@ uv run python src/09_split_trend_model_samples.py
 
 ### 9. last_week baseline
 
-`last_week` baseline 使用上一段已观测属性占比增长预测下一段增长：
+`last_week` baseline 使用上一样本周的已观测属性占比增长 `growth_lag_1` 预测下一段增长：
 
 ```text
 pred_target_growth = growth_lag_1
