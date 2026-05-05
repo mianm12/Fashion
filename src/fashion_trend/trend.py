@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Sequence
 
@@ -105,6 +106,13 @@ TREND_MODEL_SAMPLE_COLUMNS: tuple[str, ...] = (
     "target_growth",
     "target_log_heat_t1",
     "target_rank_in_type_t1",
+)
+
+TREND_MODEL_SPLIT_VALUES: tuple[str, ...] = ("train", "valid", "test")
+
+TREND_MODEL_SPLIT_COLUMNS: tuple[str, ...] = (
+    "split",
+    *TREND_MODEL_SAMPLE_COLUMNS,
 )
 
 ARTICLE_WEEK_SALES_DTYPES: dict[str, str] = {
@@ -1214,6 +1222,156 @@ def validate_trend_model_samples(trend_model_samples: pd.DataFrame) -> None:
         raise ValueError("趋势训练样本表无法校验数值字段。") from exc
     if not np.isfinite(finite_numeric_values).all():
         raise ValueError("趋势训练样本表存在非有限数值。")
+
+
+def build_trend_model_split_frames(
+    trend_model_samples: pd.DataFrame,
+    valid_weeks: int,
+    test_weeks: int,
+) -> dict[str, pd.DataFrame]:
+    validate_trend_model_samples(trend_model_samples)
+    if valid_weeks <= 0:
+        raise ValueError("valid_weeks 必须为正整数。")
+    if test_weeks <= 0:
+        raise ValueError("test_weeks 必须为正整数。")
+
+    week_ids = sorted(trend_model_samples["week_id"].unique().tolist())
+    required_week_count = valid_weeks + test_weeks + 1
+    if len(week_ids) < required_week_count:
+        raise ValueError(
+            "样本周数不足，无法生成非空 train/valid/test: "
+            f"当前 {len(week_ids)} 周，valid_weeks={valid_weeks}, "
+            f"test_weeks={test_weeks}。"
+        )
+
+    max_sample_week = max(week_ids)
+    test_start_week = max_sample_week - test_weeks + 1
+    valid_start_week = test_start_week - valid_weeks
+
+    split_masks = {
+        "train": trend_model_samples["week_id"] < valid_start_week,
+        "valid": (trend_model_samples["week_id"] >= valid_start_week)
+        & (trend_model_samples["week_id"] < test_start_week),
+        "test": trend_model_samples["week_id"] >= test_start_week,
+    }
+    split_frames: dict[str, pd.DataFrame] = {}
+    for split_name in TREND_MODEL_SPLIT_VALUES:
+        split_frame = trend_model_samples.loc[split_masks[split_name]].copy()
+        split_frame.insert(0, "split", split_name)
+        split_frame = split_frame.loc[:, list(TREND_MODEL_SPLIT_COLUMNS)].sort_values(
+            ["week_id", "attr_type", "attr_id"],
+            ignore_index=True,
+        )
+        split_frames[split_name] = split_frame
+
+    validate_trend_model_split_frames(split_frames, trend_model_samples)
+    return split_frames
+
+
+def validate_trend_model_split_frames(
+    split_frames: dict[str, pd.DataFrame],
+    original_samples: pd.DataFrame | None = None,
+) -> None:
+    missing_splits = set(TREND_MODEL_SPLIT_VALUES) - set(split_frames)
+    if missing_splits:
+        raise ValueError(f"趋势样本切分缺少 split: {sorted(missing_splits)}")
+
+    combined_parts: list[pd.DataFrame] = []
+    previous_max_week: int | None = None
+    for split_name in TREND_MODEL_SPLIT_VALUES:
+        split_frame = split_frames[split_name]
+        validate_required_columns(
+            split_frame.columns.tolist(),
+            TREND_MODEL_SPLIT_COLUMNS,
+            source_name=f"{split_name} 趋势样本",
+        )
+        validate_no_missing_values(
+            split_frame,
+            TREND_MODEL_SPLIT_COLUMNS,
+            source_name=f"{split_name} 趋势样本",
+        )
+        if split_frame.empty:
+            raise ValueError(f"{split_name} 趋势样本为空。")
+        if set(split_frame["split"]) != {split_name}:
+            raise ValueError(f"{split_name} 趋势样本 split 字段不一致。")
+        validate_unique_key(
+            split_frame,
+            ["week_id", "attr_id"],
+            source_name=f"{split_name} 趋势样本",
+        )
+        min_week = int(split_frame["week_id"].min())
+        max_week = int(split_frame["week_id"].max())
+        if previous_max_week is not None and min_week <= previous_max_week:
+            raise ValueError("趋势样本 split 周范围必须按时间递增且互不重叠。")
+        previous_max_week = max_week
+        combined_parts.append(split_frame.drop(columns=["split"]))
+
+    if original_samples is not None:
+        combined = pd.concat(combined_parts, ignore_index=True)
+        combined_keys = combined.loc[:, ["week_id", "attr_id"]].sort_values(
+            ["week_id", "attr_id"],
+            ignore_index=True,
+        )
+        original_keys = original_samples.loc[:, ["week_id", "attr_id"]].sort_values(
+            ["week_id", "attr_id"],
+            ignore_index=True,
+        )
+        if not combined_keys.equals(original_keys):
+            raise ValueError("趋势样本 split 合并后无法覆盖原始样本全集。")
+
+
+def build_trend_model_split_metadata(
+    split_frames: dict[str, pd.DataFrame],
+    input_path: Path,
+    output_paths: dict[str, Path],
+    valid_weeks: int,
+    test_weeks: int,
+) -> dict[str, object]:
+    validate_trend_model_split_frames(split_frames)
+    split_metadata: dict[str, dict[str, object]] = {}
+    for split_name in TREND_MODEL_SPLIT_VALUES:
+        split_frame = split_frames[split_name]
+        split_metadata[split_name] = {
+            "path": str(output_paths[split_name]),
+            "rows": int(len(split_frame)),
+            "weeks": int(split_frame["week_id"].nunique()),
+            "attributes": int(split_frame["attr_id"].nunique()),
+            "week_min": int(split_frame["week_id"].min()),
+            "week_max": int(split_frame["week_id"].max()),
+        }
+    return {
+        "split_strategy": "time",
+        "valid_weeks": int(valid_weeks),
+        "test_weeks": int(test_weeks),
+        "input_path": str(input_path),
+        "splits": split_metadata,
+    }
+
+
+def read_trend_model_split(input_path: Path) -> pd.DataFrame:
+    if not input_path.exists():
+        raise FileNotFoundError(f"趋势样本 split 不存在: {input_path}")
+    dataframe = pd.read_parquet(input_path)
+    validate_required_columns(
+        dataframe.columns.tolist(),
+        TREND_MODEL_SPLIT_COLUMNS,
+        source_name=f"趋势样本 split: {input_path}",
+    )
+    return dataframe.loc[:, list(TREND_MODEL_SPLIT_COLUMNS)].copy()
+
+
+def write_json(payload: dict[str, object], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    try:
+        tmp_output_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        tmp_output_path.replace(output_path)
+    except Exception:
+        remove_file_if_exists(tmp_output_path)
+        raise
 
 
 def remove_file_if_exists(path: Path) -> None:

@@ -12,16 +12,20 @@ from fashion_trend.trend import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
+    TREND_MODEL_SPLIT_COLUMNS,
     build_article_week_sales_frame,
     build_attribute_graph_features_frame,
     build_attribute_week_heat_frame,
     build_attribute_week_target_frame,
     build_trend_model_samples_frame,
+    build_trend_model_split_frames,
+    build_trend_model_split_metadata,
     read_article_attribute_edges,
     read_attribute_hierarchy_edges,
     read_attribute_nodes,
     read_article_week_sales,
     read_attribute_week_target,
+    read_trend_model_split,
     read_weekly_transactions,
     validate_article_attribute_edges_for_heat,
     validate_attribute_nodes_for_heat,
@@ -29,6 +33,8 @@ from fashion_trend.trend import (
     validate_attribute_week_heat,
     validate_attribute_week_target,
     validate_trend_model_samples,
+    validate_trend_model_split_frames,
+    write_json,
     write_trend_csv,
     write_trend_parquet,
 )
@@ -227,6 +233,58 @@ def sample_attribute_hierarchy_edges() -> pd.DataFrame:
             "edge_weight": [2, 1],
         }
     )
+
+
+def sample_trend_model_samples_for_split() -> pd.DataFrame:
+    rows = []
+    for week_id in range(4, 24):
+        for attr_id, attr_type, attr_value in [
+            ("colour_group_name::Black", "colour_group_name", "Black"),
+            ("colour_group_name::White", "colour_group_name", "White"),
+        ]:
+            share_t = 0.60 if attr_value == "Black" else 0.40
+            rows.append(
+                {
+                    "week_id": week_id,
+                    "attr_id": attr_id,
+                    "attr_type": attr_type,
+                    "attr_value": attr_value,
+                    "heat_t": 10 + week_id,
+                    "share_t": share_t,
+                    "log_heat_t": math.log1p(10 + week_id),
+                    "rank_in_type_t": 1 if attr_value == "Black" else 2,
+                    "heat_lag_1": 9 + week_id,
+                    "heat_lag_2": 8 + week_id,
+                    "heat_lag_3": 7 + week_id,
+                    "heat_lag_4": 6 + week_id,
+                    "share_lag_1": share_t - 0.01,
+                    "share_lag_2": share_t - 0.02,
+                    "share_lag_3": share_t - 0.03,
+                    "share_lag_4": share_t - 0.04,
+                    "growth_lag_1": 0.10 if attr_value == "Black" else -0.05,
+                    "growth_lag_2": 0.05 if attr_value == "Black" else -0.02,
+                    "acc_lag_1": 0.05 if attr_value == "Black" else -0.03,
+                    "heat_ma_4": 8.5 + week_id,
+                    "share_ma_4": share_t - 0.015,
+                    "share_std_4": 0.01,
+                    "share_max_4": share_t,
+                    "share_min_4": share_t - 0.04,
+                    "article_count": 10,
+                    "is_core_attr": 1,
+                    "parent_count": 1,
+                    "child_count": 0,
+                    "degree": 1,
+                    "history_total_heat_t": 100 + week_id,
+                    "history_active_weeks_t": week_id,
+                    "is_trend_eligible_t": True,
+                    "week_index": week_id,
+                    "week_mod_52": week_id % 52,
+                    "target_growth": 0.12 if attr_value == "Black" else -0.03,
+                    "target_log_heat_t1": math.log1p(11 + week_id),
+                    "target_rank_in_type_t1": 1 if attr_value == "Black" else 2,
+                }
+            )
+    return pd.DataFrame(rows).loc[:, list(TREND_MODEL_SAMPLE_COLUMNS)]
 
 
 class ArticleWeekSalesFrameTests(unittest.TestCase):
@@ -1063,6 +1121,70 @@ class TrendModelSamplesFrameTests(unittest.TestCase):
                 sample_attribute_hierarchy_edges(),
                 min_lag_weeks=1,
             )
+
+
+class TrendModelSplitFrameTests(unittest.TestCase):
+    def test_build_trend_model_split_frames_uses_time_boundaries(self) -> None:
+        samples = sample_trend_model_samples_for_split()
+
+        split_frames = build_trend_model_split_frames(
+            samples,
+            valid_weeks=4,
+            test_weeks=4,
+        )
+
+        self.assertEqual(set(split_frames), {"train", "valid", "test"})
+        self.assertEqual(split_frames["train"]["week_id"].min(), 4)
+        self.assertEqual(split_frames["train"]["week_id"].max(), 15)
+        self.assertEqual(split_frames["valid"]["week_id"].min(), 16)
+        self.assertEqual(split_frames["valid"]["week_id"].max(), 19)
+        self.assertEqual(split_frames["test"]["week_id"].min(), 20)
+        self.assertEqual(split_frames["test"]["week_id"].max(), 23)
+        self.assertEqual(set(split_frames["train"]["split"]), {"train"})
+        self.assertEqual(set(split_frames["valid"]["split"]), {"valid"})
+        self.assertEqual(set(split_frames["test"]["split"]), {"test"})
+
+    def test_build_trend_model_split_frames_rejects_too_few_weeks(self) -> None:
+        samples = sample_trend_model_samples_for_split()
+        samples = samples[samples["week_id"] < 10].copy()
+
+        with self.assertRaisesRegex(ValueError, "样本周数不足"):
+            build_trend_model_split_frames(samples, valid_weeks=4, test_weeks=4)
+
+    def test_build_trend_model_split_metadata_reports_ranges(self) -> None:
+        samples = sample_trend_model_samples_for_split()
+        split_frames = build_trend_model_split_frames(
+            samples,
+            valid_weeks=4,
+            test_weeks=4,
+        )
+
+        metadata = build_trend_model_split_metadata(
+            split_frames,
+            input_path=Path("data/processed/features/trend_model_samples.parquet"),
+            output_paths={
+                "train": Path(
+                    "data/processed/features/trend_model_samples_train.parquet"
+                ),
+                "valid": Path(
+                    "data/processed/features/trend_model_samples_valid.parquet"
+                ),
+                "test": Path(
+                    "data/processed/features/trend_model_samples_test.parquet"
+                ),
+            },
+            valid_weeks=4,
+            test_weeks=4,
+        )
+
+        self.assertEqual(metadata["split_strategy"], "time")
+        self.assertEqual(metadata["valid_weeks"], 4)
+        self.assertEqual(metadata["test_weeks"], 4)
+        self.assertEqual(metadata["splits"]["train"]["week_min"], 4)
+        self.assertEqual(metadata["splits"]["train"]["week_max"], 15)
+        self.assertEqual(metadata["splits"]["train"]["rows"], 24)
+        self.assertEqual(metadata["splits"]["valid"]["week_min"], 16)
+        self.assertEqual(metadata["splits"]["test"]["week_max"], 23)
 
 
 if __name__ == "__main__":

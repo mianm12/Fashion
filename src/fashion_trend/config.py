@@ -27,6 +27,15 @@ FEATURES_DIR = PROCESSED_DIR / "features"
 
 MODEL_DIR = DATA_DIR / "models"
 
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
+OUTPUT_MODELS_DIR = OUTPUT_DIR / "models"
+OUTPUT_METRICS_DIR = OUTPUT_DIR / "metrics"
+OUTPUT_FIGURES_DIR = OUTPUT_DIR / "figures"
+OUTPUT_REPORTS_DIR = OUTPUT_DIR / "reports"
+
+TREND_SPLIT_VALID_WEEKS = 8
+TREND_SPLIT_TEST_WEEKS = 8
+
 
 # ============================================================
 # 2. File paths
@@ -51,4 +60,21 @@ PATH = {
     "trend_attribute_week_heat": TREND_DIR / "attribute_week_heat.csv",
     "trend_attribute_week_target": TREND_DIR / "attribute_week_target.csv",
     "features_trend_model_samples": FEATURES_DIR / "trend_model_samples.parquet",
+    "features_trend_model_samples_train": FEATURES_DIR
+    / "trend_model_samples_train.parquet",
+    "features_trend_model_samples_valid": FEATURES_DIR
+    / "trend_model_samples_valid.parquet",
+    "features_trend_model_samples_test": FEATURES_DIR
+    / "trend_model_samples_test.parquet",
+    "features_trend_model_samples_split_metadata": FEATURES_DIR
+    / "trend_model_samples_split_metadata.json",
+    # ---------------- Model outputs ----------------
+    "output_model_last_week_dir": OUTPUT_MODELS_DIR / "last_week",
+    "output_model_last_week_predictions": OUTPUT_MODELS_DIR
+    / "last_week"
+    / "predictions.csv",
+    "output_model_last_week_params": OUTPUT_MODELS_DIR / "last_week" / "params.json",
+    "output_model_last_week_metadata": OUTPUT_MODELS_DIR
+    / "last_week"
+    / "metadata.json",
 }
