@@ -1248,6 +1248,20 @@ class TrendModelSplitFrameTests(unittest.TestCase):
 
 
 class LastWeekBaselineTests(unittest.TestCase):
+    def test_last_week_params_are_stable(self) -> None:
+        self.assertEqual(
+            LAST_WEEK_PARAMS,
+            {
+                "model_name": LAST_WEEK_MODEL_NAME,
+                "formula": "pred_target_growth = growth_lag_1",
+                "derived_formula": (
+                    "pred_share_t1 = exp(pred_target_growth) * "
+                    "(share_t + epsilon) - epsilon"
+                ),
+                "epsilon": 1e-6,
+            },
+        )
+
     def test_predict_last_week_uses_growth_lag_1(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
