@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import math
 import unittest
 from pathlib import Path
@@ -1252,7 +1253,7 @@ class LastWeekBaselineTests(unittest.TestCase):
         self.assertEqual(
             LAST_WEEK_PARAMS,
             {
-                "model_name": LAST_WEEK_MODEL_NAME,
+                "model_name": "last_week",
                 "formula": "pred_target_growth = growth_lag_1",
                 "derived_formula": (
                     "pred_share_t1 = exp(pred_target_growth) * "
@@ -1261,6 +1262,135 @@ class LastWeekBaselineTests(unittest.TestCase):
                 "epsilon": 1e-6,
             },
         )
+
+    def test_build_prediction_metadata_reports_paths_and_split_stats(self) -> None:
+        train_baseline = importlib.import_module("10_train_trend_baseline")
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+
+        metadata = train_baseline.build_prediction_metadata(predictions)
+
+        self.assertEqual(metadata["model_name"], LAST_WEEK_MODEL_NAME)
+        self.assertEqual(
+            set(metadata),
+            {
+                "model_name",
+                "input_paths",
+                "prediction_path",
+                "rows",
+                "weeks",
+                "attributes",
+                "splits",
+            },
+        )
+        self.assertEqual(
+            set(metadata["input_paths"]),
+            {"train", "valid", "test"},
+        )
+        self.assertTrue(metadata["prediction_path"].endswith("predictions.csv"))
+        self.assertEqual(metadata["rows"], 40)
+        self.assertEqual(metadata["weeks"], 20)
+        self.assertEqual(metadata["attributes"], 2)
+        self.assertEqual(metadata["splits"]["train"]["rows"], 24)
+        self.assertEqual(metadata["splits"]["train"]["weeks"], 12)
+        self.assertEqual(metadata["splits"]["train"]["attributes"], 2)
+        self.assertEqual(metadata["splits"]["train"]["week_min"], 4)
+        self.assertEqual(metadata["splits"]["train"]["week_max"], 15)
+        self.assertEqual(metadata["splits"]["valid"]["week_min"], 16)
+        self.assertEqual(metadata["splits"]["test"]["week_max"], 23)
+
+    def test_build_prediction_metadata_rejects_missing_split_rows(self) -> None:
+        train_baseline = importlib.import_module("10_train_trend_baseline")
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+        predictions = predictions[predictions["split"] != "valid"].copy()
+
+        with self.assertRaisesRegex(ValueError, "valid"):
+            train_baseline.build_prediction_metadata(predictions)
+
+    def test_build_prediction_metadata_rejects_non_integral_week_id(self) -> None:
+        train_baseline = importlib.import_module("10_train_trend_baseline")
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+        predictions["week_id"] = predictions["week_id"].astype("float64")
+        predictions.loc[0, "week_id"] = 4.5
+
+        with self.assertRaisesRegex(ValueError, "week_id"):
+            train_baseline.build_prediction_metadata(predictions)
+
+    def test_main_preserves_argparse_usage_error_code(self) -> None:
+        train_baseline = importlib.import_module("10_train_trend_baseline")
+
+        self.assertEqual(train_baseline.main(["--unknown"]), 2)
+
+    def test_train_trend_baseline_builds_metadata_before_writing_outputs(self) -> None:
+        train_baseline = importlib.import_module("10_train_trend_baseline")
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        calls: list[str] = []
+        original_read = train_baseline.read_trend_model_split
+        original_build_metadata = train_baseline.build_prediction_metadata
+        original_write_csv = train_baseline.write_trend_csv
+        original_write_json = train_baseline.write_json
+
+        def fake_read_trend_model_split(input_path: Path) -> pd.DataFrame:
+            path_text = str(input_path)
+            if path_text.endswith("_train.parquet"):
+                return split_frames["train"]
+            if path_text.endswith("_valid.parquet"):
+                return split_frames["valid"]
+            if path_text.endswith("_test.parquet"):
+                return split_frames["test"]
+            raise AssertionError(f"unexpected input path: {input_path}")
+
+        def failing_build_prediction_metadata(
+            predictions: pd.DataFrame,
+        ) -> dict[str, object]:
+            calls.append("metadata")
+            raise ValueError("metadata failed")
+
+        def fake_write_trend_csv(
+            dataframe: pd.DataFrame,
+            output_path: Path,
+        ) -> None:
+            calls.append("predictions")
+
+        def fake_write_json(payload: dict[str, object], output_path: Path) -> None:
+            calls.append("json")
+
+        try:
+            train_baseline.read_trend_model_split = fake_read_trend_model_split
+            train_baseline.build_prediction_metadata = failing_build_prediction_metadata
+            train_baseline.write_trend_csv = fake_write_trend_csv
+            train_baseline.write_json = fake_write_json
+
+            with self.assertRaisesRegex(ValueError, "metadata failed"):
+                train_baseline.train_trend_baseline(LAST_WEEK_MODEL_NAME)
+        finally:
+            train_baseline.read_trend_model_split = original_read
+            train_baseline.build_prediction_metadata = original_build_metadata
+            train_baseline.write_trend_csv = original_write_csv
+            train_baseline.write_json = original_write_json
+
+        self.assertEqual(calls, ["metadata"])
 
     def test_predict_last_week_uses_growth_lag_1(self) -> None:
         split_frames = build_trend_model_split_frames(

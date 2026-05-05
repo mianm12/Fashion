@@ -37,9 +37,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def build_prediction_metadata(predictions: pd.DataFrame) -> dict[str, object]:
+    try:
+        week_ids = pd.to_numeric(predictions["week_id"], errors="raise")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("趋势 baseline 预测 metadata 无法读取 week_id。") from exc
+    if week_ids.isna().any() or not (week_ids % 1 == 0).all():
+        raise ValueError("趋势 baseline 预测 metadata week_id 必须为整数。")
+
     split_metadata: dict[str, dict[str, object]] = {}
     for split_name in TREND_MODEL_SPLIT_VALUES:
         split_predictions = predictions[predictions["split"] == split_name]
+        if split_predictions.empty:
+            raise ValueError(f"趋势 baseline 预测 metadata 缺少 {split_name} split。")
         split_metadata[split_name] = {
             "rows": int(len(split_predictions)),
             "weeks": int(split_predictions["week_id"].nunique()),
@@ -56,9 +65,9 @@ def build_prediction_metadata(predictions: pd.DataFrame) -> dict[str, object]:
             "test": str(PATH["features_trend_model_samples_test"]),
         },
         "prediction_path": str(PATH["output_model_last_week_predictions"]),
-        "total_rows": int(len(predictions)),
-        "total_weeks": int(predictions["week_id"].nunique()),
-        "total_attributes": int(predictions["attr_id"].nunique()),
+        "rows": int(len(predictions)),
+        "weeks": int(predictions["week_id"].nunique()),
+        "attributes": int(predictions["attr_id"].nunique()),
         "splits": split_metadata,
     }
 
@@ -81,10 +90,11 @@ def train_trend_baseline(model_name: str) -> dict[str, object]:
     split_samples = pd.concat(split_frames, ignore_index=True)
     predictions = predict_last_week(split_samples)
     validate_trend_baseline_predictions(predictions, split_samples)
+    params = dict(LAST_WEEK_PARAMS)
+    metadata = build_prediction_metadata(predictions)
 
     write_trend_csv(predictions, PATH["output_model_last_week_predictions"])
-    write_json(dict(LAST_WEEK_PARAMS), PATH["output_model_last_week_params"])
-    metadata = build_prediction_metadata(predictions)
+    write_json(params, PATH["output_model_last_week_params"])
     write_json(metadata, PATH["output_model_last_week_metadata"])
     return metadata
 
@@ -93,7 +103,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parse_args(argv)
     except SystemExit as exc:
-        return 0 if exc.code == 0 else 1
+        return exc.code if isinstance(exc.code, int) else 1
 
     try:
         metadata = train_trend_baseline(args.model)
@@ -102,9 +112,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     log.info(f"模型名称: {metadata['model_name']}", source=LOG_SOURCE)
-    log.info(f"预测行数: {metadata['total_rows']:,}", source=LOG_SOURCE)
-    log.info(f"覆盖样本周数: {metadata['total_weeks']:,}", source=LOG_SOURCE)
-    log.info(f"覆盖属性节点数: {metadata['total_attributes']:,}", source=LOG_SOURCE)
+    log.info(f"预测行数: {metadata['rows']:,}", source=LOG_SOURCE)
+    log.info(f"覆盖样本周数: {metadata['weeks']:,}", source=LOG_SOURCE)
+    log.info(f"覆盖属性节点数: {metadata['attributes']:,}", source=LOG_SOURCE)
     for split_name in TREND_MODEL_SPLIT_VALUES:
         split_stats = metadata["splits"][split_name]
         log.info(
