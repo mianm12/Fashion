@@ -1426,18 +1426,37 @@ def validate_trend_baseline_predictions(
     )
     if not set(predictions["split"]).issubset(set(TREND_MODEL_SPLIT_VALUES)):
         raise ValueError("趋势 baseline 预测表存在非法 split。")
+    copied_sample_columns = (
+        "week_id",
+        "attr_id",
+        "attr_type",
+        "attr_value",
+        "split",
+        "share_t",
+        "target_growth",
+        "target_rank_in_type_t1",
+    )
+    validate_required_columns(
+        split_samples.columns.tolist(),
+        copied_sample_columns,
+        source_name="趋势 baseline 输入样本",
+    )
     sorted_predictions = predictions.sort_values(
-        ["week_id", "attr_type", "attr_id"],
+        ["week_id", "attr_id"],
         ignore_index=True,
     )
     sorted_samples = split_samples.sort_values(
-        ["week_id", "attr_type", "attr_id"],
+        ["week_id", "attr_id"],
         ignore_index=True,
     )
     prediction_split = sorted_predictions.loc[:, ["week_id", "attr_id", "split"]]
     sample_split = sorted_samples.loc[:, ["week_id", "attr_id", "split"]]
     if not prediction_split.equals(sample_split):
         raise ValueError("趋势 baseline 预测 split 与输入不一致。")
+    prediction_copied_values = sorted_predictions.loc[:, list(copied_sample_columns)]
+    sample_copied_values = sorted_samples.loc[:, list(copied_sample_columns)]
+    if not prediction_copied_values.equals(sample_copied_values):
+        raise ValueError("趋势 baseline 预测字段与输入不一致。")
 
     numeric_values = sorted_predictions.drop(
         columns=["attr_id", "attr_type", "attr_value", "model_name", "split"]

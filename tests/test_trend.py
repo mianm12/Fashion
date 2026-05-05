@@ -1299,6 +1299,21 @@ class LastWeekBaselineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "baseline 预测 split 与输入不一致"):
             validate_trend_baseline_predictions(predictions, samples)
 
+    def test_validate_trend_baseline_predictions_rejects_changed_target_growth(
+        self,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+        predictions.loc[0, "target_growth"] = 999.0
+
+        with self.assertRaisesRegex(ValueError, "baseline 预测字段与输入不一致"):
+            validate_trend_baseline_predictions(predictions, samples)
+
     def test_validate_trend_baseline_predictions_rejects_non_finite_numeric_value(
         self,
     ) -> None:
