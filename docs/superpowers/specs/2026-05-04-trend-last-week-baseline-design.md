@@ -136,11 +136,14 @@ model_name = "last_week"
   "model_name": "last_week",
   "formula": "pred_target_growth = growth_lag_1",
   "derived_formula": "pred_share_t1 = exp(pred_target_growth) * (share_t + epsilon) - epsilon",
-  "epsilon": 0.000001
+  "epsilon": 0.000001,
+  "split_strategy": "time",
+  "valid_weeks": 8,
+  "test_weeks": 8
 }
 ```
 
-`metadata.json` 至少包含输入路径、预测输出路径、行数、覆盖周数和覆盖属性数。第一版不记录运行时间戳，避免测试结果随时间变化。
+`metadata.json` 至少包含输入路径、预测输出路径、行数、覆盖周数、覆盖属性数、每个 split 的周范围和行数。第一版不记录运行时间戳，避免测试结果随时间变化。
 
 CLI 第一版只暴露 `--model`。训练结束周、测试周、输出目录、归一化策略等参数暂不加入，避免第一版变成过早的实验配置系统。
 
@@ -167,6 +170,35 @@ data/processed/features/trend_model_samples.parquet
 
 这些列都已经在 `trend_model_samples.parquet` 中生成。`last_week` 不读取 `share_t1`，不读取未来周热度，也不从 `attribute_week_target.csv` 重新拼接标签。
 
+## 时间切分
+
+需要划分 `train`、`valid`、`test`，但必须按时间切分，不能随机切分。
+
+默认切分策略：
+
+```text
+test_weeks = 8
+valid_weeks = 8
+test:  最后的 8 个样本周
+valid: test 之前的 8 个样本周
+train: 更早的全部样本周
+```
+
+切分基于 `trend_model_samples.parquet` 中实际出现的样本 `week_id`。设样本最大周为 `max_sample_week`：
+
+```text
+test_start_week = max_sample_week - test_weeks + 1
+valid_start_week = test_start_week - valid_weeks
+
+train: week_id < valid_start_week
+valid: valid_start_week <= week_id < test_start_week
+test:  week_id >= test_start_week
+```
+
+`last_week` 没有拟合参数，所以不会只在 `train` 上训练；它会对所有样本周生成预测，并在输出中标记 `split`。后续评价阶段可只报告 `valid` 和 `test`，LightGBM 阶段也复用同一时间切分边界，保证 baseline 和主模型可比较。
+
+如果样本周数不足以同时保留非空 `train`、`valid`、`test`，脚本应失败并说明当前样本周数、`valid_weeks` 和 `test_weeks`。
+
 ## 输出数据
 
 输出文件：
@@ -184,6 +216,7 @@ outputs/models/last_week/predictions.csv
 | `attr_type` | 属性类型 |
 | `attr_value` | 属性值 |
 | `model_name` | 固定为 `last_week` |
+| `split` | `train`、`valid` 或 `test` |
 | `share_t` | 当前周真实同类型热度占比 |
 | `pred_share_t1` | 预测下一周同类型热度占比 |
 | `target_growth` | 真实下一周占比增长 |
@@ -201,11 +234,12 @@ outputs/models/last_week/predictions.csv
 3. 校验输入文件存在。
 4. 校验 `last_week` 所需列存在。
 5. 调用 `baseline_last_week.predict_last_week(samples)`。
-6. 校验输出列顺序、唯一键和数值合法性。
-7. 使用 CSV 写出函数写入 `PATH["output_model_last_week_predictions"]`。
-8. 将参数写入 `PATH["output_model_last_week_params"]`。
-9. 将运行元数据写入 `PATH["output_model_last_week_metadata"]`。
-10. 输出预测行数、覆盖周数、覆盖属性数、预测输出路径和模型目录日志。
+6. 按默认时间切分为预测结果增加 `split` 字段。
+7. 校验输出列顺序、唯一键、split 和数值合法性。
+8. 使用 CSV 写出函数写入 `PATH["output_model_last_week_predictions"]`。
+9. 将参数写入 `PATH["output_model_last_week_params"]`。
+10. 将运行元数据写入 `PATH["output_model_last_week_metadata"]`。
+11. 输出预测行数、覆盖周数、覆盖属性数、split 周范围、预测输出路径和模型目录日志。
 
 模型预测流程：
 
@@ -213,7 +247,8 @@ outputs/models/last_week/predictions.csv
 2. 设置 `model_name = "last_week"`。
 3. 设置 `pred_target_growth = growth_lag_1`。
 4. 按公式从 `pred_target_growth` 和 `share_t` 反推 `pred_share_t1`。
-5. 按 `week_id`, `attr_type`, `attr_id` 稳定排序。
+
+脚本在模型输出后负责标记 `split`，并按 `week_id`, `attr_type`, `attr_id` 稳定排序。
 
 ## 校验规则
 
@@ -230,6 +265,9 @@ outputs/models/last_week/predictions.csv
 
 - 输出列顺序固定。
 - `week_id + attr_id + model_name` 必须唯一。
+- `split` 只允许为 `train`、`valid`、`test`。
+- `train`、`valid`、`test` 都必须非空。
+- split 必须按 `week_id` 连续且互不重叠，不能出现较早周标记为 `test`、较晚周标记为 `train` 的情况。
 - 不允许缺失值。
 - `pred_target_growth` 必须是有限数值。
 - 对 `last_week`，`pred_target_growth` 必须等于 `growth_lag_1`。
@@ -249,6 +287,8 @@ outputs/models/last_week/predictions.csv
 - 输入存在重复 `week_id + attr_id` 时失败。
 - 输入 `share_t` 超出 `[0, 1]` 时失败。
 - 输入 `growth_lag_1` 存在非有限值时失败。
+- 样本周数不足以产生非空 `train`、`valid`、`test` 时失败。
+- 输出 `split` 按时间连续，且三类 split 都非空。
 - 输出预测表列顺序固定，且没有缺失值和非有限数值。
 
 最小验证命令：
@@ -274,7 +314,9 @@ uv run python src/09_train_trend_baseline.py --model last_week
 - `pred_target_growth` 与 `growth_lag_1` 一致。
 - `pred_target_growth` 全部为有限数值。
 - `pred_share_t1` 与反推公式一致。
+- `split` 包含 `train`、`valid`、`test`，且周边界符合默认时间切分。
 - `params.json` 中的 `epsilon` 与预测公式使用值一致。
+- `metadata.json` 中的 split 周范围和行数与 `predictions.csv` 一致。
 
 ## 非目标
 
