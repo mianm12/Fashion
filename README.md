@@ -16,7 +16,7 @@ H&M transactions_train.csv
     -> 趋势感知 Top-N 推荐
 ```
 
-现阶段已经完成到趋势训练样本层：
+现阶段已经完成到趋势 `last_week` baseline 闭环：
 
 | 阶段 | 状态 | 主要产物 |
 | :--- | :--- | :--- |
@@ -28,7 +28,9 @@ H&M transactions_train.csv
 | 属性周热度 | 已实现 | `attribute_week_heat.csv` |
 | 趋势标签 | 已实现 | `attribute_week_target.csv` |
 | 趋势样本 | 已实现 | `trend_model_samples.parquet` |
-| 模型训练、推荐评价 | 尚未实现 | 后续模型和推荐结果 |
+| 趋势样本时间切分 | 已实现 | `trend_model_samples_train.parquet`、`trend_model_samples_valid.parquet`、`trend_model_samples_test.parquet` |
+| Last Week baseline | 已实现 | `outputs/models/last_week/predictions.csv`、`params.json`、`metadata.json` |
+| 推荐评价 | 尚未实现 | 后续推荐结果 |
 
 ## 数据集
 
@@ -153,6 +155,8 @@ uv run python src/05_compute_article_week_sales.py
 uv run python src/06_compute_attribute_week_heat.py
 uv run python src/07_build_trend_targets.py
 uv run python src/08_build_trend_model_samples.py
+uv run python src/09_split_trend_model_samples.py
+uv run python src/10_train_trend_baseline.py --model last_week
 ```
 
 ### 1. transactions_train.csv
@@ -423,13 +427,59 @@ data/processed/features/trend_model_samples.parquet
 
 样本表只使用当前周及历史周特征，包括 lag、移动平均、增长率、图结构和时间特征；`t+1` 信息只保留在目标字段中，避免训练特征泄漏未来信息。
 
+### 8. trend_model_samples_train/valid/test.parquet
+
+基于 `trend_model_samples.parquet` 按时间顺序切分训练、验证和测试样本。默认最后 8 个样本周为 test，之前 8 个样本周为 valid，更早样本周为 train。切分配置集中在 `src/fashion_trend/config.py`：
+
+```text
+TREND_SPLIT_VALID_WEEKS = 8
+TREND_SPLIT_TEST_WEEKS = 8
+```
+
+输出文件：
+
+```sh
+data/processed/features/trend_model_samples_train.parquet
+data/processed/features/trend_model_samples_valid.parquet
+data/processed/features/trend_model_samples_test.parquet
+data/processed/features/trend_model_samples_split_metadata.json
+```
+
+运行命令：
+
+```sh
+uv run python src/09_split_trend_model_samples.py
+```
+
+### 9. last_week baseline
+
+`last_week` baseline 使用上一段已观测属性占比增长预测下一段增长：
+
+```text
+pred_target_growth = growth_lag_1
+```
+
+预测结果、参数和元数据统一写入：
+
+```sh
+outputs/models/last_week/predictions.csv
+outputs/models/last_week/params.json
+outputs/models/last_week/metadata.json
+```
+
+运行命令：
+
+```sh
+uv run python src/10_train_trend_baseline.py --model last_week
+```
+
 ## 后续阶段
 
-模型训练和推荐评价还没有落地到代码，README 先按计划记录边界：
+趋势 baseline 已经落地到 `last_week`，README 继续按计划记录后续边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
-| 趋势模型 | 模型文件和趋势预测结果 | 先做 Last Week、Moving Average、EWMA baseline，再考虑 LightGBM |
+| 趋势模型扩展 | 更多模型文件和趋势预测结果 | 后续再做 Moving Average、EWMA baseline，再考虑 LightGBM |
 | 推荐模块 | Top-12 推荐列表和评价结果 | 将趋势分映射回商品，结合近期热门、用户历史属性偏好和 Item-CF 候选做轻量重排序 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
@@ -449,3 +499,5 @@ uv run python -m unittest discover -s tests -v
 - 商品周销量、属性周热度的聚合、读取、写出和派生字段校验。
 - 趋势标签的下一周目标计算、公式一致性和异常输入校验。
 - 趋势样本的 lag、移动窗口、图特征合入、目标合入和标签表与当前热度表一致性校验。
+- 趋势样本 train/valid/test 时间切分、切分读取、元数据写出和 split 合法性校验。
+- `last_week` baseline 预测公式、预测表校验、训练入口 metadata 和写出顺序校验。

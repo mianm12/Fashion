@@ -1,5 +1,6 @@
 # 数据文件（太大不纳入版本控制）
 data/
+outputs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
