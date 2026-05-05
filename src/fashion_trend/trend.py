@@ -1280,25 +1280,7 @@ def validate_trend_model_split_frames(
     previous_max_week: int | None = None
     for split_name in TREND_MODEL_SPLIT_VALUES:
         split_frame = split_frames[split_name]
-        validate_required_columns(
-            split_frame.columns.tolist(),
-            TREND_MODEL_SPLIT_COLUMNS,
-            source_name=f"{split_name} 趋势样本",
-        )
-        validate_no_missing_values(
-            split_frame,
-            TREND_MODEL_SPLIT_COLUMNS,
-            source_name=f"{split_name} 趋势样本",
-        )
-        if split_frame.empty:
-            raise ValueError(f"{split_name} 趋势样本为空。")
-        if set(split_frame["split"]) != {split_name}:
-            raise ValueError(f"{split_name} 趋势样本 split 字段不一致。")
-        validate_unique_key(
-            split_frame,
-            ["week_id", "attr_id"],
-            source_name=f"{split_name} 趋势样本",
-        )
+        validate_trend_model_split_frame(split_frame, expected_split=split_name)
         min_week = int(split_frame["week_id"].min())
         max_week = int(split_frame["week_id"].max())
         if previous_max_week is not None and min_week <= previous_max_week:
@@ -1318,6 +1300,39 @@ def validate_trend_model_split_frames(
         )
         if not combined_keys.equals(original_keys):
             raise ValueError("趋势样本 split 合并后无法覆盖原始样本全集。")
+
+
+def validate_trend_model_split_frame(
+    split_frame: pd.DataFrame,
+    expected_split: str | None = None,
+) -> None:
+    validate_required_columns(
+        split_frame.columns.tolist(),
+        TREND_MODEL_SPLIT_COLUMNS,
+        source_name="趋势样本 split",
+    )
+    validate_no_missing_values(
+        split_frame,
+        TREND_MODEL_SPLIT_COLUMNS,
+        source_name="趋势样本 split",
+    )
+    if split_frame.empty:
+        raise ValueError("趋势样本 split 为空。")
+
+    split_values = set(split_frame["split"])
+    invalid_split_values = sorted(split_values - set(TREND_MODEL_SPLIT_VALUES))
+    if invalid_split_values:
+        raise ValueError(f"趋势样本 split 存在非法 split: {invalid_split_values}")
+    if expected_split is not None and split_values != {expected_split}:
+        raise ValueError(f"{expected_split} 趋势样本 split 字段不一致。")
+    if expected_split is None and len(split_values) != 1:
+        raise ValueError("趋势样本 split 字段必须固定为单一值。")
+
+    validate_unique_key(
+        split_frame,
+        ["week_id", "attr_id"],
+        source_name="趋势样本 split",
+    )
 
 
 def build_trend_model_split_metadata(
@@ -1357,7 +1372,9 @@ def read_trend_model_split(input_path: Path) -> pd.DataFrame:
         TREND_MODEL_SPLIT_COLUMNS,
         source_name=f"趋势样本 split: {input_path}",
     )
-    return dataframe.loc[:, list(TREND_MODEL_SPLIT_COLUMNS)].copy()
+    split_frame = dataframe.loc[:, list(TREND_MODEL_SPLIT_COLUMNS)].copy()
+    validate_trend_model_split_frame(split_frame)
+    return split_frame
 
 
 def write_json(payload: dict[str, object], output_path: Path) -> None:

@@ -1186,6 +1186,59 @@ class TrendModelSplitFrameTests(unittest.TestCase):
         self.assertEqual(metadata["splits"]["valid"]["week_min"], 16)
         self.assertEqual(metadata["splits"]["test"]["week_max"], 23)
 
+    def test_read_trend_model_split_preserves_columns_for_legal_parquet(self) -> None:
+        samples = sample_trend_model_samples_for_split()
+        split_frames = build_trend_model_split_frames(
+            samples,
+            valid_weeks=4,
+            test_weeks=4,
+        )
+
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "trend_model_samples_train.parquet"
+            write_trend_parquet(split_frames["train"], input_path)
+
+            split = read_trend_model_split(input_path)
+
+        self.assertEqual(split.columns.tolist(), list(TREND_MODEL_SPLIT_COLUMNS))
+        self.assertEqual(set(split["split"]), {"train"})
+
+    def test_read_trend_model_split_rejects_invalid_split_value(self) -> None:
+        samples = sample_trend_model_samples_for_split()
+        split_frames = build_trend_model_split_frames(
+            samples,
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        invalid_split = split_frames["train"].copy()
+        invalid_split.loc[invalid_split.index[0], "split"] = "holdout"
+
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "trend_model_samples_train.parquet"
+            write_trend_parquet(invalid_split, input_path)
+
+            with self.assertRaisesRegex(ValueError, "非法 split"):
+                read_trend_model_split(input_path)
+
+    def test_read_trend_model_split_rejects_duplicate_week_attr(self) -> None:
+        samples = sample_trend_model_samples_for_split()
+        split_frames = build_trend_model_split_frames(
+            samples,
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        duplicate_split = pd.concat(
+            [split_frames["train"], split_frames["train"].iloc[[0]]],
+            ignore_index=True,
+        )
+
+        with TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / "trend_model_samples_train.parquet"
+            write_trend_parquet(duplicate_split, input_path)
+
+            with self.assertRaisesRegex(ValueError, "week_id, attr_id"):
+                read_trend_model_split(input_path)
+
 
 if __name__ == "__main__":
     unittest.main()
