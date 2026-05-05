@@ -1240,5 +1240,18 @@ class TrendModelSplitFrameTests(unittest.TestCase):
                 read_trend_model_split(input_path)
 
 
+class TrendModelSplitWriteTests(unittest.TestCase):
+    def test_write_json_creates_parent_and_writes_sorted_keys(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "nested" / "metadata.json"
+
+            write_json({"b": 2, "a": 1}, output_path)
+
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                '{\n  "a": 1,\n  "b": 2\n}\n',
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
