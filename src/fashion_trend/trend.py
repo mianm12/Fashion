@@ -110,6 +110,20 @@ TREND_MODEL_SAMPLE_COLUMNS: tuple[str, ...] = (
 
 TREND_MODEL_SPLIT_VALUES: tuple[str, ...] = ("train", "valid", "test")
 
+TREND_BASELINE_PREDICTION_COLUMNS: tuple[str, ...] = (
+    "week_id",
+    "attr_id",
+    "attr_type",
+    "attr_value",
+    "model_name",
+    "split",
+    "share_t",
+    "pred_share_t1",
+    "target_growth",
+    "pred_target_growth",
+    "target_rank_in_type_t1",
+)
+
 TREND_MODEL_SPLIT_COLUMNS: tuple[str, ...] = (
     "split",
     *TREND_MODEL_SAMPLE_COLUMNS,
@@ -1389,6 +1403,51 @@ def write_json(payload: dict[str, object], output_path: Path) -> None:
     except Exception:
         remove_file_if_exists(tmp_output_path)
         raise
+
+
+def validate_trend_baseline_predictions(
+    predictions: pd.DataFrame,
+    split_samples: pd.DataFrame,
+) -> None:
+    validate_required_columns(
+        predictions.columns.tolist(),
+        TREND_BASELINE_PREDICTION_COLUMNS,
+        source_name="趋势 baseline 预测表",
+    )
+    validate_no_missing_values(
+        predictions,
+        TREND_BASELINE_PREDICTION_COLUMNS,
+        source_name="趋势 baseline 预测表",
+    )
+    validate_unique_key(
+        predictions,
+        ["week_id", "attr_id", "model_name"],
+        source_name="趋势 baseline 预测表",
+    )
+    if not set(predictions["split"]).issubset(set(TREND_MODEL_SPLIT_VALUES)):
+        raise ValueError("趋势 baseline 预测表存在非法 split。")
+    sorted_predictions = predictions.sort_values(
+        ["week_id", "attr_type", "attr_id"],
+        ignore_index=True,
+    )
+    sorted_samples = split_samples.sort_values(
+        ["week_id", "attr_type", "attr_id"],
+        ignore_index=True,
+    )
+    prediction_split = sorted_predictions.loc[:, ["week_id", "attr_id", "split"]]
+    sample_split = sorted_samples.loc[:, ["week_id", "attr_id", "split"]]
+    if not prediction_split.equals(sample_split):
+        raise ValueError("趋势 baseline 预测 split 与输入不一致。")
+
+    numeric_values = sorted_predictions.drop(
+        columns=["attr_id", "attr_type", "attr_value", "model_name", "split"]
+    )
+    try:
+        finite_numeric_values = numeric_values.to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("趋势 baseline 预测表无法校验数值字段。") from exc
+    if not np.isfinite(finite_numeric_values).all():
+        raise ValueError("趋势 baseline 预测表存在非有限数值。")
 
 
 def remove_file_if_exists(path: Path) -> None:

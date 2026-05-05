@@ -7,10 +7,16 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 
+from fashion_trend.models.baseline_last_week import (
+    LAST_WEEK_MODEL_NAME,
+    LAST_WEEK_PARAMS,
+    predict_last_week,
+)
 from fashion_trend.trend import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
+    TREND_BASELINE_PREDICTION_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
     TREND_MODEL_SPLIT_COLUMNS,
     build_article_week_sales_frame,
@@ -33,6 +39,7 @@ from fashion_trend.trend import (
     validate_attribute_week_heat,
     validate_attribute_week_target,
     validate_trend_model_samples,
+    validate_trend_baseline_predictions,
     validate_trend_model_split_frames,
     write_json,
     write_trend_csv,
@@ -1238,6 +1245,59 @@ class TrendModelSplitFrameTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "week_id, attr_id"):
                 read_trend_model_split(input_path)
+
+
+class LastWeekBaselineTests(unittest.TestCase):
+    def test_predict_last_week_uses_growth_lag_1(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+
+        predictions = predict_last_week(samples)
+
+        self.assertEqual(
+            predictions.columns.tolist(), list(TREND_BASELINE_PREDICTION_COLUMNS)
+        )
+        self.assertEqual(set(predictions["model_name"]), {LAST_WEEK_MODEL_NAME})
+        pd.testing.assert_series_equal(
+            predictions["pred_target_growth"],
+            samples.sort_values(["week_id", "attr_type", "attr_id"], ignore_index=True)[
+                "growth_lag_1"
+            ],
+            check_names=False,
+        )
+        expected_share = (
+            predictions["pred_target_growth"].map(math.exp)
+            * (predictions["share_t"] + LAST_WEEK_PARAMS["epsilon"])
+            - LAST_WEEK_PARAMS["epsilon"]
+        )
+        pd.testing.assert_series_equal(
+            predictions["pred_share_t1"],
+            expected_share,
+            check_names=False,
+        )
+
+    def test_predict_last_week_rejects_missing_split(self) -> None:
+        samples = sample_trend_model_samples_for_split()
+
+        with self.assertRaisesRegex(ValueError, "缺少必需列"):
+            predict_last_week(samples)
+
+    def test_validate_trend_baseline_predictions_rejects_changed_split(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+        predictions.loc[0, "split"] = "test"
+
+        with self.assertRaisesRegex(ValueError, "baseline 预测 split 与输入不一致"):
+            validate_trend_baseline_predictions(predictions, samples)
 
 
 class TrendModelSplitWriteTests(unittest.TestCase):
