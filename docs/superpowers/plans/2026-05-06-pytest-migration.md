@@ -16,7 +16,8 @@
 
 ```text
 tests/
-    conftest.py
+    __init__.py
+    trend_samples.py
     test_articles_clean.py
     test_attribute_graph.py
     test_trend_article_sales.py
@@ -35,7 +36,8 @@ tests/
 | `pyproject.toml` | 声明 pytest dev 依赖，并配置测试发现与 `src` 导入路径 |
 | `uv.lock` | 锁定 pytest 及其传递 dev 依赖 |
 | `README.md` | 将正式验证命令切换为 `uv run pytest` |
-| `tests/conftest.py` | 放置多个拆分后的趋势测试文件复用的样本 builder |
+| `tests/__init__.py` | 让共享测试 helper 可以通过 `tests.trend_samples` 显式导入 |
+| `tests/trend_samples.py` | 放置多个拆分后的趋势测试文件复用的样本 builder |
 | `tests/test_articles_clean.py` | articles 清洗、缺失值、重复 ID、双输出写出回滚 |
 | `tests/test_attribute_graph.py` | 属性节点、商品-属性边、属性层级边、图文件写出与回滚 |
 | `tests/test_trend_article_sales.py` | 商品周销量、周交易读取、商品周销量读取、趋势 CSV 写出 |
@@ -475,12 +477,13 @@ git commit -m "test: 迁移属性图测试到 pytest"
 ### 任务 4：提取趋势测试共享样本
 
 **文件：**
-- 新建：`tests/conftest.py`
+- 新建：`tests/__init__.py`
+- 新建：`tests/trend_samples.py`
 - 修改：`tests/test_trend.py`
 
-- [ ] **步骤 1：创建 `tests/conftest.py`**
+- [ ] **步骤 1：创建共享样本模块**
 
-新建文件并写入：
+创建空的 `tests/__init__.py`，再新建 `tests/trend_samples.py` 并写入：
 
 ```python
 from __future__ import annotations
@@ -490,7 +493,7 @@ import pandas as pd
 
 - [ ] **步骤 2：原样移动跨文件样本 builder**
 
-将以下函数从 `tests/test_trend.py` 移动到 `tests/conftest.py`：
+将以下函数从 `tests/test_trend.py` 移动到 `tests/trend_samples.py`：
 
 ```python
 def sample_article_attribute_edges() -> pd.DataFrame:
@@ -509,7 +512,7 @@ def sample_trend_predictions_for_evaluation() -> pd.DataFrame:
 在 `tests/test_trend.py` 的项目 import 后添加：
 
 ```python
-from conftest import (
+from tests.trend_samples import (
     sample_article_attribute_edges,
     sample_attribute_hierarchy_edges,
     sample_attribute_nodes,
@@ -557,8 +560,8 @@ uv run pytest
 运行：
 
 ```sh
-git diff -- tests/conftest.py tests/test_trend.py
-git add tests/conftest.py tests/test_trend.py
+git diff -- tests/__init__.py tests/trend_samples.py tests/test_trend.py
+git add tests/__init__.py tests/trend_samples.py tests/test_trend.py
 git commit -m "test: 提取趋势测试共享样本"
 ```
 
@@ -706,7 +709,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from conftest import (
+from tests.trend_samples import (
     sample_article_attribute_edges,
     sample_attribute_nodes,
 )
@@ -835,7 +838,7 @@ import math
 
 import pytest
 
-from conftest import sample_attribute_week_heat
+from tests.trend_samples import sample_attribute_week_heat
 from fashion_trend.trend import (
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
     build_attribute_week_target_frame,
@@ -927,7 +930,7 @@ import math
 import pandas as pd
 import pytest
 
-from conftest import (
+from tests.trend_samples import (
     sample_attribute_hierarchy_edges,
     sample_attribute_nodes,
     sample_long_attribute_week_heat,
@@ -1041,7 +1044,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import sample_trend_model_samples_for_split
+from tests.trend_samples import sample_trend_model_samples_for_split
 from fashion_trend.trend import (
     TREND_MODEL_SPLIT_COLUMNS,
     build_trend_model_split_frames,
@@ -1145,7 +1148,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from conftest import sample_trend_model_samples_for_split
+from tests.trend_samples import sample_trend_model_samples_for_split
 from fashion_trend.config import OUTPUT_MODELS_DIR
 from fashion_trend.models.base import (
     MODEL_TYPE_BASELINE,
@@ -1314,7 +1317,10 @@ from pathlib import Path
 
 import pytest
 
-from conftest import sample_trend_predictions_for_evaluation
+from tests.trend_samples import (
+    sample_trend_model_samples_for_split,
+    sample_trend_predictions_for_evaluation,
+)
 from fashion_trend.evaluation import (
     build_trend_metrics_payload,
     compute_trend_group_metrics,
@@ -1469,7 +1475,7 @@ find tests -maxdepth 1 -type f | sort
 期望输出包含：
 
 ```text
-tests/conftest.py
+tests/__init__.py
 tests/test_articles_clean.py
 tests/test_attribute_graph.py
 tests/test_trend_article_sales.py
@@ -1479,6 +1485,7 @@ tests/test_trend_samples.py
 tests/test_trend_splits.py
 tests/test_trend_targets.py
 tests/test_trend_training.py
+tests/trend_samples.py
 ```
 
 期望输出不包含 `tests/test_trend.py`。
@@ -1499,7 +1506,8 @@ uv run pytest
 
 ```sh
 uv run python -m py_compile \
-  tests/conftest.py \
+  tests/__init__.py \
+  tests/trend_samples.py \
   tests/test_articles_clean.py \
   tests/test_attribute_graph.py \
   tests/test_trend_article_sales.py \

@@ -42,7 +42,8 @@ trend evaluation
 
 ```text
 tests/
-    conftest.py
+    __init__.py
+    trend_samples.py
     test_articles_clean.py
     test_attribute_graph.py
     test_trend_article_sales.py
@@ -58,7 +59,8 @@ tests/
 
 | 文件 | 职责 |
 | --- | --- |
-| `tests/conftest.py` | 只放跨多个测试文件复用的样本数据 builder 或 pytest fixture |
+| `tests/__init__.py` | 让共享测试 helper 可以通过 `tests.trend_samples` 显式导入 |
+| `tests/trend_samples.py` | 只放跨多个测试文件复用的样本数据 builder，供拆分后的测试显式导入 |
 | `tests/test_articles_clean.py` | articles 清洗字段、缺失值、重复 `article_id` 和双输出写出回滚 |
 | `tests/test_attribute_graph.py` | 属性节点、商品-属性边、属性层级边、图文件写出和回滚 |
 | `tests/test_trend_article_sales.py` | 周交易读取、商品周销量聚合、商品周销量读取、趋势 CSV 写出 |
@@ -91,7 +93,7 @@ tests/
 
 共享样本数据保持克制。
 
-如果样本 builder 只被一个测试文件使用，保留在该测试文件内。如果同一个 builder 被多个拆分后的趋势测试文件复用，则移动到 `tests/conftest.py`，并命名为普通函数或 fixture。
+如果样本 builder 只被一个测试文件使用，保留在该测试文件内。如果同一个 builder 被多个拆分后的趋势测试文件复用，则移动到 `tests/trend_samples.py`，并命名为普通函数，通过 `tests.trend_samples` 显式导入。
 
 初始迁移可优先移动这些跨文件样本：
 
