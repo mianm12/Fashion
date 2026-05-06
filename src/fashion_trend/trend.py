@@ -110,7 +110,7 @@ TREND_MODEL_SAMPLE_COLUMNS: tuple[str, ...] = (
 
 TREND_MODEL_SPLIT_VALUES: tuple[str, ...] = ("train", "valid", "test")
 
-TREND_BASELINE_PREDICTION_COLUMNS: tuple[str, ...] = (
+TREND_MODEL_PREDICTION_COLUMNS: tuple[str, ...] = (
     "week_id",
     "attr_id",
     "attr_type",
@@ -123,6 +123,7 @@ TREND_BASELINE_PREDICTION_COLUMNS: tuple[str, ...] = (
     "pred_target_growth",
     "target_rank_in_type_t1",
 )
+TREND_BASELINE_PREDICTION_COLUMNS = TREND_MODEL_PREDICTION_COLUMNS
 
 TREND_MODEL_SPLIT_COLUMNS: tuple[str, ...] = (
     "split",
@@ -1405,27 +1406,29 @@ def write_json(payload: dict[str, object], output_path: Path) -> None:
         raise
 
 
-def validate_trend_baseline_predictions(
+def validate_trend_model_predictions(
     predictions: pd.DataFrame,
     split_samples: pd.DataFrame,
 ) -> None:
+    if predictions.columns.tolist() != list(TREND_MODEL_PREDICTION_COLUMNS):
+        raise ValueError("趋势模型预测表列必须与契约完全一致。")
     validate_required_columns(
         predictions.columns.tolist(),
-        TREND_BASELINE_PREDICTION_COLUMNS,
-        source_name="趋势 baseline 预测表",
+        TREND_MODEL_PREDICTION_COLUMNS,
+        source_name="趋势模型预测表",
     )
     validate_no_missing_values(
         predictions,
-        TREND_BASELINE_PREDICTION_COLUMNS,
-        source_name="趋势 baseline 预测表",
+        TREND_MODEL_PREDICTION_COLUMNS,
+        source_name="趋势模型预测表",
     )
     validate_unique_key(
         predictions,
         ["week_id", "attr_id", "model_name"],
-        source_name="趋势 baseline 预测表",
+        source_name="趋势模型预测表",
     )
     if not set(predictions["split"]).issubset(set(TREND_MODEL_SPLIT_VALUES)):
-        raise ValueError("趋势 baseline 预测表存在非法 split。")
+        raise ValueError("趋势模型预测表存在非法 split。")
     copied_sample_columns = (
         "week_id",
         "attr_id",
@@ -1439,7 +1442,7 @@ def validate_trend_baseline_predictions(
     validate_required_columns(
         split_samples.columns.tolist(),
         copied_sample_columns,
-        source_name="趋势 baseline 输入样本",
+        source_name="趋势模型输入样本",
     )
     sorted_predictions = predictions.sort_values(
         ["week_id", "attr_id"],
@@ -1452,11 +1455,11 @@ def validate_trend_baseline_predictions(
     prediction_split = sorted_predictions.loc[:, ["week_id", "attr_id", "split"]]
     sample_split = sorted_samples.loc[:, ["week_id", "attr_id", "split"]]
     if not prediction_split.equals(sample_split):
-        raise ValueError("趋势 baseline 预测 split 与输入不一致。")
+        raise ValueError("趋势模型预测 split 与输入不一致。")
     prediction_copied_values = sorted_predictions.loc[:, list(copied_sample_columns)]
     sample_copied_values = sorted_samples.loc[:, list(copied_sample_columns)]
     if not prediction_copied_values.equals(sample_copied_values):
-        raise ValueError("趋势 baseline 预测字段与输入不一致。")
+        raise ValueError("趋势模型预测字段与输入不一致。")
 
     numeric_values = sorted_predictions.drop(
         columns=["attr_id", "attr_type", "attr_value", "model_name", "split"]
@@ -1464,9 +1467,16 @@ def validate_trend_baseline_predictions(
     try:
         finite_numeric_values = numeric_values.to_numpy(dtype=float)
     except (TypeError, ValueError) as exc:
-        raise ValueError("趋势 baseline 预测表无法校验数值字段。") from exc
+        raise ValueError("趋势模型预测表无法校验数值字段。") from exc
     if not np.isfinite(finite_numeric_values).all():
-        raise ValueError("趋势 baseline 预测表存在非有限数值。")
+        raise ValueError("趋势模型预测表存在非有限数值。")
+
+
+def validate_trend_baseline_predictions(
+    predictions: pd.DataFrame,
+    split_samples: pd.DataFrame,
+) -> None:
+    validate_trend_model_predictions(predictions, split_samples)
 
 
 def remove_file_if_exists(path: Path) -> None:
