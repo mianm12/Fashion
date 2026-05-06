@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from fashion_trend.models.base import TrendModelTrainer
 from fashion_trend.models.last_week import LAST_WEEK_MODEL_NAME, LastWeekTrainer
+from fashion_trend.models.moving_average import (
+    MOVING_AVERAGE_MODEL_NAME,
+    MovingAverageTrainer,
+)
 
 
 class UnknownTrendModelError(ValueError):
@@ -10,6 +14,7 @@ class UnknownTrendModelError(ValueError):
 
 TREND_MODEL_REGISTRY: dict[str, TrendModelTrainer] = {
     LAST_WEEK_MODEL_NAME: LastWeekTrainer(),
+    MOVING_AVERAGE_MODEL_NAME: MovingAverageTrainer(),
 }
 
 

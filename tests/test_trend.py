@@ -32,6 +32,13 @@ from fashion_trend.models.last_week import (
     LastWeekTrainer,
     predict_last_week,
 )
+from fashion_trend.models.moving_average import (
+    MOVING_AVERAGE_GROWTH_LAGS,
+    MOVING_AVERAGE_MODEL_NAME,
+    MOVING_AVERAGE_PARAMS,
+    MovingAverageTrainer,
+    predict_moving_average,
+)
 from fashion_trend.models.registry import (
     UnknownTrendModelError,
     get_trend_model_trainer,
@@ -1376,8 +1383,11 @@ class LastWeekBaselineTests(unittest.TestCase):
             },
         )
 
-    def test_registry_lists_last_week(self) -> None:
-        self.assertEqual(list_trend_model_names(), (LAST_WEEK_MODEL_NAME,))
+    def test_registry_lists_registered_models(self) -> None:
+        self.assertEqual(
+            list_trend_model_names(),
+            (LAST_WEEK_MODEL_NAME, MOVING_AVERAGE_MODEL_NAME),
+        )
 
     def test_registry_returns_last_week_trainer(self) -> None:
         trainer = get_trend_model_trainer(LAST_WEEK_MODEL_NAME)
@@ -1386,9 +1396,32 @@ class LastWeekBaselineTests(unittest.TestCase):
         self.assertEqual(trainer.name, LAST_WEEK_MODEL_NAME)
         self.assertEqual(trainer.model_type, MODEL_TYPE_BASELINE)
 
+    def test_moving_average_params_are_stable(self) -> None:
+        self.assertEqual(
+            MOVING_AVERAGE_PARAMS,
+            {
+                "model_name": "moving_average",
+                "formula": "pred_target_growth = mean(growth_lag_1, growth_lag_2)",
+                "derived_formula": (
+                    "pred_share_t1 = exp(pred_target_growth) * "
+                    "(share_t + epsilon) - epsilon"
+                ),
+                "epsilon": 1e-6,
+                "growth_lags": ["growth_lag_1", "growth_lag_2"],
+            },
+        )
+        self.assertEqual(MOVING_AVERAGE_GROWTH_LAGS, ("growth_lag_1", "growth_lag_2"))
+
+    def test_registry_returns_moving_average_trainer(self) -> None:
+        trainer = get_trend_model_trainer(MOVING_AVERAGE_MODEL_NAME)
+
+        self.assertIsInstance(trainer, MovingAverageTrainer)
+        self.assertEqual(trainer.name, MOVING_AVERAGE_MODEL_NAME)
+        self.assertEqual(trainer.model_type, MODEL_TYPE_BASELINE)
+
     def test_registry_rejects_unknown_model(self) -> None:
-        with self.assertRaisesRegex(UnknownTrendModelError, "moving_average"):
-            get_trend_model_trainer("moving_average")
+        with self.assertRaisesRegex(UnknownTrendModelError, "unknown_model"):
+            get_trend_model_trainer("unknown_model")
 
     def test_derive_trend_model_output_paths_uses_model_name(self) -> None:
         paths = derive_trend_model_output_paths("last_week", Path("outputs/models"))
@@ -1792,7 +1825,7 @@ class LastWeekBaselineTests(unittest.TestCase):
     def test_train_trend_model_main_rejects_unknown_model(self) -> None:
         train_model = importlib.import_module("10_train_trend_model")
 
-        self.assertEqual(train_model.main(["--model", "moving_average"]), 1)
+        self.assertEqual(train_model.main(["--model", "unknown_model"]), 1)
 
     def test_train_trend_model_main_runs_training_and_logs_summary(self) -> None:
         train_model = importlib.import_module("10_train_trend_model")
