@@ -2280,6 +2280,62 @@ class TrendEvaluationTests(unittest.TestCase):
                 k_values=(2, 3),
             )
 
+    def test_eval_trend_model_main_preserves_argparse_usage_error_code(self) -> None:
+        eval_model = importlib.import_module("11_eval_trend_model")
+
+        exit_code = eval_model.main([])
+
+        self.assertEqual(exit_code, 2)
+
+    def test_eval_trend_model_main_returns_error_for_missing_predictions(self) -> None:
+        eval_model = importlib.import_module("11_eval_trend_model")
+
+        exit_code = eval_model.main(["--model", "missing_model"])
+
+        self.assertEqual(exit_code, 1)
+
+    def test_eval_trend_model_main_runs_evaluation_and_logs_summary(self) -> None:
+        eval_model = importlib.import_module("11_eval_trend_model")
+        original_run_trend_model_evaluation = eval_model.run_trend_model_evaluation
+
+        def fake_run_trend_model_evaluation(model_name: str) -> dict[str, object]:
+            self.assertEqual(model_name, "last_week")
+            return {
+                "model_name": "last_week",
+                "evaluated_splits": ["valid", "test"],
+                "overall": {
+                    "valid": {
+                        "mae": 0.5,
+                        "rmse": 0.7,
+                        "spearman": 0.2,
+                        "precision_at_k": {"10": 0.4},
+                        "recall_at_k": {"10": 0.4},
+                        "ndcg_at_k": {"10": 0.6},
+                    },
+                    "test": {
+                        "mae": 0.6,
+                        "rmse": 0.8,
+                        "spearman": 0.3,
+                        "precision_at_k": {"10": 0.5},
+                        "recall_at_k": {"10": 0.5},
+                        "ndcg_at_k": {"10": 0.7},
+                    },
+                },
+                "groups": {
+                    "valid": {"ranking_groups": 4},
+                    "test": {"ranking_groups": 4},
+                },
+                "output_path": "outputs/metrics/last_week/trend_metrics.json",
+            }
+
+        try:
+            eval_model.run_trend_model_evaluation = fake_run_trend_model_evaluation
+            exit_code = eval_model.main(["--model", "last_week"])
+        finally:
+            eval_model.run_trend_model_evaluation = original_run_trend_model_evaluation
+
+        self.assertEqual(exit_code, 0)
+
 
 class TrendModelSplitWriteTests(unittest.TestCase):
     def test_write_json_creates_parent_and_writes_sorted_keys(self) -> None:
