@@ -68,13 +68,4 @@ PATH = {
     / "trend_model_samples_test.parquet",
     "features_trend_model_samples_split_metadata": FEATURES_DIR
     / "trend_model_samples_split_metadata.json",
-    # ---------------- Model outputs ----------------
-    "output_model_last_week_dir": OUTPUT_MODELS_DIR / "last_week",
-    "output_model_last_week_predictions": OUTPUT_MODELS_DIR
-    / "last_week"
-    / "predictions.csv",
-    "output_model_last_week_params": OUTPUT_MODELS_DIR / "last_week" / "params.json",
-    "output_model_last_week_metadata": OUTPUT_MODELS_DIR
-    / "last_week"
-    / "metadata.json",
 }

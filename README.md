@@ -156,7 +156,7 @@ uv run python src/06_compute_attribute_week_heat.py
 uv run python src/07_build_trend_targets.py
 uv run python src/08_build_trend_model_samples.py
 uv run python src/09_split_trend_model_samples.py
-uv run python src/10_train_trend_baseline.py --model last_week
+uv run python src/10_train_trend_model.py --model last_week
 ```
 
 ### 1. transactions_train.csv
@@ -453,7 +453,9 @@ uv run python src/09_split_trend_model_samples.py
 
 ### 9. last_week baseline
 
-`last_week` baseline 使用上一样本周的已观测属性占比增长 `growth_lag_1` 预测下一段增长：
+`last_week` baseline 通过通用趋势模型训练入口运行，模型细节位于
+`src/fashion_trend/models/last_week.py`。当前模型使用上一样本周的已观测属性占比增长
+`growth_lag_1` 预测下一段增长：
 
 ```text
 pred_target_growth = growth_lag_1
@@ -470,12 +472,12 @@ outputs/models/last_week/metadata.json
 运行命令：
 
 ```sh
-uv run python src/10_train_trend_baseline.py --model last_week
+uv run python src/10_train_trend_model.py --model last_week
 ```
 
 ## 后续阶段
 
-趋势 baseline 已经落地到 `last_week`，README 继续按计划记录后续边界：
+趋势模型训练框架已经落地到 `last_week` baseline，README 继续按计划记录后续边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
@@ -500,4 +502,4 @@ uv run python -m unittest discover -s tests -v
 - 趋势标签的下一周目标计算、公式一致性和异常输入校验。
 - 趋势样本的 lag、移动窗口、图特征合入、目标合入和标签表与当前热度表一致性校验。
 - 趋势样本 train/valid/test 时间切分、切分读取、元数据写出和 split 合法性校验。
-- `last_week` baseline 预测公式、预测表校验、训练入口 metadata 和写出顺序校验。
+- `last_week` baseline 预测公式、预测表校验、通用训练 runner metadata、artifact 和写出顺序校验。

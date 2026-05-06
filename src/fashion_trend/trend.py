@@ -123,7 +123,6 @@ TREND_MODEL_PREDICTION_COLUMNS: tuple[str, ...] = (
     "pred_target_growth",
     "target_rank_in_type_t1",
 )
-TREND_BASELINE_PREDICTION_COLUMNS = TREND_MODEL_PREDICTION_COLUMNS
 
 TREND_MODEL_SPLIT_COLUMNS: tuple[str, ...] = (
     "split",
@@ -1470,13 +1469,6 @@ def validate_trend_model_predictions(
         raise ValueError("趋势模型预测表无法校验数值字段。") from exc
     if not np.isfinite(finite_numeric_values).all():
         raise ValueError("趋势模型预测表存在非有限数值。")
-
-
-def validate_trend_baseline_predictions(
-    predictions: pd.DataFrame,
-    split_samples: pd.DataFrame,
-) -> None:
-    validate_trend_model_predictions(predictions, split_samples)
 
 
 def remove_file_if_exists(path: Path) -> None:

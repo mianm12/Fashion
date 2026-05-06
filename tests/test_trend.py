@@ -8,16 +8,36 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 
-from fashion_trend.models.baseline_last_week import (
+from fashion_trend.config import OUTPUT_MODELS_DIR
+from fashion_trend.models.base import (
+    MODEL_TYPE_BASELINE,
+    TrendArtifact,
+    TrendTrainContext,
+    TrendTrainResult,
+)
+from fashion_trend.models.last_week import (
     LAST_WEEK_MODEL_NAME,
     LAST_WEEK_PARAMS,
+    LastWeekTrainer,
     predict_last_week,
+)
+from fashion_trend.models.registry import (
+    UnknownTrendModelError,
+    get_trend_model_trainer,
+    list_trend_model_names,
+)
+from fashion_trend.training import (
+    build_trend_train_metadata,
+    derive_trend_model_output_paths,
+    run_trend_model_training,
+    validate_trend_train_result,
+    write_trend_model_outputs,
 )
 from fashion_trend.trend import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
-    TREND_BASELINE_PREDICTION_COLUMNS,
+    TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
     TREND_MODEL_SPLIT_COLUMNS,
     build_article_week_sales_frame,
@@ -39,8 +59,8 @@ from fashion_trend.trend import (
     validate_article_week_sales,
     validate_attribute_week_heat,
     validate_attribute_week_target,
+    validate_trend_model_predictions,
     validate_trend_model_samples,
-    validate_trend_baseline_predictions,
     validate_trend_model_split_frames,
     write_json,
     write_trend_csv,
@@ -1263,49 +1283,66 @@ class LastWeekBaselineTests(unittest.TestCase):
             },
         )
 
-    def test_build_prediction_metadata_reports_paths_and_split_stats(self) -> None:
-        train_baseline = importlib.import_module("10_train_trend_baseline")
+    def test_registry_lists_last_week(self) -> None:
+        self.assertEqual(list_trend_model_names(), (LAST_WEEK_MODEL_NAME,))
+
+    def test_registry_returns_last_week_trainer(self) -> None:
+        trainer = get_trend_model_trainer(LAST_WEEK_MODEL_NAME)
+
+        self.assertIsInstance(trainer, LastWeekTrainer)
+        self.assertEqual(trainer.name, LAST_WEEK_MODEL_NAME)
+        self.assertEqual(trainer.model_type, MODEL_TYPE_BASELINE)
+
+    def test_registry_rejects_unknown_model(self) -> None:
+        with self.assertRaisesRegex(UnknownTrendModelError, "moving_average"):
+            get_trend_model_trainer("moving_average")
+
+    def test_derive_trend_model_output_paths_uses_model_name(self) -> None:
+        paths = derive_trend_model_output_paths("last_week", Path("outputs/models"))
+
+        self.assertEqual(paths["output_dir"], Path("outputs/models/last_week"))
+        self.assertEqual(
+            paths["predictions"], Path("outputs/models/last_week/predictions.csv")
+        )
+        self.assertEqual(paths["params"], Path("outputs/models/last_week/params.json"))
+        self.assertEqual(
+            paths["metadata"], Path("outputs/models/last_week/metadata.json")
+        )
+        self.assertEqual(
+            derive_trend_model_output_paths("last_week")["output_dir"],
+            OUTPUT_MODELS_DIR / "last_week",
+        )
+
+    def test_validate_trend_train_result_rejects_wrong_model_name(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
             valid_weeks=4,
             test_weeks=4,
         )
         samples = pd.concat(split_frames.values(), ignore_index=True)
-        predictions = predict_last_week(samples)
-
-        metadata = train_baseline.build_prediction_metadata(predictions)
-
-        self.assertEqual(metadata["model_name"], LAST_WEEK_MODEL_NAME)
-        self.assertEqual(
-            set(metadata),
-            {
-                "model_name",
-                "input_paths",
-                "prediction_path",
-                "rows",
-                "weeks",
-                "attributes",
-                "splits",
+        result = TrendTrainResult(
+            model_name="wrong",
+            model_type=MODEL_TYPE_BASELINE,
+            predictions=predict_last_week(samples),
+            params=dict(LAST_WEEK_PARAMS),
+        )
+        context = TrendTrainContext(
+            model_name=LAST_WEEK_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
             },
+            output_dir=Path("outputs/models/last_week"),
         )
-        self.assertEqual(
-            set(metadata["input_paths"]),
-            {"train", "valid", "test"},
-        )
-        self.assertTrue(metadata["prediction_path"].endswith("predictions.csv"))
-        self.assertEqual(metadata["rows"], 40)
-        self.assertEqual(metadata["weeks"], 20)
-        self.assertEqual(metadata["attributes"], 2)
-        self.assertEqual(metadata["splits"]["train"]["rows"], 24)
-        self.assertEqual(metadata["splits"]["train"]["weeks"], 12)
-        self.assertEqual(metadata["splits"]["train"]["attributes"], 2)
-        self.assertEqual(metadata["splits"]["train"]["week_min"], 4)
-        self.assertEqual(metadata["splits"]["train"]["week_max"], 15)
-        self.assertEqual(metadata["splits"]["valid"]["week_min"], 16)
-        self.assertEqual(metadata["splits"]["test"]["week_max"], 23)
 
-    def test_build_prediction_metadata_rejects_missing_split_rows(self) -> None:
-        train_baseline = importlib.import_module("10_train_trend_baseline")
+        with self.assertRaisesRegex(ValueError, "model_name"):
+            validate_trend_train_result(result, context)
+
+    def test_validate_trend_train_result_rejects_prediction_model_name_mismatch(
+        self,
+    ) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
             valid_weeks=4,
@@ -1313,84 +1350,362 @@ class LastWeekBaselineTests(unittest.TestCase):
         )
         samples = pd.concat(split_frames.values(), ignore_index=True)
         predictions = predict_last_week(samples)
-        predictions = predictions[predictions["split"] != "valid"].copy()
+        predictions["model_name"] = "moving_average"
+        result = TrendTrainResult(
+            model_name=LAST_WEEK_MODEL_NAME,
+            model_type=MODEL_TYPE_BASELINE,
+            predictions=predictions,
+            params=dict(LAST_WEEK_PARAMS),
+        )
+        context = TrendTrainContext(
+            model_name=LAST_WEEK_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/last_week"),
+        )
 
-        with self.assertRaisesRegex(ValueError, "valid"):
-            train_baseline.build_prediction_metadata(predictions)
+        with self.assertRaisesRegex(ValueError, "model_name"):
+            validate_trend_train_result(result, context)
 
-    def test_build_prediction_metadata_rejects_non_integral_week_id(self) -> None:
-        train_baseline = importlib.import_module("10_train_trend_baseline")
+    def test_validate_trend_train_result_rejects_non_integral_week_id(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
             valid_weeks=4,
             test_weeks=4,
         )
-        samples = pd.concat(split_frames.values(), ignore_index=True)
-        predictions = predict_last_week(samples)
-        predictions["week_id"] = predictions["week_id"].astype("float64")
-        predictions.loc[0, "week_id"] = 4.5
+        split_frames = {
+            split_name: split_frame.copy()
+            for split_name, split_frame in split_frames.items()
+        }
+        split_frames["train"]["week_id"] = split_frames["train"]["week_id"].astype(
+            "float64"
+        )
+        split_frames["train"].loc[split_frames["train"].index[0], "week_id"] = 4.5
+        context = TrendTrainContext(
+            model_name=LAST_WEEK_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/last_week"),
+        )
+        result = LastWeekTrainer().train(context)
 
         with self.assertRaisesRegex(ValueError, "week_id"):
-            train_baseline.build_prediction_metadata(predictions)
+            validate_trend_train_result(result, context)
 
-    def test_main_preserves_argparse_usage_error_code(self) -> None:
-        train_baseline = importlib.import_module("10_train_trend_baseline")
-
-        self.assertEqual(train_baseline.main(["--unknown"]), 2)
-
-    def test_train_trend_baseline_builds_metadata_before_writing_outputs(self) -> None:
-        train_baseline = importlib.import_module("10_train_trend_baseline")
+    def test_build_trend_train_metadata_rejects_core_key_override(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
             valid_weeks=4,
             test_weeks=4,
         )
+        context = TrendTrainContext(
+            model_name=LAST_WEEK_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/last_week"),
+        )
+        result = LastWeekTrainer().train(context)
+        result = TrendTrainResult(
+            model_name=result.model_name,
+            model_type=result.model_type,
+            predictions=result.predictions,
+            params=result.params,
+            metadata={"rows": 999},
+        )
+        paths = derive_trend_model_output_paths("last_week", Path("outputs/models"))
+
+        with self.assertRaisesRegex(ValueError, "metadata"):
+            build_trend_train_metadata(result, context, paths)
+
+    def test_build_trend_train_metadata_rejects_non_integral_week_id(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        split_frames = {
+            split_name: split_frame.copy()
+            for split_name, split_frame in split_frames.items()
+        }
+        split_frames["train"]["week_id"] = split_frames["train"]["week_id"].astype(
+            "float64"
+        )
+        split_frames["train"].loc[split_frames["train"].index[0], "week_id"] = 4.5
+        context = TrendTrainContext(
+            model_name=LAST_WEEK_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/last_week"),
+        )
+        result = LastWeekTrainer().train(context)
+        paths = derive_trend_model_output_paths("last_week", Path("outputs/models"))
+
+        with self.assertRaisesRegex(ValueError, "week_id"):
+            build_trend_train_metadata(result, context, paths)
+
+    def test_write_trend_model_outputs_rejects_unsafe_artifact_path_before_writing(
+        self,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        with TemporaryDirectory() as tmp_dir:
+            output_root = Path(tmp_dir) / "models"
+            context = TrendTrainContext(
+                model_name=LAST_WEEK_MODEL_NAME,
+                split_frames=split_frames,
+                input_paths={
+                    "train": Path("train.parquet"),
+                    "valid": Path("valid.parquet"),
+                    "test": Path("test.parquet"),
+                },
+                output_dir=output_root / "last_week",
+            )
+            result = LastWeekTrainer().train(context)
+            paths = derive_trend_model_output_paths("last_week", output_root)
+
+            for unsafe_path in (
+                "",
+                "/tmp/leak.txt",
+                "../leak.txt",
+                "./leak.txt",
+                "nested/./leak.txt",
+                ".",
+            ):
+                with self.subTest(unsafe_path=unsafe_path):
+                    bad_result = TrendTrainResult(
+                        model_name=result.model_name,
+                        model_type=result.model_type,
+                        predictions=result.predictions,
+                        params=result.params,
+                        artifacts=(TrendArtifact(unsafe_path, "binary", b"bad"),),
+                    )
+                    metadata = build_trend_train_metadata(bad_result, context, paths)
+
+                    with self.assertRaisesRegex(ValueError, "artifact"):
+                        write_trend_model_outputs(bad_result, metadata, paths)
+
+                    self.assertFalse(paths["predictions"].exists())
+
+    def test_write_trend_model_outputs_rejects_bad_json_before_writing(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        with TemporaryDirectory() as tmp_dir:
+            output_root = Path(tmp_dir) / "models"
+            context = TrendTrainContext(
+                model_name=LAST_WEEK_MODEL_NAME,
+                split_frames=split_frames,
+                input_paths={
+                    "train": Path("train.parquet"),
+                    "valid": Path("valid.parquet"),
+                    "test": Path("test.parquet"),
+                },
+                output_dir=output_root / "last_week",
+            )
+            result = LastWeekTrainer().train(context)
+            bad_result = TrendTrainResult(
+                model_name=result.model_name,
+                model_type=result.model_type,
+                predictions=result.predictions,
+                params={"bad": object()},
+            )
+            paths = derive_trend_model_output_paths("last_week", output_root)
+            metadata = build_trend_train_metadata(bad_result, context, paths)
+
+            with self.assertRaisesRegex(ValueError, "JSON"):
+                write_trend_model_outputs(bad_result, metadata, paths)
+
+            self.assertFalse(paths["predictions"].exists())
+
+    def test_write_trend_model_outputs_rejects_bad_artifact_payload_before_writing(
+        self,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        with TemporaryDirectory() as tmp_dir:
+            output_root = Path(tmp_dir) / "models"
+            context = TrendTrainContext(
+                model_name=LAST_WEEK_MODEL_NAME,
+                split_frames=split_frames,
+                input_paths={
+                    "train": Path("train.parquet"),
+                    "valid": Path("valid.parquet"),
+                    "test": Path("test.parquet"),
+                },
+                output_dir=output_root / "last_week",
+            )
+            result = LastWeekTrainer().train(context)
+            bad_artifacts = (
+                TrendArtifact("bad.json", "json", {"bad": object()}),
+                TrendArtifact("bad.bin", "binary", object()),
+            )
+            paths = derive_trend_model_output_paths("last_week", output_root)
+
+            for bad_artifact in bad_artifacts:
+                with self.subTest(bad_artifact=bad_artifact.relative_path):
+                    bad_result = TrendTrainResult(
+                        model_name=result.model_name,
+                        model_type=result.model_type,
+                        predictions=result.predictions,
+                        params=result.params,
+                        artifacts=(bad_artifact,),
+                    )
+                    metadata = build_trend_train_metadata(bad_result, context, paths)
+
+                    with self.assertRaisesRegex(ValueError, "JSON|artifact"):
+                        write_trend_model_outputs(bad_result, metadata, paths)
+
+                    self.assertFalse(paths["predictions"].exists())
+
+    def test_run_trend_model_training_rejects_missing_input_split(self) -> None:
+        with self.assertRaisesRegex(ValueError, "split"):
+            run_trend_model_training(
+                LAST_WEEK_MODEL_NAME,
+                input_paths={},
+                output_root=Path("outputs/models"),
+            )
+
+    def test_run_trend_model_training_writes_standard_outputs(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            input_paths = {
+                "train": tmp_path / "trend_model_samples_train.parquet",
+                "valid": tmp_path / "trend_model_samples_valid.parquet",
+                "test": tmp_path / "trend_model_samples_test.parquet",
+            }
+            for split_name, split_frame in split_frames.items():
+                write_trend_parquet(split_frame, input_paths[split_name])
+
+            metadata = run_trend_model_training(
+                LAST_WEEK_MODEL_NAME,
+                input_paths=input_paths,
+                output_root=tmp_path / "outputs" / "models",
+            )
+
+            output_dir = tmp_path / "outputs" / "models" / "last_week"
+            self.assertTrue((output_dir / "predictions.csv").exists())
+            self.assertTrue((output_dir / "params.json").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertEqual(metadata["model_name"], LAST_WEEK_MODEL_NAME)
+            self.assertEqual(metadata["model_type"], MODEL_TYPE_BASELINE)
+            self.assertEqual(metadata["rows"], 40)
+            self.assertEqual(metadata["extra_artifacts"], [])
+
+    def test_last_week_trainer_returns_train_result(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        context = TrendTrainContext(
+            model_name=LAST_WEEK_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/last_week"),
+        )
+
+        result = LastWeekTrainer().train(context)
+
+        self.assertIsInstance(result, TrendTrainResult)
+        self.assertEqual(result.model_name, LAST_WEEK_MODEL_NAME)
+        self.assertEqual(result.model_type, MODEL_TYPE_BASELINE)
+        self.assertEqual(result.params, LAST_WEEK_PARAMS)
+        self.assertEqual(result.artifacts, ())
+        self.assertEqual(result.metadata, {})
+        self.assertEqual(len(result.predictions), 40)
+
+    def test_train_trend_model_main_preserves_argparse_usage_error_code(self) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+
+        self.assertEqual(train_model.main(["--unknown"]), 2)
+
+    def test_train_trend_model_main_rejects_unknown_model(self) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+
+        self.assertEqual(train_model.main(["--model", "moving_average"]), 1)
+
+    def test_train_trend_model_main_runs_training_and_logs_summary(self) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
         calls: list[str] = []
-        original_read = train_baseline.read_trend_model_split
-        original_build_metadata = train_baseline.build_prediction_metadata
-        original_write_csv = train_baseline.write_trend_csv
-        original_write_json = train_baseline.write_json
+        original_run_trend_model_training = train_model.run_trend_model_training
 
-        def fake_read_trend_model_split(input_path: Path) -> pd.DataFrame:
-            path_text = str(input_path)
-            if path_text.endswith("_train.parquet"):
-                return split_frames["train"]
-            if path_text.endswith("_valid.parquet"):
-                return split_frames["valid"]
-            if path_text.endswith("_test.parquet"):
-                return split_frames["test"]
-            raise AssertionError(f"unexpected input path: {input_path}")
-
-        def failing_build_prediction_metadata(
-            predictions: pd.DataFrame,
-        ) -> dict[str, object]:
-            calls.append("metadata")
-            raise ValueError("metadata failed")
-
-        def fake_write_trend_csv(
-            dataframe: pd.DataFrame,
-            output_path: Path,
-        ) -> None:
-            calls.append("predictions")
-
-        def fake_write_json(payload: dict[str, object], output_path: Path) -> None:
-            calls.append("json")
+        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+            calls.append(model_name)
+            return {
+                "model_name": LAST_WEEK_MODEL_NAME,
+                "model_type": MODEL_TYPE_BASELINE,
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": {
+                    "train": {
+                        "rows": 24,
+                        "weeks": 12,
+                        "attributes": 2,
+                        "week_min": 4,
+                        "week_max": 15,
+                    },
+                    "valid": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 16,
+                        "week_max": 19,
+                    },
+                    "test": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 20,
+                        "week_max": 23,
+                    },
+                },
+                "output_dir": "outputs/models/last_week",
+                "prediction_path": "outputs/models/last_week/predictions.csv",
+                "params_path": "outputs/models/last_week/params.json",
+            }
 
         try:
-            train_baseline.read_trend_model_split = fake_read_trend_model_split
-            train_baseline.build_prediction_metadata = failing_build_prediction_metadata
-            train_baseline.write_trend_csv = fake_write_trend_csv
-            train_baseline.write_json = fake_write_json
+            train_model.run_trend_model_training = fake_run_trend_model_training
 
-            with self.assertRaisesRegex(ValueError, "metadata failed"):
-                train_baseline.train_trend_baseline(LAST_WEEK_MODEL_NAME)
+            self.assertEqual(train_model.main(["--model", LAST_WEEK_MODEL_NAME]), 0)
         finally:
-            train_baseline.read_trend_model_split = original_read
-            train_baseline.build_prediction_metadata = original_build_metadata
-            train_baseline.write_trend_csv = original_write_csv
-            train_baseline.write_json = original_write_json
+            train_model.run_trend_model_training = original_run_trend_model_training
 
-        self.assertEqual(calls, ["metadata"])
+        self.assertEqual(calls, [LAST_WEEK_MODEL_NAME])
 
     def test_predict_last_week_uses_growth_lag_1(self) -> None:
         split_frames = build_trend_model_split_frames(
@@ -1403,7 +1718,7 @@ class LastWeekBaselineTests(unittest.TestCase):
         predictions = predict_last_week(samples)
 
         self.assertEqual(
-            predictions.columns.tolist(), list(TREND_BASELINE_PREDICTION_COLUMNS)
+            predictions.columns.tolist(), list(TREND_MODEL_PREDICTION_COLUMNS)
         )
         self.assertEqual(set(predictions["model_name"]), {LAST_WEEK_MODEL_NAME})
         pd.testing.assert_series_equal(
@@ -1430,7 +1745,7 @@ class LastWeekBaselineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "缺少必需列"):
             predict_last_week(samples)
 
-    def test_validate_trend_baseline_predictions_rejects_changed_split(self) -> None:
+    def test_validate_trend_model_predictions_rejects_changed_split(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
             valid_weeks=4,
@@ -1440,10 +1755,10 @@ class LastWeekBaselineTests(unittest.TestCase):
         predictions = predict_last_week(samples)
         predictions.loc[0, "split"] = "test"
 
-        with self.assertRaisesRegex(ValueError, "baseline 预测 split 与输入不一致"):
-            validate_trend_baseline_predictions(predictions, samples)
+        with self.assertRaisesRegex(ValueError, "趋势模型预测 split 与输入不一致"):
+            validate_trend_model_predictions(predictions, samples)
 
-    def test_validate_trend_baseline_predictions_rejects_changed_target_growth(
+    def test_validate_trend_model_predictions_rejects_changed_target_growth(
         self,
     ) -> None:
         split_frames = build_trend_model_split_frames(
@@ -1455,10 +1770,10 @@ class LastWeekBaselineTests(unittest.TestCase):
         predictions = predict_last_week(samples)
         predictions.loc[0, "target_growth"] = 999.0
 
-        with self.assertRaisesRegex(ValueError, "baseline 预测字段与输入不一致"):
-            validate_trend_baseline_predictions(predictions, samples)
+        with self.assertRaisesRegex(ValueError, "趋势模型预测字段与输入不一致"):
+            validate_trend_model_predictions(predictions, samples)
 
-    def test_validate_trend_baseline_predictions_rejects_non_finite_numeric_value(
+    def test_validate_trend_model_predictions_rejects_non_finite_numeric_value(
         self,
     ) -> None:
         split_frames = build_trend_model_split_frames(
@@ -1471,7 +1786,20 @@ class LastWeekBaselineTests(unittest.TestCase):
         predictions.loc[0, "pred_target_growth"] = float("inf")
 
         with self.assertRaisesRegex(ValueError, "非有限"):
-            validate_trend_baseline_predictions(predictions, samples)
+            validate_trend_model_predictions(predictions, samples)
+
+    def test_validate_trend_model_predictions_rejects_extra_column(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+        predictions["debug_score"] = 1.0
+
+        with self.assertRaisesRegex(ValueError, "列"):
+            validate_trend_model_predictions(predictions, samples)
 
 
 class TrendModelSplitWriteTests(unittest.TestCase):
