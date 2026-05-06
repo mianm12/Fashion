@@ -30,6 +30,7 @@ H&M transactions_train.csv
 | 趋势样本 | 已实现 | `trend_model_samples.parquet` |
 | 趋势样本时间切分 | 已实现 | `trend_model_samples_train.parquet`、`trend_model_samples_valid.parquet`、`trend_model_samples_test.parquet` |
 | Last Week baseline | 已实现 | `outputs/models/last_week/predictions.csv`、`params.json`、`metadata.json` |
+| 趋势评价 | 已实现 | `outputs/metrics/last_week/trend_metrics.json` |
 | 推荐评价 | 尚未实现 | 后续推荐结果 |
 
 ## 数据集
@@ -157,6 +158,7 @@ uv run python src/07_build_trend_targets.py
 uv run python src/08_build_trend_model_samples.py
 uv run python src/09_split_trend_model_samples.py
 uv run python src/10_train_trend_model.py --model last_week
+uv run python src/11_eval_trend_model.py --model last_week
 ```
 
 ### 1. transactions_train.csv
@@ -475,9 +477,48 @@ outputs/models/last_week/metadata.json
 uv run python src/10_train_trend_model.py --model last_week
 ```
 
+### 10. 趋势评价
+
+趋势评价通过独立入口运行，读取已经生成的趋势模型预测表：
+
+```sh
+outputs/models/last_week/predictions.csv
+```
+
+评价结果写入：
+
+```sh
+outputs/metrics/last_week/trend_metrics.json
+```
+
+第一版趋势评价只评价 `valid` 和 `test` split，不把 `train` 作为正式指标。排序目标与训练目标保持一致：
+
+```text
+target_growth vs pred_target_growth
+```
+
+指标包含：
+
+```text
+MAE
+RMSE
+Spearman
+Precision@5/10/20
+Recall@5/10/20
+NDCG@5/10/20
+```
+
+排序指标按 `split + week_id + attr_type` 逐组计算，再汇总到 overall 和 by_attr_type，便于观察不同属性类型的趋势预测质量。
+
+运行命令：
+
+```sh
+uv run python src/11_eval_trend_model.py --model last_week
+```
+
 ## 后续阶段
 
-趋势模型训练框架已经落地到 `last_week` baseline，README 继续按计划记录后续边界：
+趋势模型训练与评价框架已经落地到 `last_week` baseline，README 继续按计划记录后续边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
@@ -503,3 +544,4 @@ uv run python -m unittest discover -s tests -v
 - 趋势样本的 lag、移动窗口、图特征合入、目标合入和标签表与当前热度表一致性校验。
 - 趋势样本 train/valid/test 时间切分、切分读取、元数据写出和 split 合法性校验。
 - `last_week` baseline 预测公式、预测表校验、通用训练 runner metadata、artifact 和写出顺序校验。
+- 趋势评价的预测读取、输入校验、分组指标、JSON payload、写出边界和 CLI 行为校验。

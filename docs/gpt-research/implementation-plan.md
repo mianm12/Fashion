@@ -1345,6 +1345,11 @@ hm-fashion-trend-rec/
 │   └── recommend/
 │       └── best_linear_weights.json
 │
+├── outputs/
+│   └── metrics/
+│       └── <model>/
+│           └── trend_metrics.json
+│
 ├── reports/
 │   ├── figures/
 │   │   ├── attribute_graph_schema.png
@@ -1353,7 +1358,6 @@ hm-fashion-trend-rec/
 │   │   └── recommendation_case.png
 │   │
 │   ├── tables/
-│   │   ├── trend_eval_results.csv
 │   │   ├── rec_eval_results.csv
 │   │   └── ablation_results.csv
 │   │
@@ -1372,12 +1376,12 @@ hm-fashion-trend-rec/
 │   ├── 07_build_trend_features.py
 │   ├── 08_train_trend_baselines.py
 │   ├── 09_train_lgbm_trend.py
-│   ├── 10_eval_trend.py
-│   ├── 11_build_user_profile.py
-│   ├── 12_build_recommend_candidates.py
-│   ├── 13_rerank_recommendations.py
-│   ├── 14_eval_recommendations.py
-│   └── 15_make_figures.py
+│   ├── 11_eval_trend_model.py
+│   ├── 12_build_user_profile.py
+│   ├── 13_build_recommend_candidates.py
+│   ├── 14_rerank_recommendations.py
+│   ├── 15_eval_recommendations.py
+│   └── 16_make_figures.py
 │
 ├── app/
 │   └── streamlit_app.py
@@ -1406,12 +1410,12 @@ hm-fashion-trend-rec/
 | 趋势特征        | `07_build_trend_features.py`        | `trend_model_samples.parquet`                                                                              |
 | baseline 训练 | `08_train_trend_baselines.py`       | `trend_baseline_predictions.csv`                                                                           |
 | LightGBM 训练 | `09_train_lgbm_trend.py`            | `lgbm_trend_model.pkl`, `attribute_trend_pred.csv`                                                         |
-| 趋势评价        | `10_eval_trend.py`                  | `trend_eval_results.csv`                                                                                   |
-| 用户画像        | `11_build_user_profile.py`          | `user_profile.csv`                                                                                         |
-| 候选召回        | `12_build_recommend_candidates.py`  | `candidate_items.parquet`                                                                                  |
-| 推荐重排序       | `13_rerank_recommendations.py`      | `recommendation_result.csv`                                                                                |
-| 推荐评价        | `14_eval_recommendations.py`        | `recommendation_eval.csv`                                                                                  |
-| 图表生成        | `15_make_figures.py`                | 趋势曲线、特征重要性、推荐案例图                                                                                           |
+| 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
+| 用户画像        | `12_build_user_profile.py`          | `user_profile.csv`                                                                                         |
+| 候选召回        | `13_build_recommend_candidates.py`  | `candidate_items.parquet`                                                                                  |
+| 推荐重排序       | `14_rerank_recommendations.py`      | `recommendation_result.csv`                                                                                |
+| 推荐评价        | `15_eval_recommendations.py`        | `recommendation_eval.csv`                                                                                  |
+| 图表生成        | `16_make_figures.py`                | 趋势曲线、特征重要性、推荐案例图                                                                                           |
 
 ---
 
@@ -1631,16 +1635,16 @@ feature_importance.csv
 比较 baseline 和 LightGBM。
 ```
 
-写：
+当前实现入口：
 
 ```text
-src/10_eval_trend.py
+src/11_eval_trend_model.py
 ```
 
-输出：
+当前标准产物：
 
 ```text
-trend_eval_results.csv
+outputs/metrics/<model>/trend_metrics.json
 ```
 
 至少包含：
@@ -1666,7 +1670,7 @@ NDCG@10
 写：
 
 ```text
-src/11_build_user_profile.py
+src/12_build_user_profile.py
 ```
 
 输出：
@@ -1688,7 +1692,7 @@ user_profile.csv
 写：
 
 ```text
-src/12_build_recommend_candidates.py
+src/13_build_recommend_candidates.py
 ```
 
 候选来源：
@@ -1718,7 +1722,7 @@ candidate_items.parquet
 写：
 
 ```text
-src/13_rerank_recommendations.py
+src/14_rerank_recommendations.py
 ```
 
 输出：
@@ -1746,7 +1750,7 @@ recommendation_result.csv
 写：
 
 ```text
-src/14_eval_recommendations.py
+src/15_eval_recommendations.py
 ```
 
 输出：
@@ -1778,7 +1782,7 @@ Coverage
 写：
 
 ```text
-src/15_make_figures.py
+src/16_make_figures.py
 ```
 
 输出：
