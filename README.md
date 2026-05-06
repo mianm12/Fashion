@@ -545,15 +545,9 @@ NDCG@5/10/20
 
 排序指标按 `split + week_id + attr_type` 逐组计算，再汇总到 overall 和 by_attr_type，便于观察不同属性类型的趋势预测质量。
 
-运行命令：
-
-```sh
-uv run python src/11_eval_trend_model.py --model last_week
-```
-
 ## 后续阶段
 
-趋势模型训练与评价框架已经落地到 `last_week` baseline，README 继续按计划记录后续边界：
+趋势模型训练与评价框架已经落地到 `last_week` 与 `moving_average` baseline，README 继续按计划记录后续边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
