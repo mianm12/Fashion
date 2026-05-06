@@ -1581,6 +1581,50 @@ class LastWeekBaselineTests(unittest.TestCase):
 
                     self.assertFalse(paths["predictions"].exists())
 
+    def test_write_trend_model_outputs_does_not_publish_partial_files(
+        self,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        with TemporaryDirectory() as tmp_dir:
+            output_root = Path(tmp_dir) / "models"
+            context = TrendTrainContext(
+                model_name=LAST_WEEK_MODEL_NAME,
+                split_frames=split_frames,
+                input_paths={
+                    "train": Path("train.parquet"),
+                    "valid": Path("valid.parquet"),
+                    "test": Path("test.parquet"),
+                },
+                output_dir=output_root / "last_week",
+            )
+            result = LastWeekTrainer().train(context)
+            artifact = TrendArtifact(
+                "feature_importance.csv",
+                "csv",
+                pd.DataFrame({"feature": ["growth_lag_1"], "importance": [1.0]}),
+            )
+            result = TrendTrainResult(
+                model_name=result.model_name,
+                model_type=result.model_type,
+                predictions=result.predictions,
+                params=result.params,
+                artifacts=(artifact,),
+            )
+            paths = derive_trend_model_output_paths("last_week", output_root)
+            metadata = build_trend_train_metadata(result, context, paths)
+            paths["metadata"].mkdir(parents=True)
+
+            with self.assertRaises(OSError):
+                write_trend_model_outputs(result, metadata, paths)
+
+            self.assertFalse(paths["predictions"].exists())
+            self.assertFalse(paths["params"].exists())
+            self.assertFalse((paths["output_dir"] / artifact.relative_path).exists())
+
     def test_run_trend_model_training_rejects_missing_input_split(self) -> None:
         with self.assertRaisesRegex(ValueError, "split"):
             run_trend_model_training(

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import uuid
 from pathlib import Path
 from typing import Mapping
 
@@ -146,11 +148,35 @@ def write_trend_model_outputs(
     output_paths: Mapping[str, Path],
 ) -> None:
     _validate_output_payloads(result, metadata)
-    write_trend_csv(result.predictions, output_paths["predictions"])
-    write_json(result.params, output_paths["params"])
-    for artifact in result.artifacts:
-        _write_artifact(artifact, output_paths["output_dir"])
-    write_json(metadata, output_paths["metadata"])
+    output_dir = output_paths["output_dir"]
+    output_items = _build_output_items(result, metadata, output_paths)
+    _validate_output_destinations(output_items, output_dir)
+
+    staging_dir = output_dir / f".tmp-trend-model-{uuid.uuid4().hex}"
+    published_paths: list[tuple[Path, Path | None]] = []
+    try:
+        for final_path, payload in output_items:
+            staging_path = staging_dir / final_path.relative_to(output_dir)
+            _write_output_payload(payload, staging_path)
+
+        for final_path, _payload in output_items:
+            staging_path = staging_dir / final_path.relative_to(output_dir)
+            backup_path = None
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            if final_path.exists():
+                backup_path = final_path.with_name(
+                    f".{final_path.name}.bak-{uuid.uuid4().hex}"
+                )
+                final_path.replace(backup_path)
+            published_paths.append((final_path, backup_path))
+            staging_path.replace(final_path)
+    except Exception:
+        _rollback_published_outputs(published_paths)
+        raise
+    else:
+        _remove_backup_outputs(published_paths)
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def run_trend_model_training(
@@ -226,18 +252,88 @@ def _validate_json_payload(payload: dict[str, object], source_name: str) -> None
         raise ValueError(f"趋势模型 {source_name} 不能序列化为 JSON。") from exc
 
 
-def _write_artifact(artifact: TrendArtifact, output_dir: Path) -> None:
-    output_path = output_dir / artifact.relative_path
-    if isinstance(artifact.payload, pd.DataFrame):
-        write_trend_csv(artifact.payload, output_path)
+def _build_output_items(
+    result: TrendTrainResult,
+    metadata: dict[str, object],
+    output_paths: Mapping[str, Path],
+) -> list[tuple[Path, pd.DataFrame | dict[str, object] | bytes]]:
+    output_items: list[tuple[Path, pd.DataFrame | dict[str, object] | bytes]] = [
+        (output_paths["predictions"], result.predictions),
+        (output_paths["params"], result.params),
+    ]
+    output_items.extend(
+        (output_paths["output_dir"] / artifact.relative_path, artifact.payload)
+        for artifact in result.artifacts
+    )
+    output_items.append((output_paths["metadata"], metadata))
+    return output_items
+
+
+def _validate_output_destinations(
+    output_items: list[tuple[Path, pd.DataFrame | dict[str, object] | bytes]],
+    output_dir: Path,
+) -> None:
+    seen_paths: set[Path] = set()
+    for final_path, _payload in output_items:
+        try:
+            final_path.relative_to(output_dir)
+        except ValueError as exc:
+            raise ValueError(f"趋势模型输出路径不在输出目录内: {final_path}") from exc
+        if final_path in seen_paths:
+            raise ValueError(f"趋势模型输出路径重复: {final_path}")
+        seen_paths.add(final_path)
+        if final_path.exists() and final_path.is_dir():
+            raise IsADirectoryError(f"趋势模型输出路径是目录: {final_path}")
+        _validate_output_parent_dirs(final_path.parent, output_dir)
+
+
+def _validate_output_parent_dirs(parent_path: Path, output_dir: Path) -> None:
+    try:
+        relative_parent = parent_path.relative_to(output_dir)
+    except ValueError as exc:
+        raise ValueError(f"趋势模型输出父目录不在输出目录内: {parent_path}") from exc
+    current_path = output_dir
+    if current_path.exists() and not current_path.is_dir():
+        raise NotADirectoryError(f"趋势模型输出目录不是目录: {current_path}")
+    for path_part in relative_parent.parts:
+        current_path = current_path / path_part
+        if current_path.exists() and not current_path.is_dir():
+            raise NotADirectoryError(f"趋势模型输出父路径不是目录: {current_path}")
+
+
+def _write_output_payload(
+    payload: pd.DataFrame | dict[str, object] | bytes,
+    output_path: Path,
+) -> None:
+    if isinstance(payload, pd.DataFrame):
+        write_trend_csv(payload, output_path)
         return
-    if isinstance(artifact.payload, dict):
-        write_json(artifact.payload, output_path)
+    if isinstance(payload, dict):
+        write_json(payload, output_path)
         return
-    if isinstance(artifact.payload, bytes):
-        _write_binary(artifact.payload, output_path)
+    if isinstance(payload, bytes):
+        _write_binary(payload, output_path)
         return
-    raise ValueError(f"不支持的趋势模型 artifact payload: {artifact.relative_path}")
+    raise ValueError("不支持的趋势模型输出 payload。")
+
+
+def _rollback_published_outputs(
+    published_paths: list[tuple[Path, Path | None]],
+) -> None:
+    for final_path, backup_path in reversed(published_paths):
+        if backup_path is None:
+            remove_file_if_exists(final_path)
+            continue
+        remove_file_if_exists(final_path)
+        backup_path.replace(final_path)
+
+
+def _remove_backup_outputs(
+    published_paths: list[tuple[Path, Path | None]],
+) -> None:
+    for _final_path, backup_path in published_paths:
+        if backup_path is not None:
+            remove_file_if_exists(backup_path)
 
 
 def _write_binary(payload: bytes, output_path: Path) -> None:
