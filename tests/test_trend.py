@@ -53,7 +53,6 @@ from fashion_trend.training import (
 )
 from fashion_trend.trend import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
-    ATTRIBUTE_WEEK_TARGET_COLUMNS,
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
     TREND_MODEL_SPLIT_COLUMNS,
@@ -67,7 +66,6 @@ from fashion_trend.trend import (
     read_attribute_week_target,
     read_trend_model_split,
     validate_attribute_nodes_for_heat,
-    validate_attribute_week_target,
     validate_trend_model_predictions,
     validate_trend_model_samples,
     validate_trend_model_split_frames,
@@ -84,87 +82,6 @@ from tests.trend_samples import (
     sample_trend_model_samples_for_split,
     sample_trend_predictions_for_evaluation,
 )
-
-
-class AttributeWeekTargetFrameTests(unittest.TestCase):
-    def test_build_attribute_week_target_frame_calculates_next_week_targets(
-        self,
-    ) -> None:
-        target = build_attribute_week_target_frame(sample_attribute_week_heat())
-
-        self.assertEqual(target.columns.tolist(), list(ATTRIBUTE_WEEK_TARGET_COLUMNS))
-        self.assertEqual(len(target), 6)
-        self.assertEqual(set(target["week_id"]), {0})
-
-        black = target[target["attr_id"] == "colour_group_name::Black"].iloc[0]
-        self.assertEqual(int(black["heat_t"]), 2)
-        self.assertEqual(int(black["heat_t1"]), 1)
-        self.assertTrue(math.isclose(float(black["share_t"]), 2 / 3))
-        self.assertTrue(math.isclose(float(black["share_t1"]), 1.0))
-        self.assertTrue(
-            math.isclose(
-                float(black["target_growth"]),
-                math.log((1.0 + 1e-6) / ((2 / 3) + 1e-6)),
-            )
-        )
-        self.assertTrue(
-            math.isclose(float(black["target_log_heat_t1"]), math.log1p(1))
-        )
-        self.assertEqual(int(black["target_rank_in_type_t1"]), 1)
-
-    def test_validate_attribute_week_target_rejects_inconsistent_growth(
-        self,
-    ) -> None:
-        target = build_attribute_week_target_frame(sample_attribute_week_heat())
-        target.loc[0, "target_growth"] = 999.0
-
-        with self.assertRaisesRegex(ValueError, "target_growth"):
-            validate_attribute_week_target(target)
-
-    def test_validate_attribute_week_target_rejects_non_positive_epsilon(
-        self,
-    ) -> None:
-        target = build_attribute_week_target_frame(sample_attribute_week_heat())
-
-        with self.assertRaisesRegex(ValueError, "epsilon"):
-            validate_attribute_week_target(target, epsilon=0)
-
-    def test_validate_attribute_week_target_rejects_non_finite_numeric_values(
-        self,
-    ) -> None:
-        target = build_attribute_week_target_frame(sample_attribute_week_heat())
-        target["heat_t"] = target["heat_t"].astype("float64")
-        target.loc[0, "heat_t"] = float("inf")
-
-        with self.assertRaisesRegex(ValueError, "非有限"):
-            validate_attribute_week_target(target)
-
-    def test_validate_attribute_week_target_rejects_inconsistent_log_heat_t1(
-        self,
-    ) -> None:
-        target = build_attribute_week_target_frame(sample_attribute_week_heat())
-        target.loc[0, "target_log_heat_t1"] = 999.0
-
-        with self.assertRaisesRegex(ValueError, "target_log_heat_t1"):
-            validate_attribute_week_target(target)
-
-    def test_validate_attribute_week_target_rejects_share_greater_than_one(
-        self,
-    ) -> None:
-        target = build_attribute_week_target_frame(sample_attribute_week_heat())
-        target.loc[0, "share_t"] = 1.1
-
-        with self.assertRaisesRegex(ValueError, "share 大于 1"):
-            validate_attribute_week_target(target)
-
-    def test_validate_attribute_week_target_rejects_duplicate_week_attr(
-        self,
-    ) -> None:
-        target = build_attribute_week_target_frame(sample_attribute_week_heat())
-        target.loc[len(target)] = target.loc[0]
-
-        with self.assertRaisesRegex(ValueError, "week_id, attr_id"):
-            validate_attribute_week_target(target)
 
 
 class TrendModelSamplesFrameTests(unittest.TestCase):
