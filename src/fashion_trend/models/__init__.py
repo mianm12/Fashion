@@ -1,1 +1,1 @@
-"""Trend model implementations."""
+"""Trend model implementations and registry."""
