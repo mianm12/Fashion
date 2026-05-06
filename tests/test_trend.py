@@ -1857,6 +1857,33 @@ class LastWeekBaselineTests(unittest.TestCase):
         self.assertEqual(result.metadata, {})
         self.assertEqual(len(result.predictions), 40)
 
+    def test_moving_average_trainer_returns_train_result(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        context = TrendTrainContext(
+            model_name=MOVING_AVERAGE_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/moving_average"),
+        )
+
+        result = MovingAverageTrainer().train(context)
+
+        self.assertIsInstance(result, TrendTrainResult)
+        self.assertEqual(result.model_name, MOVING_AVERAGE_MODEL_NAME)
+        self.assertEqual(result.model_type, MODEL_TYPE_BASELINE)
+        self.assertEqual(result.params, MOVING_AVERAGE_PARAMS)
+        self.assertEqual(result.artifacts, ())
+        self.assertEqual(result.metadata, {})
+        self.assertEqual(len(result.predictions), 40)
+
     def test_train_trend_model_main_preserves_argparse_usage_error_code(self) -> None:
         train_model = importlib.import_module("10_train_trend_model")
 
@@ -1948,6 +1975,56 @@ class LastWeekBaselineTests(unittest.TestCase):
             expected_share,
             check_names=False,
         )
+
+    def test_predict_moving_average_uses_two_growth_lags(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+
+        predictions = predict_moving_average(samples)
+        ordered_samples = samples.sort_values(
+            ["week_id", "attr_type", "attr_id"],
+            ignore_index=True,
+        )
+        expected_growth = ordered_samples.loc[
+            :, ["growth_lag_1", "growth_lag_2"]
+        ].mean(axis=1)
+
+        self.assertEqual(
+            predictions.columns.tolist(), list(TREND_MODEL_PREDICTION_COLUMNS)
+        )
+        self.assertEqual(set(predictions["model_name"]), {MOVING_AVERAGE_MODEL_NAME})
+        pd.testing.assert_series_equal(
+            predictions["pred_target_growth"],
+            expected_growth,
+            check_names=False,
+        )
+        expected_share = (
+            predictions["pred_target_growth"].map(math.exp)
+            * (predictions["share_t"] + MOVING_AVERAGE_PARAMS["epsilon"])
+            - MOVING_AVERAGE_PARAMS["epsilon"]
+        )
+        pd.testing.assert_series_equal(
+            predictions["pred_share_t1"],
+            expected_share,
+            check_names=False,
+        )
+
+    def test_predict_moving_average_rejects_missing_growth_lag(self) -> None:
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+        samples = samples.drop(columns=["growth_lag_2"])
+
+        with self.assertRaisesRegex(ValueError, "growth_lag_2"):
+            predict_moving_average(samples)
+
+    def test_predict_moving_average_rejects_illegal_split(self) -> None:
+        samples = sample_trend_model_samples_for_split().assign(split="holdout")
+
+        with self.assertRaisesRegex(ValueError, "非法 split"):
+            predict_moving_average(samples)
 
     def test_predict_last_week_rejects_missing_split(self) -> None:
         samples = sample_trend_model_samples_for_split()
