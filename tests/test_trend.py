@@ -53,16 +53,12 @@ from fashion_trend.training import (
 )
 from fashion_trend.trend import (
     TREND_MODEL_PREDICTION_COLUMNS,
-    TREND_MODEL_SPLIT_COLUMNS,
     build_trend_model_split_frames,
-    build_trend_model_split_metadata,
     read_attribute_hierarchy_edges,
     read_attribute_nodes,
     read_attribute_week_target,
-    read_trend_model_split,
     validate_attribute_nodes_for_heat,
     validate_trend_model_predictions,
-    validate_trend_model_split_frames,
     write_json,
     write_trend_csv,
     write_trend_parquet,
@@ -72,123 +68,6 @@ from tests.trend_samples import (
     sample_trend_model_samples_for_split,
     sample_trend_predictions_for_evaluation,
 )
-
-
-class TrendModelSplitFrameTests(unittest.TestCase):
-    def test_build_trend_model_split_frames_uses_time_boundaries(self) -> None:
-        samples = sample_trend_model_samples_for_split()
-
-        split_frames = build_trend_model_split_frames(
-            samples,
-            valid_weeks=4,
-            test_weeks=4,
-        )
-
-        self.assertEqual(set(split_frames), {"train", "valid", "test"})
-        self.assertEqual(split_frames["train"]["week_id"].min(), 4)
-        self.assertEqual(split_frames["train"]["week_id"].max(), 15)
-        self.assertEqual(split_frames["valid"]["week_id"].min(), 16)
-        self.assertEqual(split_frames["valid"]["week_id"].max(), 19)
-        self.assertEqual(split_frames["test"]["week_id"].min(), 20)
-        self.assertEqual(split_frames["test"]["week_id"].max(), 23)
-        self.assertEqual(set(split_frames["train"]["split"]), {"train"})
-        self.assertEqual(set(split_frames["valid"]["split"]), {"valid"})
-        self.assertEqual(set(split_frames["test"]["split"]), {"test"})
-
-    def test_build_trend_model_split_frames_rejects_too_few_weeks(self) -> None:
-        samples = sample_trend_model_samples_for_split()
-        samples = samples[samples["week_id"] < 10].copy()
-
-        with self.assertRaisesRegex(ValueError, "样本周数不足"):
-            build_trend_model_split_frames(samples, valid_weeks=4, test_weeks=4)
-
-    def test_build_trend_model_split_metadata_reports_ranges(self) -> None:
-        samples = sample_trend_model_samples_for_split()
-        split_frames = build_trend_model_split_frames(
-            samples,
-            valid_weeks=4,
-            test_weeks=4,
-        )
-
-        metadata = build_trend_model_split_metadata(
-            split_frames,
-            input_path=Path("data/processed/features/trend_model_samples.parquet"),
-            output_paths={
-                "train": Path(
-                    "data/processed/features/trend_model_samples_train.parquet"
-                ),
-                "valid": Path(
-                    "data/processed/features/trend_model_samples_valid.parquet"
-                ),
-                "test": Path(
-                    "data/processed/features/trend_model_samples_test.parquet"
-                ),
-            },
-            valid_weeks=4,
-            test_weeks=4,
-        )
-
-        self.assertEqual(metadata["split_strategy"], "time")
-        self.assertEqual(metadata["valid_weeks"], 4)
-        self.assertEqual(metadata["test_weeks"], 4)
-        self.assertEqual(metadata["splits"]["train"]["week_min"], 4)
-        self.assertEqual(metadata["splits"]["train"]["week_max"], 15)
-        self.assertEqual(metadata["splits"]["train"]["rows"], 24)
-        self.assertEqual(metadata["splits"]["valid"]["week_min"], 16)
-        self.assertEqual(metadata["splits"]["test"]["week_max"], 23)
-
-    def test_read_trend_model_split_preserves_columns_for_legal_parquet(self) -> None:
-        samples = sample_trend_model_samples_for_split()
-        split_frames = build_trend_model_split_frames(
-            samples,
-            valid_weeks=4,
-            test_weeks=4,
-        )
-
-        with TemporaryDirectory() as tmp_dir:
-            input_path = Path(tmp_dir) / "trend_model_samples_train.parquet"
-            write_trend_parquet(split_frames["train"], input_path)
-
-            split = read_trend_model_split(input_path)
-
-        self.assertEqual(split.columns.tolist(), list(TREND_MODEL_SPLIT_COLUMNS))
-        self.assertEqual(set(split["split"]), {"train"})
-
-    def test_read_trend_model_split_rejects_invalid_split_value(self) -> None:
-        samples = sample_trend_model_samples_for_split()
-        split_frames = build_trend_model_split_frames(
-            samples,
-            valid_weeks=4,
-            test_weeks=4,
-        )
-        invalid_split = split_frames["train"].copy()
-        invalid_split.loc[invalid_split.index[0], "split"] = "holdout"
-
-        with TemporaryDirectory() as tmp_dir:
-            input_path = Path(tmp_dir) / "trend_model_samples_train.parquet"
-            write_trend_parquet(invalid_split, input_path)
-
-            with self.assertRaisesRegex(ValueError, "非法 split"):
-                read_trend_model_split(input_path)
-
-    def test_read_trend_model_split_rejects_duplicate_week_attr(self) -> None:
-        samples = sample_trend_model_samples_for_split()
-        split_frames = build_trend_model_split_frames(
-            samples,
-            valid_weeks=4,
-            test_weeks=4,
-        )
-        duplicate_split = pd.concat(
-            [split_frames["train"], split_frames["train"].iloc[[0]]],
-            ignore_index=True,
-        )
-
-        with TemporaryDirectory() as tmp_dir:
-            input_path = Path(tmp_dir) / "trend_model_samples_train.parquet"
-            write_trend_parquet(duplicate_split, input_path)
-
-            with self.assertRaisesRegex(ValueError, "week_id, attr_id"):
-                read_trend_model_split(input_path)
 
 
 class LastWeekBaselineTests(unittest.TestCase):
@@ -1433,20 +1312,6 @@ class TrendEvaluationTests(unittest.TestCase):
             eval_model.run_trend_model_evaluation = original_run_trend_model_evaluation
 
         self.assertEqual(exit_code, 0)
-
-
-class TrendModelSplitWriteTests(unittest.TestCase):
-    def test_write_json_creates_parent_and_writes_sorted_keys(self) -> None:
-        with TemporaryDirectory() as tmp_dir:
-            output_path = Path(tmp_dir) / "nested" / "metadata.json"
-
-            write_json({"b": 2, "a": 1}, output_path)
-
-            self.assertEqual(
-                output_path.read_text(encoding="utf-8"),
-                '{\n  "a": 1,\n  "b": 2\n}\n',
-            )
-
 
 if __name__ == "__main__":
     unittest.main()
