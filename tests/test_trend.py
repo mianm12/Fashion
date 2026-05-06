@@ -1418,11 +1418,14 @@ class LastWeekBaselineTests(unittest.TestCase):
             valid_weeks=4,
             test_weeks=4,
         )
-        samples = pd.concat(split_frames.values(), ignore_index=True)
-        samples.loc[samples.index[0], "growth_lag_2"] = float("nan")
 
-        with self.assertRaisesRegex(ValueError, "非有限|增长 lag"):
-            predict_moving_average(samples)
+        for bad_value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(bad_value=bad_value):
+                samples = pd.concat(split_frames.values(), ignore_index=True)
+                samples.loc[samples.index[0], "growth_lag_2"] = bad_value
+
+                with self.assertRaisesRegex(ValueError, "非有限|增长 lag"):
+                    predict_moving_average(samples)
 
     def test_moving_average_trainer_copies_mutable_params(self) -> None:
         split_frames = build_trend_model_split_frames(
