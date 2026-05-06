@@ -1830,6 +1830,39 @@ class LastWeekBaselineTests(unittest.TestCase):
             self.assertEqual(metadata["rows"], 40)
             self.assertEqual(metadata["extra_artifacts"], [])
 
+    def test_run_trend_model_training_writes_moving_average_outputs(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            input_paths = {
+                "train": tmp_path / "trend_model_samples_train.parquet",
+                "valid": tmp_path / "trend_model_samples_valid.parquet",
+                "test": tmp_path / "trend_model_samples_test.parquet",
+            }
+            for split_name, split_frame in split_frames.items():
+                write_trend_parquet(split_frame, input_paths[split_name])
+
+            metadata = run_trend_model_training(
+                MOVING_AVERAGE_MODEL_NAME,
+                input_paths=input_paths,
+                output_root=tmp_path / "outputs" / "models",
+            )
+
+            output_dir = tmp_path / "outputs" / "models" / "moving_average"
+            self.assertTrue((output_dir / "predictions.csv").exists())
+            self.assertTrue((output_dir / "params.json").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertEqual(metadata["model_name"], MOVING_AVERAGE_MODEL_NAME)
+            self.assertEqual(metadata["model_type"], MODEL_TYPE_BASELINE)
+            self.assertEqual(metadata["rows"], 40)
+            self.assertEqual(metadata["extra_artifacts"], [])
+            params = json.loads((output_dir / "params.json").read_text(encoding="utf-8"))
+            self.assertEqual(params["growth_lags"], ["growth_lag_1", "growth_lag_2"])
+
     def test_last_week_trainer_returns_train_result(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
@@ -2383,6 +2416,45 @@ class TrendEvaluationTests(unittest.TestCase):
             self.assertEqual(payload["groups"]["test"]["ranking_groups"], 4)
             written = json.loads(metrics_path.read_text(encoding="utf-8"))
             self.assertEqual(written["ranking"]["k_values"], [5, 10, 20])
+
+    def test_run_trend_model_evaluation_reads_moving_average_predictions(
+        self,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            input_paths = {
+                "train": tmp_path / "trend_model_samples_train.parquet",
+                "valid": tmp_path / "trend_model_samples_valid.parquet",
+                "test": tmp_path / "trend_model_samples_test.parquet",
+            }
+            for split_name, split_frame in split_frames.items():
+                write_trend_parquet(split_frame, input_paths[split_name])
+
+            model_root = tmp_path / "outputs" / "models"
+            metrics_root = tmp_path / "outputs" / "metrics"
+            run_trend_model_training(
+                MOVING_AVERAGE_MODEL_NAME,
+                input_paths=input_paths,
+                output_root=model_root,
+            )
+
+            payload = run_trend_model_evaluation(
+                MOVING_AVERAGE_MODEL_NAME,
+                model_output_root=model_root,
+                metrics_output_root=metrics_root,
+            )
+
+            metrics_path = metrics_root / "moving_average" / "trend_metrics.json"
+            self.assertTrue(metrics_path.exists())
+            self.assertEqual(payload["model_name"], MOVING_AVERAGE_MODEL_NAME)
+            self.assertEqual(payload["evaluated_splits"], ["valid", "test"])
+            self.assertIn("valid", payload["overall"])
+            self.assertIn("test", payload["overall"])
 
     def test_run_trend_model_evaluation_rejects_missing_predictions(self) -> None:
         with TemporaryDirectory() as tmp_dir:
