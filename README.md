@@ -16,7 +16,7 @@ H&M transactions_train.csv
     -> 趋势感知 Top-N 推荐
 ```
 
-现阶段已经完成到趋势 `last_week` baseline 闭环：
+现阶段已经完成到趋势 `last_week` 与 `moving_average` baseline 闭环：
 
 | 阶段 | 状态 | 主要产物 |
 | :--- | :--- | :--- |

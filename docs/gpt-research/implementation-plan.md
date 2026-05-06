@@ -824,7 +824,7 @@ $$
 | ------------------ | --------------------------------------------- | ---: | -------- |
 | Last Week Heat     | $\hat{s}_{a,t+1}=s_{a,t}$                     |   必须 | 最简单基线    |
 | Moving Average     | $\hat{s}_{a,t+1}=\operatorname{mean}(s_{a,t},\ldots,s_{a,t-3})$ |   必须 | 平滑基线     |
-| Previous Growth    | $\hat{y}_{a,t}=y_{a,t-1}$                     |   必须 | 增长趋势基线   |
+| Previous Growth（当前 last_week 语义） | $\hat{y}_{a,t}=y_{a,t-1}$                     |   必须 | 增长趋势基线，当前由 `last_week` 的 `growth_lag_1` 语义覆盖 |
 | Linear Regression  | 线性回归                                          |   建议 | 传统机器学习对照 |
 | Ridge Regression   | L2 正则线性回归                                     |   建议 | 稳定线性模型   |
 | LightGBM Regressor | 梯度提升树回归                                       |   必须 | 主模型      |
@@ -1204,7 +1204,7 @@ MVP 的目标是：
 | 层级边      | 至少构建 `product_group → product_type`      |
 | 属性热度     | 计算 `heat_cnt`, `heat_share`, `log_heat`  |
 | 趋势标签     | 使用 `target_growth`                       |
-| baseline | Last Week、Moving Average、Previous Growth |
+| baseline | Last Week / Previous Growth、Moving Average |
 | 主模型      | LightGBM Regressor                       |
 | 趋势评价     | MAE、Spearman、NDCG@10                     |
 | 推荐       | Recent Popularity + Similarity + Trend   |
