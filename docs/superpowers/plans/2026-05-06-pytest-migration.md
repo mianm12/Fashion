@@ -1,18 +1,18 @@
-# pytest Migration Implementation Plan
+# pytest 迁移实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **给 agentic workers：** 必须使用子技能：推荐 `superpowers:subagent-driven-development`，也可以使用 `superpowers:executing-plans`，逐任务执行本计划。步骤使用 checkbox（`- [ ]`）语法追踪进度。
 
-**Goal:** Migrate the test suite to pytest and split the oversized trend tests along the project data pipeline without changing production behavior.
+**目标：** 将测试套件迁移到 pytest，并按照项目数据流水线拆分过大的趋势测试文件，同时不改变生产代码行为。
 
-**Architecture:** Add pytest as the official test runner first, then convert the two small test files, then split `tests/test_trend.py` by README and research-plan stages. Shared sample builders move only when multiple new trend test files need them; each task ends with a focused pytest run and a commit.
+**架构：** 先引入 pytest 作为正式测试入口，确认未迁移的 unittest 风格测试也能被 pytest 收集并通过；再迁移两个较小测试文件；最后按 README 和研究实施方案中的阶段拆分 `tests/test_trend.py`。只有跨多个新测试文件复用的样本 builder 才移动到共享位置；每个任务都以聚焦验证和一次 commit 收口。
 
-**Tech Stack:** Python 3.10-3.12, uv, pytest, pandas, pyarrow, existing `fashion_trend` modules.
+**技术栈：** Python 3.10-3.12、uv、pytest、pandas、pyarrow、现有 `fashion_trend` 模块。
 
 ---
 
-## File Structure
+## 文件结构
 
-Target test layout:
+目标测试目录结构：
 
 ```text
 tests/
@@ -28,27 +28,27 @@ tests/
     test_trend_evaluation.py
 ```
 
-Implementation boundaries:
+文件职责边界：
 
-| File | Responsibility |
+| 文件 | 职责 |
 | --- | --- |
-| `pyproject.toml` | Declare pytest dev dependency and configure test discovery/import path |
-| `uv.lock` | Lock pytest and its transitive dev dependencies |
-| `README.md` | Switch the official verification command to `uv run pytest` |
-| `tests/conftest.py` | Cross-file trend sample builders used by multiple split test files |
-| `tests/test_articles_clean.py` | pytest idiom for article cleaning and two-output write rollback |
-| `tests/test_attribute_graph.py` | pytest idiom for attribute graph builders and graph file rollback |
-| `tests/test_trend_article_sales.py` | Article week sales, trend CSV write helper, and related readers |
-| `tests/test_trend_attribute_heat.py` | Attribute edge/node readers and attribute week heat frame validation |
-| `tests/test_trend_targets.py` | Attribute week target calculation and validation |
-| `tests/test_trend_samples.py` | Trend sample lag/window/graph/target merge behavior |
-| `tests/test_trend_splits.py` | Trend train/valid/test split frames, split readers, JSON/Parquet helpers |
-| `tests/test_trend_training.py` | Baseline trainers, registry, training runner, training CLI |
-| `tests/test_trend_evaluation.py` | Evaluation prediction readers, metrics, payload, writer, evaluation CLI |
+| `pyproject.toml` | 声明 pytest dev 依赖，并配置测试发现与 `src` 导入路径 |
+| `uv.lock` | 锁定 pytest 及其传递 dev 依赖 |
+| `README.md` | 将正式验证命令切换为 `uv run pytest` |
+| `tests/conftest.py` | 放置多个拆分后的趋势测试文件复用的样本 builder |
+| `tests/test_articles_clean.py` | articles 清洗、缺失值、重复 ID、双输出写出回滚 |
+| `tests/test_attribute_graph.py` | 属性节点、商品-属性边、属性层级边、图文件写出与回滚 |
+| `tests/test_trend_article_sales.py` | 商品周销量、周交易读取、商品周销量读取、趋势 CSV 写出 |
+| `tests/test_trend_attribute_heat.py` | 商品属性边读取、属性节点校验、属性周热度完整面板与派生字段 |
+| `tests/test_trend_targets.py` | 属性周趋势目标计算、增长公式和异常输入 |
+| `tests/test_trend_samples.py` | 趋势样本 lag、移动窗口、图特征、目标合入与 stale target 防护 |
+| `tests/test_trend_splits.py` | train/valid/test 时间切分、split 读取、metadata、JSON/Parquet 写出 |
+| `tests/test_trend_training.py` | baseline trainer、registry、训练 runner、训练输出契约和训练 CLI |
+| `tests/test_trend_evaluation.py` | 预测读取、评价输入校验、指标计算、payload、写出边界和评价 CLI |
 
-Current `tests/test_trend.py` class-to-file mapping:
+当前 `tests/test_trend.py` 到目标文件的映射：
 
-| Current class | Target file |
+| 当前类 | 目标文件 |
 | --- | --- |
 | `ArticleWeekSalesFrameTests` | `tests/test_trend_article_sales.py` |
 | `TrendCsvWriteTests` | `tests/test_trend_article_sales.py` |
@@ -62,34 +62,34 @@ Current `tests/test_trend.py` class-to-file mapping:
 
 ---
 
-### Task 1: Add pytest Runner and Official Command
+### 任务 1：引入 pytest 测试入口和正式命令
 
-**Files:**
-- Modify: `pyproject.toml`
-- Modify: `uv.lock`
-- Modify: `README.md`
+**文件：**
+- 修改：`pyproject.toml`
+- 修改：`uv.lock`
+- 修改：`README.md`
 
-- [ ] **Step 1: Confirm clean starting point**
+- [ ] **步骤 1：确认干净起点**
 
-Run:
+运行：
 
 ```sh
 git status --short --branch
 ```
 
-Expected: branch is `codex/pytest-migration` and no uncommitted files before starting the task.
+期望：当前分支为 `codex/pytest-migration`，并且没有未提交文件。
 
-- [ ] **Step 2: Add pytest to the dev dependency group**
+- [ ] **步骤 2：添加 pytest dev 依赖**
 
-Run:
+运行：
 
 ```sh
 uv add --dev pytest
 ```
 
-Expected: `pyproject.toml` gains `pytest` under `[dependency-groups].dev`, and `uv.lock` gains pytest plus transitive packages such as `iniconfig`, `packaging`, `pluggy`, and `pygments` if uv resolves them.
+期望：`pyproject.toml` 的 `[dependency-groups].dev` 增加 `pytest`，`uv.lock` 增加 pytest 及 uv 解析出的传递依赖，例如 `iniconfig`、`packaging`、`pluggy`、`pygments`。
 
-Expected `pyproject.toml` shape:
+`pyproject.toml` 的 dev 依赖应类似：
 
 ```toml
 [dependency-groups]
@@ -99,9 +99,9 @@ dev = [
 ]
 ```
 
-- [ ] **Step 3: Add pytest configuration**
+- [ ] **步骤 3：添加 pytest 配置**
 
-Edit `pyproject.toml` so the bottom includes:
+在 `pyproject.toml` 中加入：
 
 ```toml
 [tool.pytest.ini_options]
@@ -109,21 +109,21 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 ```
 
-Keep existing `[tool.setuptools.packages.find]` unchanged.
+保留已有的 `[tool.setuptools.packages.find]`，不要改动包发现配置。
 
-- [ ] **Step 4: Run pytest against the unchanged unittest-style suite**
+- [ ] **步骤 4：用 pytest 跑未迁移的 unittest 风格测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: pytest collects and passes the existing 147 tests. The exact header can vary by pytest version, but the run must end with all tests passed.
+期望：pytest 能收集并通过当前 147 个测试。pytest 版本不同会导致 header 略有差异，但结果必须是全部通过。
 
-- [ ] **Step 5: Update README verification command**
+- [ ] **步骤 5：更新 README 验证命令**
 
-Change the verification section from:
+将 README 验证部分从：
 
 ````markdown
 当前测试使用标准库 `unittest`，不依赖真实 H&M 数据：
@@ -133,7 +133,7 @@ uv run python -m unittest discover -s tests -v
 ```
 ````
 
-to:
+改为：
 
 ````markdown
 当前测试使用 `pytest`，不依赖真实 H&M 数据：
@@ -143,59 +143,59 @@ uv run pytest
 ```
 ````
 
-Keep the existing coverage bullet list below the command.
+保留下方已有的测试覆盖说明列表。
 
-- [ ] **Step 6: Verify documentation no longer advertises unittest as the current command**
+- [ ] **步骤 6：确认正式文档不再宣传 unittest discover**
 
-Run:
+运行：
 
 ```sh
 rg -n "当前测试使用标准库|unittest discover|uv run python -m unittest discover" README.md docs/gpt-research/implementation-plan.md
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 7: Run full pytest**
+- [ ] **步骤 7：全量运行 pytest**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: all 147 tests pass.
+期望：147 个测试全部通过。
 
-- [ ] **Step 8: Review diff**
+- [ ] **步骤 8：检查 diff**
 
-Run:
+运行：
 
 ```sh
 git diff -- pyproject.toml uv.lock README.md
 ```
 
-Expected: only pytest dependency/config, lockfile dependency resolution, and README verification command changed.
+期望：diff 只包含 pytest 依赖/配置、lockfile 解析结果、README 验证命令。
 
-- [ ] **Step 9: Commit**
+- [ ] **步骤 9：提交**
 
-Run:
+运行：
 
 ```sh
 git add pyproject.toml uv.lock README.md
 git commit -m "test: 引入 pytest 测试入口"
 ```
 
-Expected: commit succeeds.
+期望：commit 成功。
 
 ---
 
-### Task 2: Convert Article Cleaning Tests to pytest Idiom
+### 任务 2：将 articles 清洗测试迁移到 pytest idiom
 
-**Files:**
-- Modify: `tests/test_articles_clean.py`
+**文件：**
+- 修改：`tests/test_articles_clean.py`
 
-- [ ] **Step 1: Update imports**
+- [ ] **步骤 1：更新 import**
 
-Replace:
+替换：
 
 ```python
 import unittest
@@ -203,7 +203,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 ```
 
-with:
+为：
 
 ```python
 from pathlib import Path
@@ -211,37 +211,37 @@ from pathlib import Path
 import pytest
 ```
 
-Keep the existing `pandas` and `fashion_trend.articles` imports.
+保留已有的 `pandas` 和 `fashion_trend.articles` import。
 
-- [ ] **Step 2: Convert test classes**
+- [ ] **步骤 2：转换测试类**
 
-Replace:
+替换：
 
 ```python
 class CleanArticleFrameTests(unittest.TestCase):
 ```
 
-with:
+为：
 
 ```python
 class TestCleanArticleFrame:
 ```
 
-Replace:
+替换：
 
 ```python
 class CleanArticleFileTests(unittest.TestCase):
 ```
 
-with:
+为：
 
 ```python
 class TestCleanArticleFile:
 ```
 
-- [ ] **Step 3: Convert frame assertions**
+- [ ] **步骤 3：转换 frame 断言**
 
-In `TestCleanArticleFrame`, convert assertions directly. For example:
+在 `TestCleanArticleFrame` 中将 unittest 断言改为裸 `assert`。示例：
 
 ```python
 assert list(mvp_articles.columns) == list(MVP_ARTICLE_COLUMNS)
@@ -253,7 +253,7 @@ assert "detail_desc" not in mvp_articles.columns
 assert "detail_desc" not in clean_articles.columns
 ```
 
-For exception assertions, use:
+异常断言使用：
 
 ```python
 with pytest.raises(ValueError, match="缺少必要字段: product_type_name"):
@@ -264,9 +264,9 @@ with pytest.raises(ValueError, match="缺少必要字段: product_type_name"):
     )
 ```
 
-- [ ] **Step 4: Convert file tests to `tmp_path`**
+- [ ] **步骤 4：将文件测试改为 `tmp_path`**
 
-Change tests that currently open `TemporaryDirectory()` to accept `tmp_path: Path`. For example:
+把当前使用 `TemporaryDirectory()` 的测试改成接收 `tmp_path: Path`。示例：
 
 ```python
 def test_clean_articles_file_writes_mvp_and_clean_outputs(tmp_path: Path) -> None:
@@ -284,41 +284,41 @@ def test_clean_articles_file_writes_mvp_and_clean_outputs(tmp_path: Path) -> Non
     assert row_count == 2
 ```
 
-Apply the same `tmp_path` pattern to all file tests in this file.
+该文件中所有文件系统测试都使用同样模式。
 
-- [ ] **Step 5: Remove unittest references**
+- [ ] **步骤 5：确认没有 unittest 残留**
 
-Run:
+运行：
 
 ```sh
 rg -n "unittest|TestCase|self\\.assert|TemporaryDirectory" tests/test_articles_clean.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **步骤 6：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_articles_clean.py -q
 ```
 
-Expected: 9 tests pass.
+期望：9 个测试通过。
 
-- [ ] **Step 7: Run full pytest**
+- [ ] **步骤 7：运行全量 pytest**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: all tests pass.
+期望：全部测试通过。
 
-- [ ] **Step 8: Review diff and commit**
+- [ ] **步骤 8：检查 diff 并提交**
 
-Run:
+运行：
 
 ```sh
 git diff -- tests/test_articles_clean.py
@@ -326,18 +326,18 @@ git add tests/test_articles_clean.py
 git commit -m "test: 迁移 articles 清洗测试到 pytest"
 ```
 
-Expected: commit succeeds.
+期望：commit 成功。
 
 ---
 
-### Task 3: Convert Attribute Graph Tests to pytest Idiom
+### 任务 3：将属性图测试迁移到 pytest idiom
 
-**Files:**
-- Modify: `tests/test_attribute_graph.py`
+**文件：**
+- 修改：`tests/test_attribute_graph.py`
 
-- [ ] **Step 1: Update imports**
+- [ ] **步骤 1：更新 import**
 
-Replace:
+替换：
 
 ```python
 import unittest
@@ -345,7 +345,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 ```
 
-with:
+为：
 
 ```python
 from pathlib import Path
@@ -353,37 +353,37 @@ from pathlib import Path
 import pytest
 ```
 
-Keep the existing pandas and `fashion_trend.articles` imports.
+保留已有的 pandas 和 `fashion_trend.articles` import。
 
-- [ ] **Step 2: Convert test classes**
+- [ ] **步骤 2：转换测试类**
 
-Replace:
+替换：
 
 ```python
 class AttributeGraphBuilderTests(unittest.TestCase):
 ```
 
-with:
+为：
 
 ```python
 class TestAttributeGraphBuilder:
 ```
 
-Replace:
+替换：
 
 ```python
 class AttributeGraphFileTests(unittest.TestCase):
 ```
 
-with:
+为：
 
 ```python
 class TestAttributeGraphFile:
 ```
 
-- [ ] **Step 3: Convert the builder subTest loop to parametrize**
+- [ ] **步骤 3：将 builder subTest 循环改成 parametrize**
 
-Replace the loop in `test_graph_builders_reject_missing_attribute_values` with:
+将 `test_graph_builders_reject_missing_attribute_values` 中的 `self.subTest` 循环替换为：
 
 ```python
 @pytest.mark.parametrize(
@@ -402,9 +402,9 @@ def test_graph_builders_reject_missing_attribute_values(builder) -> None:
         builder(clean_articles)
 ```
 
-- [ ] **Step 4: Convert file tests to `tmp_path`**
+- [ ] **步骤 4：将文件测试改为 `tmp_path`**
 
-Change file tests to accept `tmp_path: Path`. Example:
+文件测试接收 `tmp_path: Path`。示例：
 
 ```python
 def test_build_attribute_graph_files_writes_all_outputs(tmp_path: Path) -> None:
@@ -420,7 +420,7 @@ def test_build_attribute_graph_files_writes_all_outputs(tmp_path: Path) -> None:
     assert output_counts["nodes_article"] == 3
 ```
 
-Use direct assertions for file existence and rollback checks:
+文件存在与回滚检查使用直接断言：
 
 ```python
 assert (output_dir / "nodes_article.csv").exists()
@@ -428,39 +428,39 @@ assert list(output_dir.glob("*.tmp")) == []
 assert list(output_dir.glob("*.bak")) == []
 ```
 
-- [ ] **Step 5: Remove unittest references**
+- [ ] **步骤 5：确认没有 unittest 残留**
 
-Run:
+运行：
 
 ```sh
 rg -n "unittest|TestCase|self\\.assert|TemporaryDirectory|subTest" tests/test_attribute_graph.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **步骤 6：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_attribute_graph.py -q
 ```
 
-Expected: all tests in `tests/test_attribute_graph.py` pass. pytest may report more than 10 cases because the former `subTest` loop is parameterized.
+期望：`tests/test_attribute_graph.py` 中所有测试通过。由于原 `subTest` 会被参数化，pytest 报告的 case 数可能多于迁移前。
 
-- [ ] **Step 7: Run full pytest**
+- [ ] **步骤 7：运行全量 pytest**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: all tests pass.
+期望：全部测试通过。
 
-- [ ] **Step 8: Review diff and commit**
+- [ ] **步骤 8：检查 diff 并提交**
 
-Run:
+运行：
 
 ```sh
 git diff -- tests/test_attribute_graph.py
@@ -468,19 +468,19 @@ git add tests/test_attribute_graph.py
 git commit -m "test: 迁移属性图测试到 pytest"
 ```
 
-Expected: commit succeeds.
+期望：commit 成功。
 
 ---
 
-### Task 4: Create Shared Trend Test Samples
+### 任务 4：提取趋势测试共享样本
 
-**Files:**
-- Create: `tests/conftest.py`
-- Modify: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/conftest.py`
+- 修改：`tests/test_trend.py`
 
-- [ ] **Step 1: Create `tests/conftest.py` with shared imports**
+- [ ] **步骤 1：创建 `tests/conftest.py`**
 
-Create the file with this header:
+新建文件并写入：
 
 ```python
 from __future__ import annotations
@@ -488,9 +488,9 @@ from __future__ import annotations
 import pandas as pd
 ```
 
-- [ ] **Step 2: Move cross-file sample builders unchanged**
+- [ ] **步骤 2：原样移动跨文件样本 builder**
 
-Move these function definitions from `tests/test_trend.py` into `tests/conftest.py`:
+将以下函数从 `tests/test_trend.py` 移动到 `tests/conftest.py`：
 
 ```python
 def sample_article_attribute_edges() -> pd.DataFrame:
@@ -502,11 +502,11 @@ def sample_trend_model_samples_for_split() -> pd.DataFrame:
 def sample_trend_predictions_for_evaluation() -> pd.DataFrame:
 ```
 
-Keep each function body exactly as it is before changing call sites.
+移动时保持函数体不变，再处理调用方。
 
-- [ ] **Step 3: Import shared sample builders in `tests/test_trend.py`**
+- [ ] **步骤 3：在 `tests/test_trend.py` 中导入共享样本**
 
-Add this import below the existing project imports in `tests/test_trend.py`:
+在 `tests/test_trend.py` 的项目 import 后添加：
 
 ```python
 from conftest import (
@@ -520,41 +520,41 @@ from conftest import (
 )
 ```
 
-This keeps the current monolithic test file passing before splitting begins.
+这样在真正拆分前，当前单体测试文件仍能通过。
 
-- [ ] **Step 4: Verify duplicate definitions are gone from `tests/test_trend.py`**
+- [ ] **步骤 4：确认重复定义已从 `tests/test_trend.py` 移除**
 
-Run:
+运行：
 
 ```sh
 rg -n "^def sample_(article_attribute_edges|attribute_nodes|attribute_week_heat|long_attribute_week_heat|attribute_hierarchy_edges|trend_model_samples_for_split|trend_predictions_for_evaluation)" tests/test_trend.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 5: Run focused trend tests**
+- [ ] **步骤 5：运行趋势测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend.py -q
 ```
 
-Expected: 128 tests pass.
+期望：128 个测试通过。
 
-- [ ] **Step 6: Run full pytest**
+- [ ] **步骤 6：运行全量 pytest**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: all tests pass.
+期望：全部测试通过。
 
-- [ ] **Step 7: Review diff and commit**
+- [ ] **步骤 7：检查 diff 并提交**
 
-Run:
+运行：
 
 ```sh
 git diff -- tests/conftest.py tests/test_trend.py
@@ -562,19 +562,19 @@ git add tests/conftest.py tests/test_trend.py
 git commit -m "test: 提取趋势测试共享样本"
 ```
 
-Expected: commit succeeds.
+期望：commit 成功。
 
 ---
 
-### Task 5: Split Article Sales and CSV Writer Tests
+### 任务 5：拆分商品周销量和趋势 CSV 写出测试
 
-**Files:**
-- Create: `tests/test_trend_article_sales.py`
-- Modify: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/test_trend_article_sales.py`
+- 修改：`tests/test_trend.py`
 
-- [ ] **Step 1: Create target file imports**
+- [ ] **步骤 1：创建目标文件 import**
 
-Create `tests/test_trend_article_sales.py` with imports needed by the moved tests:
+创建 `tests/test_trend_article_sales.py`，写入迁移后测试需要的 import：
 
 ```python
 from __future__ import annotations
@@ -596,36 +596,36 @@ from fashion_trend.trend import (
 )
 ```
 
-- [ ] **Step 2: Move local sample builders**
+- [ ] **步骤 2：移动局部样本 builder**
 
-Move these function definitions from `tests/test_trend.py` into `tests/test_trend_article_sales.py`:
+将以下函数从 `tests/test_trend.py` 移动到 `tests/test_trend_article_sales.py`：
 
 ```python
 def sample_weekly_transactions() -> pd.DataFrame:
 def sample_article_week_sales() -> pd.DataFrame:
 ```
 
-Keep function bodies unchanged.
+函数体保持不变。
 
-- [ ] **Step 3: Move current test classes into the target file**
+- [ ] **步骤 3：移动并重命名测试类**
 
-Move these class bodies from `tests/test_trend.py` into `tests/test_trend_article_sales.py`:
+将以下类从 `tests/test_trend.py` 移到 `tests/test_trend_article_sales.py`：
 
 ```python
 class ArticleWeekSalesFrameTests(unittest.TestCase):
 class TrendCsvWriteTests(unittest.TestCase):
 ```
 
-Then rename them:
+重命名为：
 
 ```python
 class TestArticleWeekSalesFrame:
 class TestTrendCsvWrite:
 ```
 
-- [ ] **Step 4: Convert tmp directory and assertions**
+- [ ] **步骤 4：转换临时目录、异常断言和普通断言**
 
-Use `tmp_path: Path` for file tests and pytest raises for exceptions. Example conversion:
+文件测试使用 `tmp_path: Path`，异常断言使用 `pytest.raises`。示例：
 
 ```python
 def test_read_weekly_transactions_rejects_missing_file(tmp_path: Path) -> None:
@@ -635,7 +635,7 @@ def test_read_weekly_transactions_rejects_missing_file(tmp_path: Path) -> None:
         read_weekly_transactions(missing_path)
 ```
 
-Use direct assertions:
+普通断言使用：
 
 ```python
 assert sales.columns.tolist() == list(ARTICLE_WEEK_SALES_COLUMNS)
@@ -643,39 +643,39 @@ assert math.isclose(float(sales.loc[0, "sales_amount"]), 0.30)
 assert not output_path.with_suffix(".csv.tmp").exists()
 ```
 
-- [ ] **Step 5: Remove moved definitions from `tests/test_trend.py`**
+- [ ] **步骤 5：确认 moved definitions 已从 `tests/test_trend.py` 移除**
 
-Ensure these names no longer exist in `tests/test_trend.py`:
+运行：
 
 ```sh
 rg -n "sample_weekly_transactions|sample_article_week_sales|ArticleWeekSalesFrameTests|TrendCsvWriteTests" tests/test_trend.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **步骤 6：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend_article_sales.py tests/test_trend.py -q
 ```
 
-Expected: the moved article sales tests and remaining trend tests pass.
+期望：拆分出的商品周销量测试和剩余趋势测试通过。
 
-- [ ] **Step 7: Run full pytest**
+- [ ] **步骤 7：运行全量 pytest**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: all tests pass and total collected tests remains at least 147.
+期望：全部测试通过，收集到的测试语义覆盖点不少于 147 个。
 
-- [ ] **Step 8: Review diff and commit**
+- [ ] **步骤 8：检查 diff 并提交**
 
-Run:
+运行：
 
 ```sh
 git diff -- tests/test_trend_article_sales.py tests/test_trend.py
@@ -683,19 +683,19 @@ git add tests/test_trend_article_sales.py tests/test_trend.py
 git commit -m "test: 拆分商品周销量趋势测试"
 ```
 
-Expected: commit succeeds.
+期望：commit 成功。
 
 ---
 
-### Task 6: Split Attribute Heat Tests
+### 任务 6：拆分属性周热度测试
 
-**Files:**
-- Create: `tests/test_trend_attribute_heat.py`
-- Modify: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/test_trend_attribute_heat.py`
+- 修改：`tests/test_trend.py`
 
-- [ ] **Step 1: Create target file imports**
+- [ ] **步骤 1：创建目标文件 import**
 
-Create `tests/test_trend_attribute_heat.py` with:
+创建 `tests/test_trend_attribute_heat.py`，写入：
 
 ```python
 from __future__ import annotations
@@ -719,33 +719,33 @@ from fashion_trend.trend import (
 )
 ```
 
-- [ ] **Step 2: Move required local sample builder**
+- [ ] **步骤 2：移动该文件专用样本 builder**
 
-Move this function from `tests/test_trend.py` into `tests/test_trend_attribute_heat.py`:
+将以下函数从 `tests/test_trend.py` 移到 `tests/test_trend_attribute_heat.py`：
 
 ```python
 def sample_attribute_article_week_sales() -> pd.DataFrame:
 ```
 
-Keep its body unchanged.
+函数体保持不变。
 
-- [ ] **Step 3: Move and rename the test class**
+- [ ] **步骤 3：移动并重命名测试类**
 
-Move:
+移动：
 
 ```python
 class AttributeWeekHeatFrameTests(unittest.TestCase):
 ```
 
-Rename to:
+重命名为：
 
 ```python
 class TestAttributeWeekHeatFrame:
 ```
 
-- [ ] **Step 4: Convert subTest loops to parametrize**
+- [ ] **步骤 4：将 subTest 循环改为 parametrize**
 
-For negative heat column checks, use:
+对于负数热度列检查，使用：
 
 ```python
 @pytest.mark.parametrize("column", ["heat_cnt", "type_total_heat", "heat_share", "log_heat"])
@@ -761,11 +761,11 @@ def test_validate_attribute_week_heat_rejects_negative_heat_values(column: str) 
         )
 ```
 
-Use the current expected column list if the existing test uses a different set of numeric columns.
+如果现有测试使用的数字列集合不同，以现有测试为准。
 
-- [ ] **Step 5: Convert tmp paths and assertions**
+- [ ] **步骤 5：转换 tmp path 和断言**
 
-Use:
+示例：
 
 ```python
 def test_read_article_attribute_edges_rejects_missing_file(tmp_path: Path) -> None:
@@ -775,7 +775,7 @@ def test_read_article_attribute_edges_rejects_missing_file(tmp_path: Path) -> No
         read_article_attribute_edges(missing_path)
 ```
 
-Use direct assertions:
+普通断言示例：
 
 ```python
 assert len(heat) == 12
@@ -783,29 +783,29 @@ assert heat.columns.tolist() == list(ATTRIBUTE_WEEK_HEAT_COLUMNS)
 assert set(heat["attr_id"]) == set(sample_attribute_nodes()["attr_id"])
 ```
 
-- [ ] **Step 6: Remove moved definitions from `tests/test_trend.py`**
+- [ ] **步骤 6：确认 moved definitions 已从 `tests/test_trend.py` 移除**
 
-Run:
+运行：
 
 ```sh
 rg -n "sample_attribute_article_week_sales|AttributeWeekHeatFrameTests" tests/test_trend.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **步骤 7：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend_attribute_heat.py tests/test_trend.py -q
 ```
 
-Expected: moved attribute heat tests and remaining trend tests pass.
+期望：拆分出的属性周热度测试和剩余趋势测试通过。
 
-- [ ] **Step 8: Run full pytest and commit**
+- [ ] **步骤 8：运行全量 pytest 并提交**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
@@ -814,19 +814,19 @@ git add tests/test_trend_attribute_heat.py tests/test_trend.py
 git commit -m "test: 拆分属性周热度测试"
 ```
 
-Expected: pytest passes before commit, then commit succeeds.
+期望：pytest 先通过，然后 commit 成功。
 
 ---
 
-### Task 7: Split Trend Target Tests
+### 任务 7：拆分趋势标签测试
 
-**Files:**
-- Create: `tests/test_trend_targets.py`
-- Modify: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/test_trend_targets.py`
+- 修改：`tests/test_trend.py`
 
-- [ ] **Step 1: Create target file imports**
+- [ ] **步骤 1：创建目标文件 import**
 
-Create `tests/test_trend_targets.py` with:
+创建 `tests/test_trend_targets.py`，写入：
 
 ```python
 from __future__ import annotations
@@ -843,23 +843,23 @@ from fashion_trend.trend import (
 )
 ```
 
-- [ ] **Step 2: Move and rename target class**
+- [ ] **步骤 2：移动并重命名测试类**
 
-Move:
+移动：
 
 ```python
 class AttributeWeekTargetFrameTests(unittest.TestCase):
 ```
 
-Rename to:
+重命名为：
 
 ```python
 class TestAttributeWeekTargetFrame:
 ```
 
-- [ ] **Step 3: Convert assertions and raises**
+- [ ] **步骤 3：转换断言和异常检查**
 
-Use direct assertions and pytest raises:
+使用裸 `assert` 和 `pytest.raises`：
 
 ```python
 target = build_attribute_week_target_frame(sample_attribute_week_heat())
@@ -872,31 +872,31 @@ with pytest.raises(ValueError, match="target_growth"):
     validate_attribute_week_target(bad_target)
 ```
 
-Keep the current `math.isclose` comparisons, changing only `self.assertTrue(...)` to `assert ...`.
+现有 `math.isclose` 比较保留，只把 `self.assertTrue(...)` 改为 `assert ...`。
 
-- [ ] **Step 4: Remove moved class from `tests/test_trend.py`**
+- [ ] **步骤 4：确认 moved class 已从 `tests/test_trend.py` 移除**
 
-Run:
+运行：
 
 ```sh
 rg -n "AttributeWeekTargetFrameTests" tests/test_trend.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 5: Run focused tests**
+- [ ] **步骤 5：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend_targets.py tests/test_trend.py -q
 ```
 
-Expected: moved target tests and remaining trend tests pass.
+期望：拆分出的趋势标签测试和剩余趋势测试通过。
 
-- [ ] **Step 6: Run full pytest and commit**
+- [ ] **步骤 6：运行全量 pytest 并提交**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
@@ -905,19 +905,19 @@ git add tests/test_trend_targets.py tests/test_trend.py
 git commit -m "test: 拆分趋势标签测试"
 ```
 
-Expected: pytest passes before commit, then commit succeeds.
+期望：pytest 先通过，然后 commit 成功。
 
 ---
 
-### Task 8: Split Trend Sample Tests
+### 任务 8：拆分趋势样本测试
 
-**Files:**
-- Create: `tests/test_trend_samples.py`
-- Modify: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/test_trend_samples.py`
+- 修改：`tests/test_trend.py`
 
-- [ ] **Step 1: Create target file imports**
+- [ ] **步骤 1：创建目标文件 import**
 
-Create `tests/test_trend_samples.py` with:
+创建 `tests/test_trend_samples.py`，写入：
 
 ```python
 from __future__ import annotations
@@ -940,23 +940,23 @@ from fashion_trend.trend import (
 )
 ```
 
-- [ ] **Step 2: Move and rename samples class**
+- [ ] **步骤 2：移动并重命名测试类**
 
-Move:
+移动：
 
 ```python
 class TrendModelSamplesFrameTests(unittest.TestCase):
 ```
 
-Rename to:
+重命名为：
 
 ```python
 class TestTrendModelSamplesFrame:
 ```
 
-- [ ] **Step 3: Convert edge-weight subTest to parametrize**
+- [ ] **步骤 3：将 edge_weight subTest 改为 parametrize**
 
-Use:
+使用：
 
 ```python
 @pytest.mark.parametrize("edge_weight", [0, -1])
@@ -970,9 +970,9 @@ def test_build_attribute_graph_features_frame_rejects_non_positive_edge_weight(
         build_attribute_graph_features_frame(sample_attribute_nodes(), edges)
 ```
 
-- [ ] **Step 4: Convert sample assertions**
+- [ ] **步骤 4：转换样本断言**
 
-Use direct assertions:
+使用：
 
 ```python
 assert samples.columns.tolist() == list(TREND_MODEL_SAMPLE_COLUMNS)
@@ -982,36 +982,36 @@ assert math.isclose(float(black["heat_ma_4"]), (1 + 3 + 4 + 8) / 4)
 assert "target_growth" in samples.columns
 ```
 
-Use pytest raises:
+异常检查使用：
 
 ```python
 with pytest.raises(ValueError, match="target_growth"):
     validate_trend_model_samples(samples_without_target)
 ```
 
-- [ ] **Step 5: Remove moved class from `tests/test_trend.py`**
+- [ ] **步骤 5：确认 moved class 已从 `tests/test_trend.py` 移除**
 
-Run:
+运行：
 
 ```sh
 rg -n "TrendModelSamplesFrameTests" tests/test_trend.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **步骤 6：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend_samples.py tests/test_trend.py -q
 ```
 
-Expected: moved sample tests and remaining trend tests pass.
+期望：拆分出的趋势样本测试和剩余趋势测试通过。
 
-- [ ] **Step 7: Run full pytest and commit**
+- [ ] **步骤 7：运行全量 pytest 并提交**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
@@ -1020,19 +1020,19 @@ git add tests/test_trend_samples.py tests/test_trend.py
 git commit -m "test: 拆分趋势样本测试"
 ```
 
-Expected: pytest passes before commit, then commit succeeds.
+期望：pytest 先通过，然后 commit 成功。
 
 ---
 
-### Task 9: Split Trend Split Tests
+### 任务 9：拆分趋势切分测试
 
-**Files:**
-- Create: `tests/test_trend_splits.py`
-- Modify: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/test_trend_splits.py`
+- 修改：`tests/test_trend.py`
 
-- [ ] **Step 1: Create target file imports**
+- [ ] **步骤 1：创建目标文件 import**
 
-Create `tests/test_trend_splits.py` with:
+创建 `tests/test_trend_splits.py`，写入：
 
 ```python
 from __future__ import annotations
@@ -1052,25 +1052,25 @@ from fashion_trend.trend import (
 )
 ```
 
-- [ ] **Step 2: Move and rename split classes**
+- [ ] **步骤 2：移动并重命名测试类**
 
-Move:
+移动：
 
 ```python
 class TrendModelSplitFrameTests(unittest.TestCase):
 class TrendModelSplitWriteTests(unittest.TestCase):
 ```
 
-Rename to:
+重命名为：
 
 ```python
 class TestTrendModelSplitFrame:
 class TestTrendModelSplitWrite:
 ```
 
-- [ ] **Step 3: Convert tmp paths and assertions**
+- [ ] **步骤 3：转换 tmp path 和断言**
 
-Use:
+示例：
 
 ```python
 def test_read_trend_model_split_preserves_columns_for_legal_parquet(
@@ -1088,31 +1088,31 @@ def test_read_trend_model_split_preserves_columns_for_legal_parquet(
     assert set(split["split"]) == {"train"}
 ```
 
-Use pytest raises for invalid split and duplicate key checks.
+非法 split 和重复 key 检查使用 `pytest.raises`。
 
-- [ ] **Step 4: Remove moved classes from `tests/test_trend.py`**
+- [ ] **步骤 4：确认 moved classes 已从 `tests/test_trend.py` 移除**
 
-Run:
+运行：
 
 ```sh
 rg -n "TrendModelSplitFrameTests|TrendModelSplitWriteTests" tests/test_trend.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 5: Run focused tests**
+- [ ] **步骤 5：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend_splits.py tests/test_trend.py -q
 ```
 
-Expected: moved split tests and remaining trend tests pass.
+期望：拆分出的趋势切分测试和剩余趋势测试通过。
 
-- [ ] **Step 6: Run full pytest and commit**
+- [ ] **步骤 6：运行全量 pytest 并提交**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
@@ -1121,19 +1121,19 @@ git add tests/test_trend_splits.py tests/test_trend.py
 git commit -m "test: 拆分趋势切分测试"
 ```
 
-Expected: pytest passes before commit, then commit succeeds.
+期望：pytest 先通过，然后 commit 成功。
 
 ---
 
-### Task 10: Split Trend Training Tests
+### 任务 10：拆分趋势训练测试
 
-**Files:**
-- Create: `tests/test_trend_training.py`
-- Modify: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/test_trend_training.py`
+- 修改：`tests/test_trend.py`
 
-- [ ] **Step 1: Create target file imports**
+- [ ] **步骤 1：创建目标文件 import**
 
-Create `tests/test_trend_training.py` with:
+创建 `tests/test_trend_training.py`，写入：
 
 ```python
 from __future__ import annotations
@@ -1186,23 +1186,23 @@ from fashion_trend.trend import (
 )
 ```
 
-- [ ] **Step 2: Move and rename training class**
+- [ ] **步骤 2：移动并重命名测试类**
 
-Move:
+移动：
 
 ```python
 class LastWeekBaselineTests(unittest.TestCase):
 ```
 
-Rename to:
+重命名为：
 
 ```python
 class TestTrendTraining:
 ```
 
-- [ ] **Step 3: Convert parameterized negative value tests**
+- [ ] **步骤 3：转换参数化负向值测试**
 
-Convert the non-finite growth lag loop to:
+非有限增长 lag 测试改为：
 
 ```python
 @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), -float("inf")])
@@ -1217,7 +1217,7 @@ def test_predict_moving_average_rejects_non_finite_growth_lag(
         predict_moving_average(samples)
 ```
 
-Convert unsafe artifact path checks to:
+unsafe artifact path 测试改为：
 
 ```python
 @pytest.mark.parametrize("unsafe_path", ["../escape.csv", "/tmp/escape.csv"])
@@ -1240,44 +1240,48 @@ def test_write_trend_model_outputs_rejects_unsafe_artifact_path_before_writing(
         write_trend_model_outputs(result, paths)
 ```
 
-Keep the current payload and path expectations from the existing tests when converting.
+转换时保留现有测试里的 payload、路径和失败前不写文件的检查语义。
 
-- [ ] **Step 4: Convert CLI tests without changing production behavior**
+- [ ] **步骤 4：转换 CLI 测试但不改变生产行为**
 
-Keep `importlib.import_module("10_train_trend_model")`. Convert assertions:
+保留：
 
 ```python
 train_model = importlib.import_module("10_train_trend_model")
+```
 
+断言改为：
+
+```python
 assert train_model.main(["--unknown"]) == 2
 assert train_model.main(["--model", "unknown_model"]) == 1
 ```
 
-When tests monkeypatch module globals, keep the same monkeypatching mechanism already used in the current file and change only assertion style.
+如果当前测试 monkeypatch 了模块全局变量，保留同样的 monkeypatch 方式，只转换断言写法。
 
-- [ ] **Step 5: Remove moved class from `tests/test_trend.py`**
+- [ ] **步骤 5：确认 moved class 已从 `tests/test_trend.py` 移除**
 
-Run:
+运行：
 
 ```sh
 rg -n "LastWeekBaselineTests" tests/test_trend.py
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 6: Run focused tests**
+- [ ] **步骤 6：运行聚焦测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend_training.py tests/test_trend.py -q
 ```
 
-Expected: moved training tests and remaining trend tests pass.
+期望：拆分出的趋势训练测试和剩余趋势测试通过。
 
-- [ ] **Step 7: Run full pytest and commit**
+- [ ] **步骤 7：运行全量 pytest 并提交**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
@@ -1286,19 +1290,19 @@ git add tests/test_trend_training.py tests/test_trend.py
 git commit -m "test: 拆分趋势训练测试"
 ```
 
-Expected: pytest passes before commit, then commit succeeds.
+期望：pytest 先通过，然后 commit 成功。
 
 ---
 
-### Task 11: Split Trend Evaluation Tests and Remove Monolithic File
+### 任务 11：拆分趋势评价测试并删除单体文件
 
-**Files:**
-- Create: `tests/test_trend_evaluation.py`
-- Delete: `tests/test_trend.py`
+**文件：**
+- 新建：`tests/test_trend_evaluation.py`
+- 删除：`tests/test_trend.py`
 
-- [ ] **Step 1: Create target file imports**
+- [ ] **步骤 1：创建目标文件 import**
 
-Create `tests/test_trend_evaluation.py` with:
+创建 `tests/test_trend_evaluation.py`，写入：
 
 ```python
 from __future__ import annotations
@@ -1325,23 +1329,23 @@ from fashion_trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
 from fashion_trend.trend import TREND_MODEL_PREDICTION_COLUMNS
 ```
 
-- [ ] **Step 2: Move and rename evaluation class**
+- [ ] **步骤 2：移动并重命名评价测试类**
 
-Move:
+移动：
 
 ```python
 class TrendEvaluationTests(unittest.TestCase):
 ```
 
-Rename to:
+重命名为：
 
 ```python
 class TestTrendEvaluation:
 ```
 
-- [ ] **Step 3: Convert model-name subTest to parametrize**
+- [ ] **步骤 3：将 model_name subTest 改为 parametrize**
 
-Use:
+使用：
 
 ```python
 @pytest.mark.parametrize("model_name", ["../escape", "/tmp/escape"])
@@ -1352,11 +1356,11 @@ def test_derive_trend_metric_output_paths_rejects_unsafe_model_name(
         derive_trend_metric_output_paths(model_name)
 ```
 
-Use the exact unsafe model names currently present in the test if they differ.
+如果现有测试中的 unsafe model name 不同，以现有测试为准。
 
-- [ ] **Step 4: Convert tmp paths, metrics assertions, and CLI assertions**
+- [ ] **步骤 4：转换 tmp path、指标断言和 CLI 断言**
 
-Use:
+示例：
 
 ```python
 def test_read_trend_model_predictions_preserves_contract_columns(
@@ -1372,50 +1376,50 @@ def test_read_trend_model_predictions_preserves_contract_columns(
     assert len(loaded) == len(predictions)
 ```
 
-Keep metric precision assertions as direct `math.isclose` checks:
+指标精度断言使用：
 
 ```python
 assert math.isclose(metrics["mae"], 0.5666666667, rel_tol=1e-9)
 assert metrics["precision_at_k"]["2"] == 0.5
 ```
 
-Keep `importlib.import_module("11_eval_trend_model")` for CLI tests and convert exit-code checks to direct assertions.
+CLI 测试继续使用 `importlib.import_module("11_eval_trend_model")`，退出码检查改为裸 `assert`。
 
-- [ ] **Step 5: Delete `tests/test_trend.py`**
+- [ ] **步骤 5：删除 `tests/test_trend.py`**
 
-After moving `TrendEvaluationTests`, `tests/test_trend.py` should contain no test classes or local helpers. Delete the file.
+移动完 `TrendEvaluationTests` 后，`tests/test_trend.py` 不应再包含测试类或局部 helper，删除该文件。
 
-Run:
+运行：
 
 ```sh
 test ! -e tests/test_trend.py
 ```
 
-Expected: command exits with status 0.
+期望：命令退出码为 0。
 
-- [ ] **Step 6: Run evaluation tests**
+- [ ] **步骤 6：运行评价测试**
 
-Run:
+运行：
 
 ```sh
 uv run pytest tests/test_trend_evaluation.py -q
 ```
 
-Expected: moved evaluation tests pass.
+期望：拆分出的评价测试通过。
 
-- [ ] **Step 7: Run full pytest**
+- [ ] **步骤 7：运行全量 pytest**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: all tests pass and total collected tests remains at least 147.
+期望：全部测试通过，收集到的测试语义覆盖点不少于 147 个。
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8：提交**
 
-Run:
+运行：
 
 ```sh
 git diff -- tests/test_trend_evaluation.py tests/test_trend.py
@@ -1424,45 +1428,45 @@ git rm tests/test_trend.py
 git commit -m "test: 拆分趋势评价测试"
 ```
 
-Expected: commit succeeds.
+期望：commit 成功。
 
 ---
 
-### Task 12: Final pytest Cleanup and Verification
+### 任务 12：最终清理与验证
 
-**Files:**
-- Modify: `README.md` only if the final verification section needs wording cleanup
-- Modify: `docs/superpowers/specs/2026-05-06-pytest-migration-design.md` only if implementation uncovered a required correction to the approved spec
+**文件：**
+- 修改：`README.md`，仅当最终验证说明需要收口措辞时修改
+- 修改：`docs/superpowers/specs/2026-05-06-pytest-migration-design.md`，仅当实施发现已批准 spec 必须修正时修改
 
-- [ ] **Step 1: Check for unittest leftovers in active tests**
+- [ ] **步骤 1：检查 active tests 中是否还有 unittest 残留**
 
-Run:
+运行：
 
 ```sh
 rg -n "unittest|TestCase|self\\.assert|TemporaryDirectory|subTest" tests
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 2: Check formal docs for old test command**
+- [ ] **步骤 2：检查正式文档是否还有旧测试命令**
 
-Run:
+运行：
 
 ```sh
 rg -n "当前测试使用标准库|unittest discover|uv run python -m unittest discover" README.md docs/gpt-research/implementation-plan.md
 ```
 
-Expected: no matches.
+期望：无匹配。
 
-- [ ] **Step 3: Confirm target test file layout**
+- [ ] **步骤 3：确认目标测试文件布局**
 
-Run:
+运行：
 
 ```sh
 find tests -maxdepth 1 -type f | sort
 ```
 
-Expected output includes:
+期望输出包含：
 
 ```text
 tests/conftest.py
@@ -1477,21 +1481,21 @@ tests/test_trend_targets.py
 tests/test_trend_training.py
 ```
 
-Expected output does not include `tests/test_trend.py`.
+期望输出不包含 `tests/test_trend.py`。
 
-- [ ] **Step 4: Run full pytest**
+- [ ] **步骤 4：运行全量 pytest**
 
-Run:
+运行：
 
 ```sh
 uv run pytest
 ```
 
-Expected: all tests pass and total collected tests is at least 147.
+期望：全部测试通过，收集到的测试语义覆盖点不少于 147 个。
 
-- [ ] **Step 5: Run syntax compile**
+- [ ] **步骤 5：运行语法编译检查**
 
-Run:
+运行：
 
 ```sh
 uv run python -m py_compile \
@@ -1507,36 +1511,36 @@ uv run python -m py_compile \
   tests/test_trend_evaluation.py
 ```
 
-Expected: command exits successfully with no output.
+期望：命令成功退出且无输出。
 
-- [ ] **Step 6: Review full branch diff**
+- [ ] **步骤 6：检查整个分支 diff**
 
-Run:
+运行：
 
 ```sh
 git diff master...HEAD --stat
 git diff master...HEAD -- pyproject.toml README.md tests docs/superpowers/specs docs/superpowers/plans
 ```
 
-Expected: diff is limited to pytest dependency/config, README verification docs, committed spec/plan docs, and test migration/split files.
+期望：diff 范围只包含 pytest 依赖/配置、README 验证说明、已提交的 spec/plan 文档，以及测试迁移/拆分文件。
 
-- [ ] **Step 7: Commit final cleanup if needed**
+- [ ] **步骤 7：如有最终清理改动则提交**
 
-If Step 1 or Step 2 required documentation or cleanup edits, commit them:
+如果步骤 1 或步骤 2 需要文档或测试清理，提交：
 
 ```sh
 git add README.md docs/superpowers/specs/2026-05-06-pytest-migration-design.md tests
 git commit -m "test: 收口 pytest 迁移验证"
 ```
 
-Expected: commit succeeds only when there were cleanup edits. If no files changed, do not create an empty commit.
+期望：只有存在清理改动时才提交；没有改动时不要创建空提交。
 
 ---
 
-## Execution Notes
+## 执行备注
 
-- Use `apply_patch` for manual edits.
-- Do not use generated codemods or one-off rewrite scripts.
-- If `uv run ...` fails with `Failed to initialize cache at /Users/ghstlnx/.cache/uv`, rerun the same command with approved elevated `uv run` permissions. Treat that as a local permission issue, not as a test failure.
-- Before every commit, run the task-specific pytest command, inspect `git diff`, and commit only the files listed in that task.
-- Do not weaken assertions, add skips, or hide exceptions to make pytest pass.
+- 手动编辑使用 `apply_patch`。
+- 不使用生成式 codemod 或一次性重写脚本。
+- 如果 `uv run ...` 失败并出现 `Failed to initialize cache at /Users/ghstlnx/.cache/uv`，用已批准的提权 `uv run` 权限重跑同一命令。该问题按本地权限问题处理，不视为测试失败。
+- 每次 commit 前，先运行对应任务的 pytest 命令，检查 `git diff`，并且只提交该任务列出的文件。
+- 不通过弱化断言、添加 skip、隐藏异常来让 pytest 通过。
