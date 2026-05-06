@@ -9,6 +9,11 @@ from tempfile import TemporaryDirectory
 import pandas as pd
 
 from fashion_trend.config import OUTPUT_MODELS_DIR
+from fashion_trend.evaluation import (
+    derive_trend_metric_output_paths,
+    read_trend_model_predictions,
+    validate_trend_model_predictions_for_evaluation,
+)
 from fashion_trend.models.base import (
     MODEL_TYPE_BASELINE,
     TrendArtifact,
@@ -313,6 +318,88 @@ def sample_trend_model_samples_for_split() -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows).loc[:, list(TREND_MODEL_SAMPLE_COLUMNS)]
+
+
+def sample_trend_predictions_for_evaluation() -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    specs = [
+        ("train", 8),
+        ("valid", 10),
+        ("valid", 11),
+        ("test", 12),
+        ("test", 13),
+    ]
+    for split_name, week_id in specs:
+        rows.extend(
+            [
+                {
+                    "week_id": week_id,
+                    "attr_id": "colour_group_name::Black",
+                    "attr_type": "colour_group_name",
+                    "attr_value": "Black",
+                    "model_name": "last_week",
+                    "split": split_name,
+                    "share_t": 0.40,
+                    "pred_share_t1": 0.52,
+                    "target_growth": 3.0,
+                    "pred_target_growth": 2.8,
+                    "target_rank_in_type_t1": 1,
+                },
+                {
+                    "week_id": week_id,
+                    "attr_id": "colour_group_name::White",
+                    "attr_type": "colour_group_name",
+                    "attr_value": "White",
+                    "model_name": "last_week",
+                    "split": split_name,
+                    "share_t": 0.30,
+                    "pred_share_t1": 0.20,
+                    "target_growth": 2.0,
+                    "pred_target_growth": 1.0,
+                    "target_rank_in_type_t1": 2,
+                },
+                {
+                    "week_id": week_id,
+                    "attr_id": "colour_group_name::Blue",
+                    "attr_type": "colour_group_name",
+                    "attr_value": "Blue",
+                    "model_name": "last_week",
+                    "split": split_name,
+                    "share_t": 0.20,
+                    "pred_share_t1": 0.25,
+                    "target_growth": 1.0,
+                    "pred_target_growth": 1.5,
+                    "target_rank_in_type_t1": 3,
+                },
+                {
+                    "week_id": week_id,
+                    "attr_id": "product_type_name::Dress",
+                    "attr_type": "product_type_name",
+                    "attr_value": "Dress",
+                    "model_name": "last_week",
+                    "split": split_name,
+                    "share_t": 0.55,
+                    "pred_share_t1": 0.62,
+                    "target_growth": 1.5,
+                    "pred_target_growth": 1.0,
+                    "target_rank_in_type_t1": 1,
+                },
+                {
+                    "week_id": week_id,
+                    "attr_id": "product_type_name::Vest top",
+                    "attr_type": "product_type_name",
+                    "attr_value": "Vest top",
+                    "model_name": "last_week",
+                    "split": split_name,
+                    "share_t": 0.45,
+                    "pred_share_t1": 0.40,
+                    "target_growth": 0.5,
+                    "pred_target_growth": 0.7,
+                    "target_rank_in_type_t1": 2,
+                },
+            ]
+        )
+    return pd.DataFrame(rows).loc[:, list(TREND_MODEL_PREDICTION_COLUMNS)]
 
 
 class ArticleWeekSalesFrameTests(unittest.TestCase):
@@ -1844,6 +1931,90 @@ class LastWeekBaselineTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "列"):
             validate_trend_model_predictions(predictions, samples)
+
+
+class TrendEvaluationTests(unittest.TestCase):
+    def test_derive_trend_metric_output_paths_uses_model_name(self) -> None:
+        paths = derive_trend_metric_output_paths(
+            "last_week",
+            model_output_root=Path("outputs/models"),
+            metrics_output_root=Path("outputs/metrics"),
+        )
+
+        self.assertEqual(paths["output_dir"], Path("outputs/metrics/last_week"))
+        self.assertEqual(
+            paths["predictions"], Path("outputs/models/last_week/predictions.csv")
+        )
+        self.assertEqual(
+            paths["metrics"], Path("outputs/metrics/last_week/trend_metrics.json")
+        )
+
+    def test_read_trend_model_predictions_preserves_contract_columns(self) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        with TemporaryDirectory() as tmp_dir:
+            prediction_path = Path(tmp_dir) / "predictions.csv"
+            write_trend_csv(predictions, prediction_path)
+
+            loaded = read_trend_model_predictions(prediction_path)
+
+        self.assertEqual(loaded.columns.tolist(), list(TREND_MODEL_PREDICTION_COLUMNS))
+        self.assertEqual(len(loaded), len(predictions))
+
+    def test_read_trend_model_predictions_rejects_extra_column(self) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        predictions["debug_score"] = 1.0
+        with TemporaryDirectory() as tmp_dir:
+            prediction_path = Path(tmp_dir) / "predictions.csv"
+            write_trend_csv(predictions, prediction_path)
+
+            with self.assertRaisesRegex(ValueError, "列"):
+                read_trend_model_predictions(prediction_path)
+
+    def test_read_trend_model_predictions_rejects_reordered_columns(self) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        predictions = predictions.loc[:, list(reversed(TREND_MODEL_PREDICTION_COLUMNS))]
+        with TemporaryDirectory() as tmp_dir:
+            prediction_path = Path(tmp_dir) / "predictions.csv"
+            write_trend_csv(predictions, prediction_path)
+
+            with self.assertRaisesRegex(ValueError, "列"):
+                read_trend_model_predictions(prediction_path)
+
+    def test_validate_trend_model_predictions_for_evaluation_accepts_valid_table(
+        self,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+
+        validate_trend_model_predictions_for_evaluation(predictions, "last_week")
+
+    def test_validate_trend_model_predictions_for_evaluation_rejects_missing_test(
+        self,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        predictions = predictions[predictions["split"] != "test"].copy()
+
+        with self.assertRaisesRegex(ValueError, "缺少评价 split"):
+            validate_trend_model_predictions_for_evaluation(predictions, "last_week")
+
+    def test_validate_trend_model_predictions_for_evaluation_rejects_wrong_model(
+        self,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+
+        with self.assertRaisesRegex(ValueError, "model_name"):
+            validate_trend_model_predictions_for_evaluation(
+                predictions,
+                "moving_average",
+            )
+
+    def test_validate_trend_model_predictions_for_evaluation_rejects_non_finite(
+        self,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        predictions.loc[predictions.index[0], "pred_target_growth"] = float("nan")
+
+        with self.assertRaisesRegex(ValueError, "非有限数值"):
+            validate_trend_model_predictions_for_evaluation(predictions, "last_week")
 
 
 class TrendModelSplitWriteTests(unittest.TestCase):
