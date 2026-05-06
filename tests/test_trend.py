@@ -1977,6 +1977,59 @@ class LastWeekBaselineTests(unittest.TestCase):
 
         self.assertEqual(calls, [LAST_WEEK_MODEL_NAME])
 
+    def test_train_trend_model_main_accepts_moving_average(self) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+        calls: list[str] = []
+        original_run_trend_model_training = train_model.run_trend_model_training
+
+        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+            calls.append(model_name)
+            return {
+                "model_name": MOVING_AVERAGE_MODEL_NAME,
+                "model_type": MODEL_TYPE_BASELINE,
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": {
+                    "train": {
+                        "rows": 24,
+                        "weeks": 12,
+                        "attributes": 2,
+                        "week_min": 4,
+                        "week_max": 15,
+                    },
+                    "valid": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 16,
+                        "week_max": 19,
+                    },
+                    "test": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 20,
+                        "week_max": 23,
+                    },
+                },
+                "output_dir": "outputs/models/moving_average",
+                "prediction_path": "outputs/models/moving_average/predictions.csv",
+                "params_path": "outputs/models/moving_average/params.json",
+            }
+
+        try:
+            train_model.run_trend_model_training = fake_run_trend_model_training
+
+            self.assertEqual(
+                train_model.main(["--model", MOVING_AVERAGE_MODEL_NAME]),
+                0,
+            )
+        finally:
+            train_model.run_trend_model_training = original_run_trend_model_training
+
+        self.assertEqual(calls, [MOVING_AVERAGE_MODEL_NAME])
+
     def test_predict_last_week_uses_growth_lag_1(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
