@@ -77,7 +77,6 @@ from fashion_trend.trend import (
 from tests.trend_samples import (
     sample_attribute_hierarchy_edges,
     sample_attribute_nodes,
-    sample_attribute_week_heat,
     sample_long_attribute_week_heat,
     sample_trend_model_samples_for_split,
     sample_trend_predictions_for_evaluation,
