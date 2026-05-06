@@ -30,7 +30,8 @@ H&M transactions_train.csv
 | 趋势样本 | 已实现 | `trend_model_samples.parquet` |
 | 趋势样本时间切分 | 已实现 | `trend_model_samples_train.parquet`、`trend_model_samples_valid.parquet`、`trend_model_samples_test.parquet` |
 | Last Week baseline | 已实现 | `outputs/models/last_week/predictions.csv`、`params.json`、`metadata.json` |
-| 趋势评价 | 已实现 | `outputs/metrics/last_week/trend_metrics.json` |
+| Moving Average baseline | 已实现 | `outputs/models/moving_average/predictions.csv`、`params.json`、`metadata.json` |
+| 趋势评价 | 已实现 | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json` |
 | 推荐评价 | 尚未实现 | 后续推荐结果 |
 
 ## 数据集
@@ -158,7 +159,9 @@ uv run python src/07_build_trend_targets.py
 uv run python src/08_build_trend_model_samples.py
 uv run python src/09_split_trend_model_samples.py
 uv run python src/10_train_trend_model.py --model last_week
+uv run python src/10_train_trend_model.py --model moving_average
 uv run python src/11_eval_trend_model.py --model last_week
+uv run python src/11_eval_trend_model.py --model moving_average
 ```
 
 ### 1. transactions_train.csv
@@ -477,18 +480,50 @@ outputs/models/last_week/metadata.json
 uv run python src/10_train_trend_model.py --model last_week
 ```
 
-### 10. 趋势评价
+### 10. moving_average baseline
+
+`moving_average` baseline 复用通用趋势模型训练入口，模型细节位于
+`src/fashion_trend/models/moving_average.py`。当前模型使用最近两段已观测属性占比增长的简单平均预测下一段增长：
+
+```text
+pred_target_growth = mean(growth_lag_1, growth_lag_2)
+```
+
+预测结果、参数和元数据统一写入：
+
+```sh
+outputs/models/moving_average/predictions.csv
+outputs/models/moving_average/params.json
+outputs/models/moving_average/metadata.json
+```
+
+运行命令：
+
+```sh
+uv run python src/10_train_trend_model.py --model moving_average
+```
+
+### 11. 趋势评价
 
 趋势评价通过独立入口运行，读取已经生成的趋势模型预测表：
 
 ```sh
 outputs/models/last_week/predictions.csv
+outputs/models/moving_average/predictions.csv
 ```
 
-评价结果写入：
+评价结果按模型写入：
 
 ```sh
 outputs/metrics/last_week/trend_metrics.json
+outputs/metrics/moving_average/trend_metrics.json
+```
+
+运行命令：
+
+```sh
+uv run python src/11_eval_trend_model.py --model last_week
+uv run python src/11_eval_trend_model.py --model moving_average
 ```
 
 第一版趋势评价只评价 `valid` 和 `test` split，不把 `train` 作为正式指标。排序目标与训练目标保持一致：
@@ -522,7 +557,7 @@ uv run python src/11_eval_trend_model.py --model last_week
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
-| 趋势模型扩展 | 更多模型文件和趋势预测结果 | 后续再做 Moving Average、EWMA baseline，再考虑 LightGBM |
+| 趋势模型扩展 | 更多模型文件和趋势预测结果 | 后续再做 EWMA baseline，再考虑 LightGBM |
 | 推荐模块 | Top-12 推荐列表和评价结果 | 将趋势分映射回商品，结合近期热门、用户历史属性偏好和 Item-CF 候选做轻量重排序 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
@@ -543,5 +578,5 @@ uv run python -m unittest discover -s tests -v
 - 趋势标签的下一周目标计算、公式一致性和异常输入校验。
 - 趋势样本的 lag、移动窗口、图特征合入、目标合入和标签表与当前热度表一致性校验。
 - 趋势样本 train/valid/test 时间切分、切分读取、元数据写出和 split 合法性校验。
-- `last_week` baseline 预测公式、预测表校验、通用训练 runner metadata、artifact 和写出顺序校验。
+- `last_week` 与 `moving_average` baseline 预测公式、预测表校验、通用训练 runner metadata、artifact 和写出顺序校验。
 - 趋势评价的预测读取、输入校验、分组指标、JSON payload、写出边界和 CLI 行为校验。

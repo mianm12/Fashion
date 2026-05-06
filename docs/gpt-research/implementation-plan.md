@@ -1408,7 +1408,7 @@ hm-fashion-trend-rec/
 | 属性周热度       | `05_compute_attribute_week_heat.py` | `attribute_week_heat.csv`                                                                                  |
 | 趋势标签        | `06_build_trend_targets.py`         | `attribute_week_target.csv`                                                                                |
 | 趋势特征        | `07_build_trend_features.py`        | `trend_model_samples.parquet`                                                                              |
-| baseline 训练 | `08_train_trend_baselines.py`       | `trend_baseline_predictions.csv`                                                                           |
+| baseline 训练 | `10_train_trend_model.py --model <model>` | `outputs/models/<model>/predictions.csv`, `params.json`, `metadata.json`                                   |
 | LightGBM 训练 | `09_train_lgbm_trend.py`            | `lgbm_trend_model.pkl`, `attribute_trend_pred.csv`                                                         |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
 | 用户画像        | `12_build_user_profile.py`          | `user_profile.csv`                                                                                         |
@@ -1590,7 +1590,8 @@ trend_model_samples.parquet
 写：
 
 ```text
-src/08_train_trend_baselines.py
+src/10_train_trend_model.py --model last_week
+src/10_train_trend_model.py --model moving_average
 ```
 
 必须实现：
