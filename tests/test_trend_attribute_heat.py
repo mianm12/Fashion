@@ -5,19 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from tests.trend_samples import (
-    sample_article_attribute_edges,
-    sample_attribute_article_week_sales,
-    sample_attribute_nodes,
-    sample_attribute_week_heat,
-)
-from fashion_trend.trend import (
-    ATTRIBUTE_WEEK_HEAT_COLUMNS,
-    build_attribute_week_heat_frame,
-    read_article_attribute_edges,
-    validate_article_attribute_edges_for_heat,
-    validate_attribute_week_heat,
-)
+from fashion_trend.trend import (ATTRIBUTE_WEEK_HEAT_COLUMNS,
+                                 build_attribute_week_heat_frame,
+                                 read_article_attribute_edges,
+                                 validate_article_attribute_edges_for_heat,
+                                 validate_attribute_week_heat)
+from tests.trend_samples import (sample_article_attribute_edges,
+                                 sample_attribute_article_week_sales,
+                                 sample_attribute_nodes,
+                                 sample_attribute_week_heat)
 
 
 class TestAttributeWeekHeatFrame:
