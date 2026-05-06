@@ -823,7 +823,7 @@ $$
 | 模型                 | 公式 / 方法                                       | 是否必须 | 作用       |
 | ------------------ | --------------------------------------------- | ---: | -------- |
 | Last Week Heat     | $\hat{s}_{a,t+1}=s_{a,t}$                     |   必须 | 最简单基线    |
-| Moving Average     | $\hat{s}_{a,t+1}=\operatorname{mean}(s_{a,t},\ldots,s_{a,t-3})$ |   必须 | 平滑基线     |
+| Moving Average（当前 moving_average 语义） | $\hat{y}_{a,t}=\operatorname{mean}(\mathrm{growth\_lag\_1},\mathrm{growth\_lag\_2})$ |   必须 | 平滑增长基线，当前由 `moving_average` 实现 |
 | Previous Growth（当前 last_week 语义） | $\hat{y}_{a,t}=y_{a,t-1}$                     |   必须 | 增长趋势基线，当前由 `last_week` 的 `growth_lag_1` 语义覆盖 |
 | Linear Regression  | 线性回归                                          |   建议 | 传统机器学习对照 |
 | Ridge Regression   | L2 正则线性回归                                     |   建议 | 稳定线性模型   |
@@ -1547,7 +1547,7 @@ attribute_week_heat.csv
 写：
 
 ```text
-src/06_build_trend_targets.py
+src/07_build_trend_targets.py
 ```
 
 输出：
@@ -2037,7 +2037,7 @@ active_weeks >= 8
 
 ---
 
-## 第 6 个脚本：`06_build_trend_targets.py`
+## 第 7 个脚本：`07_build_trend_targets.py`
 
 功能：
 
