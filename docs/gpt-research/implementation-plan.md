@@ -1372,13 +1372,12 @@ hm-fashion-trend-rec/
 │   ├── 03_build_attribute_graph.py
 │   ├── 04_compute_article_week_sales.py
 │   ├── 05_compute_attribute_week_heat.py
-│   ├── 06_build_trend_targets.py
-│   ├── 07_build_trend_features.py
+│   ├── 07_build_trend_targets.py
 │   ├── 08_build_trend_model_samples.py
 │   ├── 09_split_trend_model_samples.py
 │   ├── 10_train_trend_model.py
-│   ├── 09_train_lgbm_trend.py
 │   ├── 11_eval_trend_model.py
+│   ├── train_lgbm_trend.py  # 后续待新增
 │   ├── 12_build_user_profile.py
 │   ├── 13_build_recommend_candidates.py
 │   ├── 14_rerank_recommendations.py
@@ -1408,10 +1407,10 @@ hm-fashion-trend-rec/
 | 属性图构建       | `03_build_attribute_graph.py`       | `nodes_article.csv`, `nodes_attribute.csv`, `edges_article_attribute.csv`, `edges_attribute_hierarchy.csv` |
 | 商品周销量       | `04_compute_article_week_sales.py`  | `article_week_sales.csv`                                                                                   |
 | 属性周热度       | `05_compute_attribute_week_heat.py` | `attribute_week_heat.csv`                                                                                  |
-| 趋势标签        | `06_build_trend_targets.py`         | `attribute_week_target.csv`                                                                                |
-| 趋势特征        | `07_build_trend_features.py`        | `trend_model_samples.parquet`                                                                              |
+| 趋势标签        | `07_build_trend_targets.py`         | `attribute_week_target.csv`                                                                                |
+| 趋势样本        | `08_build_trend_model_samples.py`   | `trend_model_samples.parquet`                                                                              |
 | baseline 训练 | `10_train_trend_model.py --model <model>` | `outputs/models/<model>/predictions.csv`, `params.json`, `metadata.json`                                   |
-| LightGBM 训练 | `09_train_lgbm_trend.py`            | `lgbm_trend_model.pkl`, `attribute_trend_pred.csv`                                                         |
+| LightGBM 训练 | 后续待新增                           | `lgbm_trend_model.pkl`, `attribute_trend_pred.csv`                                                         |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
 | 用户画像        | `12_build_user_profile.py`          | `user_profile.csv`                                                                                         |
 | 候选召回        | `13_build_recommend_candidates.py`  | `candidate_items.parquet`                                                                                  |
@@ -1570,7 +1569,7 @@ attribute_week_target.csv
 写：
 
 ```text
-src/07_build_trend_features.py
+src/08_build_trend_model_samples.py
 ```
 
 输出：
@@ -1618,7 +1617,7 @@ Moving Average
 写：
 
 ```text
-src/09_train_lgbm_trend.py
+后续待新增
 ```
 
 输出：
@@ -2052,7 +2051,7 @@ $$
 
 ---
 
-## 第 7 个脚本：`07_build_trend_features.py`
+## 第 8 个脚本：`08_build_trend_model_samples.py`
 
 功能：
 
@@ -2062,7 +2061,7 @@ $$
 * 加入属性静态特征；
 * 加入父属性热度特征。
 
-完成这 7 个脚本后，你的主任务数据集就已经成型，可以开始训练 baseline 和 LightGBM。
+完成趋势样本构建并执行时间切分后，主任务数据集就已经成型，可以开始训练 baseline；LightGBM 入口后续待新增。
 
 [1]: https://huggingface.co/datasets/davanstrien/datasets_with_metadata_and_summaries/viewer "davanstrien/datasets_with_metadata_and_summaries · Datasets at Hugging Face"
 [2]: https://awinml.github.io/h-m-personalized-product-recommendations/ "H&M Personalized Product Recommendations"
