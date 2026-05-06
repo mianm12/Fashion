@@ -16,7 +16,9 @@ from fashion_trend.evaluation import (
     compute_trend_metrics,
     derive_trend_metric_output_paths,
     read_trend_model_predictions,
+    run_trend_model_evaluation,
     validate_trend_model_predictions_for_evaluation,
+    write_trend_metrics,
 )
 from fashion_trend.models.base import (
     MODEL_TYPE_BASELINE,
@@ -1953,6 +1955,25 @@ class TrendEvaluationTests(unittest.TestCase):
             paths["metrics"], Path("outputs/metrics/last_week/trend_metrics.json")
         )
 
+    def test_derive_trend_metric_output_paths_rejects_unsafe_model_name(self) -> None:
+        unsafe_model_names = [
+            "",
+            ".",
+            "../escape",
+            "/tmp/escape",
+            "nested/model",
+            "model/..",
+        ]
+
+        for model_name in unsafe_model_names:
+            with self.subTest(model_name=model_name):
+                with self.assertRaisesRegex(ValueError, "model_name|模型名"):
+                    derive_trend_metric_output_paths(
+                        model_name,
+                        model_output_root=Path("outputs/models"),
+                        metrics_output_root=Path("outputs/metrics"),
+                    )
+
     def test_read_trend_model_predictions_preserves_contract_columns(self) -> None:
         predictions = sample_trend_predictions_for_evaluation()
         with TemporaryDirectory() as tmp_dir:
@@ -2129,6 +2150,100 @@ class TrendEvaluationTests(unittest.TestCase):
             ["split", "week_id", "attr_type"],
         )
         json.dumps(payload, allow_nan=False)
+
+    def test_write_trend_metrics_writes_json_without_touching_model_outputs(
+        self,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            prediction_path = (
+                tmp_path / "outputs" / "models" / "last_week" / "predictions.csv"
+            )
+            metrics_path = (
+                tmp_path / "outputs" / "metrics" / "last_week" / "trend_metrics.json"
+            )
+            model_metadata_path = prediction_path.parent / "metadata.json"
+            write_trend_csv(predictions, prediction_path)
+            write_json({"model_name": "last_week"}, model_metadata_path)
+            payload = build_trend_metrics_payload(
+                predictions,
+                model_name="last_week",
+                prediction_path=prediction_path,
+                output_path=metrics_path,
+                k_values=(2,),
+            )
+
+            write_trend_metrics(payload, metrics_path)
+
+            self.assertTrue(metrics_path.exists())
+            self.assertTrue(prediction_path.exists())
+            self.assertTrue(model_metadata_path.exists())
+            written = json.loads(metrics_path.read_text(encoding="utf-8"))
+            self.assertEqual(written["model_name"], "last_week")
+            self.assertEqual(set(written["overall"]), {"valid", "test"})
+
+    def test_write_trend_metrics_rejects_non_strict_json_before_writing(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            metrics_path = Path(tmp_dir) / "outputs" / "metrics" / "trend_metrics.json"
+
+            with self.assertRaises(ValueError):
+                write_trend_metrics({"bad": float("nan")}, metrics_path)
+
+            self.assertFalse(metrics_path.exists())
+
+    def test_write_trend_metrics_preserves_existing_file_for_non_strict_json(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            metrics_path = Path(tmp_dir) / "outputs" / "metrics" / "trend_metrics.json"
+            metrics_path.parent.mkdir(parents=True)
+            metrics_path.write_text('{"status":"old"}\n', encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                write_trend_metrics({"bad": float("nan")}, metrics_path)
+
+            self.assertEqual(
+                metrics_path.read_text(encoding="utf-8"),
+                '{"status":"old"}\n',
+            )
+
+    def test_run_trend_model_evaluation_reads_predictions_and_writes_metrics(
+        self,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            model_root = tmp_path / "outputs" / "models"
+            metrics_root = tmp_path / "outputs" / "metrics"
+            prediction_path = model_root / "last_week" / "predictions.csv"
+            write_trend_csv(predictions, prediction_path)
+
+            payload = run_trend_model_evaluation(
+                "last_week",
+                model_output_root=model_root,
+                metrics_output_root=metrics_root,
+            )
+
+            metrics_path = metrics_root / "last_week" / "trend_metrics.json"
+            self.assertTrue(metrics_path.exists())
+            self.assertEqual(payload["model_name"], "last_week")
+            self.assertEqual(payload["groups"]["test"]["ranking_groups"], 4)
+            written = json.loads(metrics_path.read_text(encoding="utf-8"))
+            self.assertEqual(written["ranking"]["k_values"], [5, 10, 20])
+
+    def test_run_trend_model_evaluation_rejects_missing_predictions(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+
+            with self.assertRaisesRegex(FileNotFoundError, "预测文件不存在"):
+                run_trend_model_evaluation(
+                    "last_week",
+                    model_output_root=tmp_path / "outputs" / "models",
+                    metrics_output_root=tmp_path / "outputs" / "metrics",
+                )
 
     def test_build_trend_metrics_payload_rejects_missing_test_split(self) -> None:
         predictions = sample_trend_predictions_for_evaluation()

@@ -15,6 +15,7 @@ from fashion_trend.trend import (
     validate_no_missing_values,
     validate_required_columns,
     validate_unique_key,
+    write_json,
 )
 
 TREND_EVALUATION_SPLITS: tuple[str, ...] = ("valid", "test")
@@ -38,6 +39,7 @@ def derive_trend_metric_output_paths(
     metrics_output_root: Path = OUTPUT_METRICS_DIR,
 ) -> dict[str, Path]:
     """根据模型名推导预测输入路径和趋势评价输出路径。"""
+    _validate_metric_model_name(model_name)
     output_dir = metrics_output_root / model_name
     return {
         "output_dir": output_dir,
@@ -260,6 +262,34 @@ def build_trend_metrics_payload(
     return payload
 
 
+def write_trend_metrics(payload: dict[str, object], output_path: Path) -> None:
+    """确认 payload 是严格 JSON 后写出趋势评价指标。"""
+    _validate_json_payload(payload)
+    write_json(payload, output_path)
+
+
+def run_trend_model_evaluation(
+    model_name: str,
+    model_output_root: Path = OUTPUT_MODELS_DIR,
+    metrics_output_root: Path = OUTPUT_METRICS_DIR,
+) -> dict[str, object]:
+    """运行单个趋势模型的评价，并写出 trend_metrics.json。"""
+    output_paths = derive_trend_metric_output_paths(
+        model_name,
+        model_output_root=model_output_root,
+        metrics_output_root=metrics_output_root,
+    )
+    predictions = read_trend_model_predictions(output_paths["predictions"])
+    payload = build_trend_metrics_payload(
+        predictions,
+        model_name=model_name,
+        prediction_path=output_paths["predictions"],
+        output_path=output_paths["metrics"],
+    )
+    write_trend_metrics(payload, output_paths["metrics"])
+    return payload
+
+
 def _validate_integer_week_ids(week_ids: pd.Series, source_name: str) -> pd.Series:
     try:
         numeric_week_ids = pd.to_numeric(week_ids, errors="raise")
@@ -268,6 +298,18 @@ def _validate_integer_week_ids(week_ids: pd.Series, source_name: str) -> pd.Seri
     if numeric_week_ids.isna().any() or not (numeric_week_ids % 1 == 0).all():
         raise ValueError(f"{source_name} week_id 必须为整数。")
     return numeric_week_ids.astype("int64")
+
+
+def _validate_metric_model_name(model_name: str) -> None:
+    model_path = Path(model_name)
+    if (
+        not model_name
+        or model_path.is_absolute()
+        or "/" in model_name
+        or "\\" in model_name
+        or model_name in {".", ".."}
+    ):
+        raise ValueError("趋势评价 model_name 必须是安全的单一路径段。")
 
 
 def _validate_k_values(k_values: Sequence[int]) -> None:
