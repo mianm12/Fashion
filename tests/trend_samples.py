@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import pandas as pd
-
 import math
+
+import pandas as pd
 
 from fashion_trend.trend import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,

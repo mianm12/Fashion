@@ -85,8 +85,9 @@ from fashion_trend.trend import (
     write_trend_parquet,
 )
 
-from conftest import (
+from tests.trend_samples import (
     sample_article_attribute_edges,
+    sample_attribute_article_week_sales,
     sample_attribute_hierarchy_edges,
     sample_attribute_nodes,
     sample_attribute_week_heat,
@@ -115,18 +116,6 @@ def sample_article_week_sales() -> pd.DataFrame:
             "sales_cnt": [1],
             "sales_user_cnt": [1],
             "sales_amount": [0.10],
-        }
-    )
-
-
-def sample_attribute_article_week_sales() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "week_id": [0, 0, 1],
-            "article_id": ["0108775015", "0110065001", "0108775015"],
-            "sales_cnt": [2, 1, 1],
-            "sales_user_cnt": [2, 1, 1],
-            "sales_amount": [0.30, 0.30, 0.40],
         }
     )
 
