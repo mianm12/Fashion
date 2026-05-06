@@ -1374,7 +1374,9 @@ hm-fashion-trend-rec/
 │   ├── 05_compute_attribute_week_heat.py
 │   ├── 06_build_trend_targets.py
 │   ├── 07_build_trend_features.py
-│   ├── 08_train_trend_baselines.py
+│   ├── 08_build_trend_model_samples.py
+│   ├── 09_split_trend_model_samples.py
+│   ├── 10_train_trend_model.py
 │   ├── 09_train_lgbm_trend.py
 │   ├── 11_eval_trend_model.py
 │   ├── 12_build_user_profile.py
@@ -1594,12 +1596,13 @@ src/10_train_trend_model.py --model last_week
 src/10_train_trend_model.py --model moving_average
 ```
 
+当前实现中，`last_week` 使用 `growth_lag_1` 预测 `target_growth`，承担原计划中 Previous Growth 的增长趋势基线语义；`moving_average` 使用最近两段增长的均值作为平滑 baseline。
+
 必须实现：
 
 ```text
-Last Week
+Last Week / Previous Growth（当前 `last_week`）
 Moving Average
-Previous Growth
 ```
 
 ---
