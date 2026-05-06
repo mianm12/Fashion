@@ -103,18 +103,27 @@ class MovingAverageTrainer:
             model_name=self.name,
             model_type=self.model_type,
             predictions=predictions,
-            params=dict(MOVING_AVERAGE_PARAMS),
+            params=_copy_moving_average_params(),
         )
 
 
 def _read_growth_lags(split_samples: pd.DataFrame) -> pd.DataFrame:
     try:
-        return split_samples.loc[:, list(MOVING_AVERAGE_GROWTH_LAGS)].apply(
+        growth_lags = split_samples.loc[:, list(MOVING_AVERAGE_GROWTH_LAGS)].apply(
             pd.to_numeric,
             errors="raise",
         )
     except (TypeError, ValueError) as exc:
         raise ValueError("moving_average 模型输入增长 lag 必须为数值。") from exc
+    if not np.isfinite(growth_lags.to_numpy(dtype=float)).all():
+        raise ValueError("moving_average 模型输入增长 lag 存在非有限数值。")
+    return growth_lags
+
+
+def _copy_moving_average_params() -> dict[str, object]:
+    params = dict(MOVING_AVERAGE_PARAMS)
+    params["growth_lags"] = list(MOVING_AVERAGE_GROWTH_LAGS)
+    return params
 
 
 def _validate_finite_predictions(predictions: pd.DataFrame) -> None:

@@ -1412,6 +1412,43 @@ class LastWeekBaselineTests(unittest.TestCase):
         )
         self.assertEqual(MOVING_AVERAGE_GROWTH_LAGS, ("growth_lag_1", "growth_lag_2"))
 
+    def test_predict_moving_average_rejects_non_finite_growth_lag(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        samples.loc[samples.index[0], "growth_lag_2"] = float("nan")
+
+        with self.assertRaisesRegex(ValueError, "非有限|增长 lag"):
+            predict_moving_average(samples)
+
+    def test_moving_average_trainer_copies_mutable_params(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        context = TrendTrainContext(
+            model_name=MOVING_AVERAGE_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/moving_average"),
+        )
+
+        result = MovingAverageTrainer().train(context)
+
+        self.assertEqual(result.params, MOVING_AVERAGE_PARAMS)
+        self.assertIsNot(
+            result.params["growth_lags"],
+            MOVING_AVERAGE_PARAMS["growth_lags"],
+        )
+
     def test_registry_returns_moving_average_trainer(self) -> None:
         trainer = get_trend_model_trainer(MOVING_AVERAGE_MODEL_NAME)
 
