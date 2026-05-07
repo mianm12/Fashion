@@ -1,5 +1,17 @@
 # 趋势 Last Week baseline 设计
 
+## 状态
+
+本设计是历史设计，描述的是早期 last_week baseline 闭环方案。文中的 `src/10_train_trend_baseline.py`、`src/fashion_trend/models/baseline_last_week.py` 和相关命令是旧实现路径，已被当前通用训练入口与模型实现替代。
+
+当前有效入口：
+
+```sh
+uv run python src/10_train_trend_model.py --model last_week
+```
+
+当前 last_week 模型实现为 `src/fashion_trend/models/last_week.py`。Task 5 尚未完成前，不要把 root `models/` 已迁移到 `trend/models/` 作为已完成事实；root `models` 的业务域迁移由后续任务处理。
+
 ## 范围
 
 本轮只实现趋势预测 baseline 中最简单的一种：
@@ -51,34 +63,40 @@ pred_share_t1 = exp(pred_target_growth) * (share_t + 1e-6) - 1e-6
 
 ## 文件组织
 
-新增顶层脚本：
+新增顶层脚本（历史设计）：
 
 ```text
 src/09_split_trend_model_samples.py
-src/10_train_trend_baseline.py
+src/10_train_trend_baseline.py  # 历史入口，当前由 src/10_train_trend_model.py --model last_week 替代
 ```
 
-新增模型包：
+新增模型包（历史设计）：
 
 ```text
 src/fashion_trend/models/
     __init__.py
-    baseline_last_week.py
+    baseline_last_week.py  # 历史模块，当前由 last_week.py 替代
 ```
 
 `src/09_split_trend_model_samples.py` 是时间切分入口，负责读取完整趋势样本，按 `config.py` 中的切分配置生成 `train`、`valid`、`test` 三份样本文件。
 
-`src/10_train_trend_baseline.py` 是 baseline CLI 入口，负责解析参数、读取已切分样本、调用模型、写出结果和输出日志。它不负责划分数据集。
+历史设计中的 `src/10_train_trend_baseline.py` 曾是 baseline CLI 入口。当前有效入口是 `src/10_train_trend_model.py --model last_week`，负责解析参数、读取已切分样本、调用模型、写出结果和输出日志。它不负责划分数据集。
 
-`src/fashion_trend/models/baseline_last_week.py` 只负责 `last_week` baseline 的 DataFrame 级预测逻辑。它不读取全局路径，不处理命令行参数，不写文件。
+历史设计中的 `src/fashion_trend/models/baseline_last_week.py` 已被 `src/fashion_trend/models/last_week.py` 替代；后者只负责 `last_week` baseline 的 DataFrame 级预测逻辑，不读取全局路径，不处理命令行参数，不写文件。
 
 ## CLI
 
-第一版命令：
+历史命令：
 
 ```sh
 uv run python src/09_split_trend_model_samples.py
 uv run python src/10_train_trend_baseline.py --model last_week
+```
+
+当前有效训练命令：
+
+```sh
+uv run python src/10_train_trend_model.py --model last_week
 ```
 
 第一版只支持：
@@ -281,7 +299,7 @@ outputs/models/last_week/predictions.csv
 9. 写出 `PATH["features_trend_model_samples_split_metadata"]`。
 10. 输出每个 split 的周范围、行数、属性数和目标文件路径日志。
 
-baseline 脚本流程：
+baseline 训练流程（当前由 `src/10_train_trend_model.py --model last_week` 执行；下文保留历史流程语义）：
 
 1. 解析 `--model`。
 2. 读取 `PATH["features_trend_model_samples_train"]`。
@@ -290,7 +308,7 @@ baseline 脚本流程：
 5. 校验三份 split 输入文件存在。
 6. 校验 `last_week` 所需列存在。
 7. 合并三份 split 样本，只保留输入已有的 `split` 字段，不重新计算切分边界。
-8. 调用 `baseline_last_week.predict_last_week(samples)`。
+8. 调用当前 `last_week` 模型实现中的 `predict_last_week(samples)`。
 9. 校验输出列顺序、唯一键、split 和数值合法性。
 10. 使用 CSV 写出函数写入 `PATH["output_model_last_week_predictions"]`。
 11. 将参数写入 `PATH["output_model_last_week_params"]`。
@@ -376,14 +394,14 @@ baseline 输入校验：
 
 ```sh
 uv run python -m unittest tests.test_trend -v
-uv run python -m py_compile src/09_split_trend_model_samples.py src/10_train_trend_baseline.py src/fashion_trend/models/baseline_last_week.py
+uv run python -m py_compile src/09_split_trend_model_samples.py src/10_train_trend_model.py src/fashion_trend/models/last_week.py
 ```
 
 如果本地已有完整真实数据，还应运行：
 
 ```sh
 uv run python src/09_split_trend_model_samples.py
-uv run python src/10_train_trend_baseline.py --model last_week
+uv run python src/10_train_trend_model.py --model last_week
 ```
 
 并直接检查：
