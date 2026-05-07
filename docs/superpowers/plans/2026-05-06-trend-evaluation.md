@@ -231,13 +231,15 @@ import numpy as np
 import pandas as pd
 
 from fashion_trend.config import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
-from fashion_trend.trend import (
-    TREND_MODEL_PREDICTION_COLUMNS,
-    TREND_MODEL_SPLIT_VALUES,
+from fashion_trend.foundation.dataframe import (
     validate_no_missing_values,
     validate_required_columns,
     validate_unique_key,
-    write_json,
+)
+from fashion_trend.foundation.io import write_json_atomic
+from fashion_trend.trend.schema import (
+    TREND_MODEL_PREDICTION_COLUMNS,
+    TREND_MODEL_SPLIT_VALUES,
 )
 
 TREND_EVALUATION_SPLITS: tuple[str, ...] = ("valid", "test")

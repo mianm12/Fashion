@@ -82,7 +82,7 @@
   - `tests/test_trend_splits.py`
   - `tests/test_trend_training.py`
   - `tests/test_trend_evaluation.py`
-- 删除或替换 `tests/test_trend_package_compat.py`，因为旧 `fashion_trend.trend` facade 不再保留兼容。
+- 架构目标由 `tests/test_architecture_boundaries.py` 覆盖；不保留趋势包聚合导出入口兼容测试。
 
 ### 文档
 
@@ -832,7 +832,7 @@ from fashion_trend.trend.attribute_heat import (
 """Trend domain package."""
 ```
 
-然后删除 `tests/test_trend_package_compat.py`，因为旧 `from fashion_trend.trend import ...` import 不再支持，`tests/test_architecture_boundaries.py` 已覆盖架构目标。
+如仍存在趋势包聚合导出入口兼容测试，应删除；该导入形式不再支持，`tests/test_architecture_boundaries.py` 已覆盖架构目标。
 
 - [ ] **Step 4：更新确定性趋势测试，改为直接导入**
 

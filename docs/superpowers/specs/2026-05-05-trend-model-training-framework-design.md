@@ -342,4 +342,4 @@ uv run python src/10_train_trend_model.py --model last_week
 - 不改变趋势样本构造逻辑。
 - 不提交 `data/` 或 `outputs/` 下生成产物。
 - 不把模型细节重新写进顶层 CLI。
-- 不保留 `src/10_train_trend_baseline.py` 旧入口。
+- 不保留 `src/10_train_trend_baseline.py` 历史 CLI。

@@ -54,24 +54,32 @@ Commit steps below are implementation checkpoints. Execute them only if the user
 In `tests/test_trend.py`, update imports and assertions so the prediction contract is model-wide, not baseline-specific. The `fashion_trend.trend` import block should include these names:
 
 ```python
-from fashion_trend.trend import (
+from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
+from fashion_trend.transactions.weekly import read_weekly_transactions
+from fashion_trend.trend.article_sales import (
+    build_article_week_sales_frame,
+    read_article_week_sales,
+)
+from fashion_trend.trend.attribute_heat import build_attribute_week_heat_frame
+from fashion_trend.trend.samples import (
+    build_attribute_graph_features_frame,
+    build_trend_model_samples_frame,
+    read_attribute_hierarchy_edges,
+)
+from fashion_trend.trend.schema import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
     TREND_MODEL_SPLIT_COLUMNS,
-    build_article_week_sales_frame,
-    build_attribute_graph_features_frame,
-    build_attribute_week_heat_frame,
-    build_attribute_week_target_frame,
-    build_trend_model_samples_frame,
+)
+from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
     build_trend_model_split_metadata,
-    read_article_attribute_edges,
-    read_attribute_hierarchy_edges,
-    read_attribute_nodes,
-    read_article_week_sales,
+)
+from fashion_trend.trend.targets import (
+    build_attribute_week_target_frame,
     read_attribute_week_target,
     read_trend_model_split,
     read_weekly_transactions,
@@ -402,12 +410,12 @@ from fashion_trend.models.base import (
     TrendTrainContext,
     TrendTrainResult,
 )
-from fashion_trend.trend import (
+from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.schema import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
-    validate_required_columns,
-    validate_trend_model_predictions,
 )
+from fashion_trend.foundation.dataframe import validate_required_columns
 
 LAST_WEEK_MODEL_NAME = "last_week"
 LAST_WEEK_PARAMS: dict[str, object] = {
@@ -758,12 +766,11 @@ from fashion_trend.models.base import (
     TrendTrainResult,
 )
 from fashion_trend.models.registry import get_trend_model_trainer
-from fashion_trend.trend import (
-    TREND_MODEL_SPLIT_VALUES,
+from fashion_trend.foundation.io import write_csv_atomic, write_json_atomic
+from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
+from fashion_trend.trend.splits import (
     read_trend_model_split,
-    validate_trend_model_predictions,
-    write_json,
-    write_trend_csv,
 )
 
 
@@ -1015,7 +1022,7 @@ from typing import Sequence
 from fashion_trend import log
 from fashion_trend.models.registry import UnknownTrendModelError, list_trend_model_names
 from fashion_trend.training import run_trend_model_training
-from fashion_trend.trend import TREND_MODEL_SPLIT_VALUES
+from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
 
 LOG_SOURCE = "trend-model-train"
 

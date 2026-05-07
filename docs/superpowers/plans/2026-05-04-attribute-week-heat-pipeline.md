@@ -1,5 +1,7 @@
 # 商品周销量与属性周热度 Implementation Plan
 
+> Note: This historical plan predates the domain-driven module migration. Current code must use concrete module imports; `fashion_trend.trend` is only a package marker.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 按开发顺序先生成 `article_week_sales.csv`，再基于它和商品-属性边生成 `attribute_week_heat.csv`。
@@ -43,11 +45,11 @@ import unittest
 
 import pandas as pd
 
-from fashion_trend.trend import (
-    ARTICLE_WEEK_SALES_COLUMNS,
+from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
     validate_article_week_sales,
 )
+from fashion_trend.trend.schema import ARTICLE_WEEK_SALES_COLUMNS
 
 
 def sample_weekly_transactions() -> pd.DataFrame:
@@ -365,7 +367,7 @@ Append to `tests/test_trend.py`:
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from fashion_trend.trend import write_trend_csv
+from fashion_trend.foundation.io import write_csv_atomic
 
 
 class TrendCsvWriteTests(unittest.TestCase):
@@ -386,7 +388,7 @@ class TrendCsvWriteTests(unittest.TestCase):
                 }
             )
 
-            write_trend_csv(dataframe, output_path)
+            write_csv_atomic(dataframe, output_path)
 
             lines = output_path.read_text(encoding="utf-8").splitlines()
             self.assertEqual(
@@ -462,11 +464,11 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.transactions.weekly import read_weekly_transactions
+from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
-    read_weekly_transactions,
     validate_article_week_sales,
-    write_trend_csv,
 )
 
 LOG_SOURCE = "article-week-sales"
@@ -479,7 +481,7 @@ def compute_article_week_sales() -> dict[str, int]:
     )
     article_week_sales = build_article_week_sales_frame(weekly_transactions)
     validate_article_week_sales(article_week_sales)
-    write_trend_csv(article_week_sales, PATH["trend_article_week_sales"])
+    write_csv_atomic(article_week_sales, PATH["trend_article_week_sales"])
 
     return {
         "rows": len(article_week_sales),
@@ -508,7 +510,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 6: 实现周级交易读取函数**
 
-Append this function above `build_article_week_sales_frame` in `src/fashion_trend/trend.py`:
+Current ownership places this reader in `src/fashion_trend/transactions/weekly.py`, not in the trend package:
 
 ```python
 def read_weekly_transactions(weekly_transactions_path: Path) -> pd.DataFrame:
@@ -571,11 +573,11 @@ Expected:
 Append to `tests/test_trend.py`:
 
 ```python
-from fashion_trend.trend import (
-    ATTRIBUTE_WEEK_HEAT_COLUMNS,
+from fashion_trend.trend.attribute_heat import (
     build_attribute_week_heat_frame,
     validate_article_attribute_edges_for_heat,
 )
+from fashion_trend.trend.schema import ATTRIBUTE_WEEK_HEAT_COLUMNS
 
 
 def sample_article_week_sales() -> pd.DataFrame:
@@ -885,7 +887,7 @@ Expected:
 
 - [ ] **Step 1: 实现商品周销量和商品-属性边读取函数**
 
-Append these functions above `build_attribute_week_heat_frame` in `src/fashion_trend/trend.py`:
+Current ownership keeps article sales reading in `trend/article_sales.py` and moves catalog graph readers to `catalog/graph.py`:
 
 ```python
 def read_article_week_sales(article_week_sales_path: Path) -> pd.DataFrame:
@@ -924,14 +926,19 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
-    build_attribute_week_heat_frame,
-    read_article_attribute_edges,
+from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.trend.article_sales import (
     read_article_week_sales,
-    validate_article_attribute_edges_for_heat,
     validate_article_week_sales,
+)
+from fashion_trend.trend.attribute_heat import (
+    build_attribute_week_heat_frame,
+    validate_all_sales_articles_have_attribute_edges,
+    validate_article_attribute_edges_for_heat,
+    validate_attribute_edge_node_metadata_consistency,
+    validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
-    write_trend_csv,
 )
 
 LOG_SOURCE = "attribute-week-heat"
@@ -951,12 +958,24 @@ def compute_attribute_week_heat() -> dict[str, int]:
     )
     validate_article_attribute_edges_for_heat(article_attribute_edges)
 
-    attribute_week_heat = build_attribute_week_heat_frame(
+    attribute_nodes = read_attribute_nodes(PATH["graph_nodes_attribute"])
+    validate_attribute_nodes_for_heat(attribute_nodes)
+    validate_all_sales_articles_have_attribute_edges(
         article_week_sales,
         article_attribute_edges,
     )
+    validate_attribute_edge_node_metadata_consistency(
+        article_attribute_edges,
+        attribute_nodes,
+    )
+
+    attribute_week_heat = build_attribute_week_heat_frame(
+        article_week_sales,
+        article_attribute_edges,
+        attribute_nodes,
+    )
     validate_attribute_week_heat(attribute_week_heat)
-    write_trend_csv(attribute_week_heat, PATH["trend_attribute_week_heat"])
+    write_csv_atomic(attribute_week_heat, PATH["trend_attribute_week_heat"])
 
     return {
         "rows": len(attribute_week_heat),

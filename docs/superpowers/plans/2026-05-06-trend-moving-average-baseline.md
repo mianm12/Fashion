@@ -134,11 +134,11 @@ from fashion_trend.models.base import (
     TrendTrainContext,
     TrendTrainResult,
 )
-from fashion_trend.trend import (
+from fashion_trend.foundation.dataframe import validate_required_columns
+from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.schema import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
-    validate_required_columns,
-    validate_trend_model_predictions,
 )
 
 MOVING_AVERAGE_MODEL_NAME = "moving_average"

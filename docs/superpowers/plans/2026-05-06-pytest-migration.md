@@ -1,5 +1,7 @@
 # pytest 迁移实施计划
 
+> Note: This historical plan predates the domain-driven module migration. Current test examples must use concrete module imports; `fashion_trend.trend` is only a package marker.
+
 > **给 agentic workers：** 必须使用子技能：推荐 `superpowers:subagent-driven-development`，也可以使用 `superpowers:executing-plans`，逐任务执行本计划。步骤使用 checkbox（`- [ ]`）语法追踪进度。
 
 **目标：** 将测试套件迁移到 pytest，并按照项目数据流水线拆分过大的趋势测试文件，同时不改变生产代码行为。
@@ -588,14 +590,16 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fashion_trend.trend import (
-    ARTICLE_WEEK_SALES_COLUMNS,
-    ATTRIBUTE_WEEK_HEAT_COLUMNS,
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.transactions.weekly import read_weekly_transactions
+from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
     read_article_week_sales,
-    read_weekly_transactions,
     validate_article_week_sales,
-    write_trend_csv,
+)
+from fashion_trend.trend.schema import (
+    ARTICLE_WEEK_SALES_COLUMNS,
+    ATTRIBUTE_WEEK_HEAT_COLUMNS,
 )
 ```
 
@@ -713,13 +717,13 @@ from tests.trend_samples import (
     sample_article_attribute_edges,
     sample_attribute_nodes,
 )
-from fashion_trend.trend import (
-    ATTRIBUTE_WEEK_HEAT_COLUMNS,
+from fashion_trend.catalog.graph import read_article_attribute_edges
+from fashion_trend.trend.attribute_heat import (
     build_attribute_week_heat_frame,
-    read_article_attribute_edges,
     validate_article_attribute_edges_for_heat,
     validate_attribute_week_heat,
 )
+from fashion_trend.trend.schema import ATTRIBUTE_WEEK_HEAT_COLUMNS
 ```
 
 - [ ] **步骤 2：移动该文件专用样本 builder**
@@ -839,8 +843,8 @@ import math
 import pytest
 
 from tests.trend_samples import sample_attribute_week_heat
-from fashion_trend.trend import (
-    ATTRIBUTE_WEEK_TARGET_COLUMNS,
+from fashion_trend.trend.schema import ATTRIBUTE_WEEK_TARGET_COLUMNS
+from fashion_trend.trend.targets import (
     build_attribute_week_target_frame,
     validate_attribute_week_target,
 )
@@ -935,12 +939,12 @@ from tests.trend_samples import (
     sample_attribute_nodes,
     sample_long_attribute_week_heat,
 )
-from fashion_trend.trend import (
-    TREND_MODEL_SAMPLE_COLUMNS,
+from fashion_trend.trend.samples import (
     build_attribute_graph_features_frame,
     build_trend_model_samples_frame,
     validate_trend_model_samples,
 )
+from fashion_trend.trend.schema import TREND_MODEL_SAMPLE_COLUMNS
 ```
 
 - [ ] **步骤 2：移动并重命名测试类**
@@ -1045,13 +1049,12 @@ from pathlib import Path
 import pytest
 
 from tests.trend_samples import sample_trend_model_samples_for_split
-from fashion_trend.trend import (
-    TREND_MODEL_SPLIT_COLUMNS,
+from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
+from fashion_trend.trend.schema import TREND_MODEL_SPLIT_COLUMNS
+from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
     build_trend_model_split_metadata,
     read_trend_model_split,
-    write_json,
-    write_trend_parquet,
 )
 ```
 
@@ -1083,7 +1086,7 @@ def test_read_trend_model_split_preserves_columns_for_legal_parquet(
     split_frame = build_trend_model_split_frames(sample_trend_model_samples_for_split())[
         "train"
     ]
-    write_trend_parquet(split_frame, split_path)
+    write_parquet_atomic(split_frame, split_path)
 
     split = read_trend_model_split(split_path)
 
@@ -1181,12 +1184,10 @@ from fashion_trend.training import (
     validate_trend_train_result,
     write_trend_model_outputs,
 )
-from fashion_trend.trend import (
-    TREND_MODEL_PREDICTION_COLUMNS,
-    build_trend_model_split_frames,
-    validate_trend_model_predictions,
-    write_trend_parquet,
-)
+from fashion_trend.foundation.io import write_parquet_atomic
+from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
+from fashion_trend.trend.splits import build_trend_model_split_frames
 ```
 
 - [ ] **步骤 2：移动并重命名测试类**
@@ -1332,7 +1333,7 @@ from fashion_trend.evaluation import (
     write_trend_metrics,
 )
 from fashion_trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
-from fashion_trend.trend import TREND_MODEL_PREDICTION_COLUMNS
+from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
 ```
 
 - [ ] **步骤 2：移动并重命名评价测试类**

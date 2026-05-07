@@ -79,20 +79,23 @@ def sample_attribute_nodes() -> pd.DataFrame:
 Modify `tests/test_trend.py` imports:
 
 ```python
-from fashion_trend.trend import (
-    ARTICLE_WEEK_SALES_COLUMNS,
-    ATTRIBUTE_WEEK_HEAT_COLUMNS,
+from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.transactions.weekly import read_weekly_transactions
+from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
-    build_attribute_week_heat_frame,
-    read_article_attribute_edges,
     read_article_week_sales,
-    read_attribute_nodes,
-    read_weekly_transactions,
-    validate_article_attribute_edges_for_heat,
     validate_article_week_sales,
+)
+from fashion_trend.trend.attribute_heat import (
+    build_attribute_week_heat_frame,
+    validate_article_attribute_edges_for_heat,
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
-    write_trend_csv,
+)
+from fashion_trend.trend.schema import (
+    ARTICLE_WEEK_SALES_COLUMNS,
+    ATTRIBUTE_WEEK_HEAT_COLUMNS,
 )
 ```
 
@@ -382,16 +385,17 @@ Keep the existing checks for `type_total_heat`, `heat_share`, `log_heat`, and ra
 Modify imports:
 
 ```python
-from fashion_trend.trend import (
-    build_attribute_week_heat_frame,
-    read_article_attribute_edges,
+from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.trend.article_sales import (
     read_article_week_sales,
-    read_attribute_nodes,
-    validate_article_attribute_edges_for_heat,
     validate_article_week_sales,
+)
+from fashion_trend.trend.attribute_heat import (
+    build_attribute_week_heat_frame,
+    validate_article_attribute_edges_for_heat,
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
-    write_trend_csv,
 )
 ```
 
@@ -450,23 +454,28 @@ git commit -m "fix(trend): 生成完整属性周热度面板"
 Modify imports in `tests/test_trend.py`:
 
 ```python
-from fashion_trend.trend import (
+from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.transactions.weekly import read_weekly_transactions
+from fashion_trend.trend.article_sales import (
+    build_article_week_sales_frame,
+    read_article_week_sales,
+    validate_article_week_sales,
+)
+from fashion_trend.trend.attribute_heat import (
+    build_attribute_week_heat_frame,
+    validate_article_attribute_edges_for_heat,
+    validate_attribute_nodes_for_heat,
+    validate_attribute_week_heat,
+)
+from fashion_trend.trend.schema import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
-    build_article_week_sales_frame,
-    build_attribute_week_heat_frame,
+)
+from fashion_trend.trend.targets import (
     build_attribute_week_target_frame,
-    read_article_attribute_edges,
-    read_article_week_sales,
-    read_attribute_nodes,
-    read_weekly_transactions,
-    validate_article_attribute_edges_for_heat,
-    validate_article_week_sales,
-    validate_attribute_nodes_for_heat,
-    validate_attribute_week_heat,
     validate_attribute_week_target,
-    write_trend_csv,
 )
 ```
 
@@ -689,12 +698,14 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
-    build_attribute_week_target_frame,
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.trend.attribute_heat import (
     read_attribute_week_heat,
     validate_attribute_week_heat,
+)
+from fashion_trend.trend.targets import (
+    build_attribute_week_target_frame,
     validate_attribute_week_target,
-    write_trend_csv,
 )
 
 LOG_SOURCE = "trend-targets"
@@ -711,7 +722,7 @@ def build_trend_targets() -> dict[str, int]:
         expected_week_count=int(attribute_week_heat["week_id"].nunique()),
         expected_attribute_count=int(attribute_week_heat["attr_id"].nunique()),
     )
-    write_trend_csv(attribute_week_target, PATH["trend_attribute_week_target"])
+    write_csv_atomic(attribute_week_target, PATH["trend_attribute_week_target"])
 
     return {
         "rows": len(attribute_week_target),
@@ -816,27 +827,34 @@ git commit -m "feat(trend): 构建属性趋势标签"
 Modify imports in `tests/test_trend.py`:
 
 ```python
-from fashion_trend.trend import (
+from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.transactions.weekly import read_weekly_transactions
+from fashion_trend.trend.article_sales import (
+    build_article_week_sales_frame,
+    read_article_week_sales,
+    validate_article_week_sales,
+)
+from fashion_trend.trend.attribute_heat import (
+    build_attribute_week_heat_frame,
+    validate_article_attribute_edges_for_heat,
+    validate_attribute_nodes_for_heat,
+    validate_attribute_week_heat,
+)
+from fashion_trend.trend.samples import (
+    build_attribute_graph_features_frame,
+    build_trend_model_samples_frame,
+    validate_trend_model_samples,
+)
+from fashion_trend.trend.schema import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
-    build_article_week_sales_frame,
-    build_attribute_graph_features_frame,
-    build_attribute_week_heat_frame,
+)
+from fashion_trend.trend.targets import (
     build_attribute_week_target_frame,
-    build_trend_model_samples_frame,
-    read_article_attribute_edges,
-    read_article_week_sales,
-    read_attribute_nodes,
-    read_weekly_transactions,
-    validate_article_attribute_edges_for_heat,
-    validate_article_week_sales,
-    validate_attribute_nodes_for_heat,
-    validate_attribute_week_heat,
     validate_attribute_week_target,
-    validate_trend_model_samples,
-    write_trend_csv,
 )
 ```
 
@@ -1238,18 +1256,12 @@ def validate_trend_model_samples(trend_model_samples: pd.DataFrame) -> None:
         raise ValueError("趋势训练样本表存在非有限数值。")
 ```
 
-- [ ] **Step 6: 实现 Parquet 写出**
+- [ ] **Step 6: 使用共享 Parquet 写出**
 
-Add function:
+Current code uses `fashion_trend.foundation.io.write_parquet_atomic`:
 
 ```python
-def write_trend_parquet(dataframe: pd.DataFrame, output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        dataframe.to_parquet(tmp_output_path, index=False)
-        tmp_output_path.replace(output_path)
-    except Exception:
+write_parquet_atomic(dataframe, output_path)
         remove_file_if_exists(tmp_output_path)
         raise
 ```
@@ -1263,15 +1275,15 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
+from fashion_trend.catalog.graph import read_attribute_nodes
+from fashion_trend.foundation.io import write_parquet_atomic
+from fashion_trend.trend.attribute_heat import read_attribute_week_heat
+from fashion_trend.trend.samples import (
     build_trend_model_samples_frame,
     read_attribute_hierarchy_edges,
-    read_attribute_nodes,
-    read_attribute_week_heat,
-    read_attribute_week_target,
     validate_trend_model_samples,
-    write_trend_parquet,
 )
+from fashion_trend.trend.targets import read_attribute_week_target
 
 LOG_SOURCE = "trend-model-samples"
 
@@ -1301,7 +1313,7 @@ def build_trend_model_samples() -> dict[str, int]:
         attribute_hierarchy_edges,
     )
     validate_trend_model_samples(samples)
-    write_trend_parquet(samples, PATH["features_trend_model_samples"])
+    write_parquet_atomic(samples, PATH["features_trend_model_samples"])
 
     return {
         "rows": len(samples),
