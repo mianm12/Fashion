@@ -133,11 +133,11 @@ class TestTrendModelSplitFrame:
 
 
 class TestTrendModelSplitWrite:
-    def test_write_json_atomic_creates_parent_and_preserves_payload_order(
+    def test_write_json_atomic_creates_parent_and_writes_sorted_keys(
         self, tmp_path: Path
     ) -> None:
         output_path = tmp_path / "nested" / "metadata.json"
 
-        write_json_atomic({"b": 2, "a": 1}, output_path)
+        write_json_atomic({"b": 1, "a": 2}, output_path)
 
-        assert output_path.read_text(encoding="utf-8") == '{\n  "b": 2,\n  "a": 1\n}\n'
+        assert output_path.read_text(encoding="utf-8") == '{\n  "a": 2,\n  "b": 1\n}\n'

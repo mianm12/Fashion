@@ -17,7 +17,7 @@ def write_json_atomic(payload: dict[str, object], output_path: Path) -> None:
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     try:
         tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         tmp_path.replace(output_path)
