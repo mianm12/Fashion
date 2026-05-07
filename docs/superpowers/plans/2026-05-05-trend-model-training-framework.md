@@ -56,7 +56,11 @@ Commit steps below are implementation checkpoints. Execute them only if the user
 In `tests/test_trend.py`, update imports and assertions so the prediction contract is model-wide, not baseline-specific. The `fashion_trend.trend` import block should include these names:
 
 ```python
-from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
+from fashion_trend.catalog.graph import (
+    read_article_attribute_edges,
+    read_attribute_hierarchy_edges,
+    read_attribute_nodes,
+)
 from fashion_trend.transactions.weekly import read_weekly_transactions
 from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
@@ -66,7 +70,6 @@ from fashion_trend.trend.attribute_heat import build_attribute_week_heat_frame
 from fashion_trend.trend.samples import (
     build_attribute_graph_features_frame,
     build_trend_model_samples_frame,
-    read_attribute_hierarchy_edges,
 )
 from fashion_trend.trend.schema import (
     ARTICLE_WEEK_SALES_COLUMNS,

@@ -57,7 +57,7 @@ from fashion_trend.trend.schema import (
     TREND_MODEL_SAMPLE_COLUMNS,
     TREND_MODEL_SPLIT_COLUMNS,
 )
-from fashion_trend.trend.samples import read_attribute_hierarchy_edges
+from fashion_trend.catalog.graph import read_attribute_hierarchy_edges
 from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
     build_trend_model_split_metadata,

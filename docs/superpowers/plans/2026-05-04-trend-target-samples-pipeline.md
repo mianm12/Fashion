@@ -1277,12 +1277,14 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.catalog.graph import read_attribute_nodes
+from fashion_trend.catalog.graph import (
+    read_attribute_hierarchy_edges,
+    read_attribute_nodes,
+)
 from fashion_trend.foundation.io import write_parquet_atomic
 from fashion_trend.trend.attribute_heat import read_attribute_week_heat
 from fashion_trend.trend.samples import (
     build_trend_model_samples_frame,
-    read_attribute_hierarchy_edges,
     validate_trend_model_samples,
 )
 from fashion_trend.trend.targets import read_attribute_week_target

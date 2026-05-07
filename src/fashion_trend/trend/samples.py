@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
@@ -17,45 +15,9 @@ from fashion_trend.trend.attribute_heat import (
 )
 from fashion_trend.trend.schema import (
     ATTRIBUTE_HIERARCHY_EDGE_COLUMNS,
-    ATTRIBUTE_HIERARCHY_EDGE_DTYPES,
     TREND_MODEL_SAMPLE_COLUMNS,
 )
 from fashion_trend.trend.targets import validate_attribute_week_target_matches_heat
-
-
-def read_attribute_hierarchy_edges(
-    attribute_hierarchy_edges_path: Path,
-) -> pd.DataFrame:
-    if not attribute_hierarchy_edges_path.exists():
-        raise FileNotFoundError(f"属性层级边表不存在: {attribute_hierarchy_edges_path}")
-
-    try:
-        header = pd.read_csv(attribute_hierarchy_edges_path, nrows=0)
-    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(
-            f"无法读取属性层级边表: {attribute_hierarchy_edges_path}"
-        ) from exc
-
-    missing_columns = sorted(
-        set(ATTRIBUTE_HIERARCHY_EDGE_COLUMNS) - set(header.columns)
-    )
-    if missing_columns:
-        raise ValueError(
-            "属性层级边表缺少必要字段: "
-            + ", ".join(missing_columns)
-            + f"。文件: {attribute_hierarchy_edges_path}"
-        )
-
-    try:
-        return pd.read_csv(
-            attribute_hierarchy_edges_path,
-            usecols=list(ATTRIBUTE_HIERARCHY_EDGE_COLUMNS),
-            dtype=ATTRIBUTE_HIERARCHY_EDGE_DTYPES,
-        )
-    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(
-            f"无法读取属性层级边表: {attribute_hierarchy_edges_path}"
-        ) from exc
 
 
 def build_attribute_graph_features_frame(

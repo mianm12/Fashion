@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
+import fashion_trend.trend.samples as samples_module
+from fashion_trend.catalog.graph import read_attribute_hierarchy_edges
 from fashion_trend.trend.samples import (
     build_attribute_graph_features_frame,
     build_trend_model_samples_frame,
@@ -22,6 +25,40 @@ from tests.trend_samples import (
 
 
 class TestTrendModelSamplesFrame:
+    def test_samples_module_does_not_reexport_attribute_hierarchy_reader(
+        self,
+    ) -> None:
+        assert not hasattr(samples_module, "read_attribute_hierarchy_edges")
+
+    def test_read_attribute_hierarchy_edges_preserves_string_dtypes(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        input_path = tmp_path / "attribute_hierarchy_edges.csv"
+        sample_attribute_hierarchy_edges().to_csv(input_path, index=False)
+
+        edges = read_attribute_hierarchy_edges(input_path)
+
+        assert edges["parent_attr_id"].dtype.name == "string"
+        assert edges["child_attr_id"].dtype.name == "string"
+        assert edges["parent_attr_type"].dtype.name == "string"
+        assert edges["child_attr_type"].dtype.name == "string"
+        assert edges["relation_type"].dtype.name == "string"
+        assert edges.loc[0, "parent_attr_id"] == "colour_group_name::Black"
+
+    def test_read_attribute_hierarchy_edges_reports_missing_required_column(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        input_path = tmp_path / "attribute_hierarchy_edges.csv"
+        sample_attribute_hierarchy_edges().drop(columns=["relation_type"]).to_csv(
+            input_path,
+            index=False,
+        )
+
+        with pytest.raises(ValueError, match="relation_type"):
+            read_attribute_hierarchy_edges(input_path)
+
     def test_build_trend_model_samples_frame_uses_lags_and_targets(self) -> None:
         heat = sample_long_attribute_week_heat()
         target = build_attribute_week_target_frame(heat)

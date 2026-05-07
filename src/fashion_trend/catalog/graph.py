@@ -72,6 +72,22 @@ ATTRIBUTE_NODE_READER_DTYPES: dict[str, str] = {
     "article_count": "int64",
     "is_core_attr": "int64",
 }
+ATTRIBUTE_HIERARCHY_EDGE_READER_COLUMNS: tuple[str, ...] = (
+    "parent_attr_id",
+    "child_attr_id",
+    "parent_attr_type",
+    "child_attr_type",
+    "relation_type",
+    "edge_weight",
+)
+ATTRIBUTE_HIERARCHY_EDGE_READER_DTYPES: dict[str, str] = {
+    "parent_attr_id": "string",
+    "child_attr_id": "string",
+    "parent_attr_type": "string",
+    "child_attr_type": "string",
+    "relation_type": "string",
+    "edge_weight": "int64",
+}
 
 
 def make_attr_id(attr_type: str, attr_value: str) -> str:
@@ -321,6 +337,41 @@ def read_attribute_nodes(attribute_nodes_path: Path) -> pd.DataFrame:
         )
     except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
         raise ValueError(f"无法读取属性节点表: {attribute_nodes_path}") from exc
+
+
+def read_attribute_hierarchy_edges(
+    attribute_hierarchy_edges_path: Path,
+) -> pd.DataFrame:
+    if not attribute_hierarchy_edges_path.exists():
+        raise FileNotFoundError(f"属性层级边表不存在: {attribute_hierarchy_edges_path}")
+
+    try:
+        header = pd.read_csv(attribute_hierarchy_edges_path, nrows=0)
+    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"无法读取属性层级边表: {attribute_hierarchy_edges_path}"
+        ) from exc
+
+    missing_columns = sorted(
+        set(ATTRIBUTE_HIERARCHY_EDGE_READER_COLUMNS) - set(header.columns)
+    )
+    if missing_columns:
+        raise ValueError(
+            "属性层级边表缺少必要字段: "
+            + ", ".join(missing_columns)
+            + f"。文件: {attribute_hierarchy_edges_path}"
+        )
+
+    try:
+        return pd.read_csv(
+            attribute_hierarchy_edges_path,
+            usecols=list(ATTRIBUTE_HIERARCHY_EDGE_READER_COLUMNS),
+            dtype=ATTRIBUTE_HIERARCHY_EDGE_READER_DTYPES,
+        )
+    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"无法读取属性层级边表: {attribute_hierarchy_edges_path}"
+        ) from exc
 
 
 def validate_graph_references(
