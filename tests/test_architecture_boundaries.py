@@ -73,7 +73,7 @@ def package_parts_for_path(path: Path) -> list[str]:
     relative_module = path.relative_to(package_root.parent).with_suffix("")
     parts = list(relative_module.parts)
     if parts[-1] == "__init__":
-        return parts
+        return parts[:-1]
     return parts[:-1]
 
 
@@ -128,6 +128,24 @@ def test_imported_modules_resolves_relative_import_aliases(tmp_path) -> None:
         "fashion_trend.catalog",
         "fashion_trend.trend.models",
     }
+
+
+def test_imported_modules_resolves_init_relative_parent_alias(tmp_path) -> None:
+    package_root = tmp_path / "src" / "fashion_trend"
+    module_path = package_root / "recommendation" / "__init__.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text("from .. import catalog\n", encoding="utf-8")
+
+    assert "fashion_trend.catalog" in imported_modules(module_path)
+
+
+def test_imported_modules_resolves_init_relative_sibling_alias(tmp_path) -> None:
+    package_root = tmp_path / "src" / "fashion_trend"
+    module_path = package_root / "recommendation" / "__init__.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text("from ..trend import models\n", encoding="utf-8")
+
+    assert "fashion_trend.trend.models" in imported_modules(module_path)
 
 
 def assert_package_does_not_import(
