@@ -1365,7 +1365,22 @@ hm-fashion-trend-rec/
 │       └── experiment_log.md
 │
 ├── src/
-│   ├── config.py
+│   ├── fashion_trend/
+│   │   ├── foundation/
+│   │   │   ├── paths.py
+│   │   │   ├── logging.py
+│   │   │   ├── io.py
+│   │   │   ├── dataframe.py
+│   │   │   └── artifacts.py
+│   │   ├── datasets/
+│   │   ├── transactions/
+│   │   ├── catalog/
+│   │   ├── trend/
+│   │   │   ├── training.py
+│   │   │   ├── evaluation.py
+│   │   │   └── models/
+│   │   ├── recommendation/
+│   │   └── reports/
 │   │
 │   ├── 01_data_check.py
 │   ├── 02_build_weekly_transactions.py
@@ -1395,6 +1410,8 @@ hm-fashion-trend-rec/
 ├── requirements.txt
 └── README.md
 ```
+
+当前实现中，用户可运行脚本继续位于 `src/` 根目录，内部计算事实按业务域进入 `src/fashion_trend/`：商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training.py`，趋势评价在 `src/fashion_trend/trend/evaluation.py`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`。
 
 ---
 

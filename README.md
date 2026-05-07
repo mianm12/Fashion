@@ -56,7 +56,7 @@ H&M transactions_train.csv
 src/00_download_data.py
 ```
 
-默认配置集中在 `src/fashion_trend/config.py`：
+默认路径和下载配置集中在 `src/fashion_trend/foundation/paths.py`：
 
 - `DEFAULT_COMPETITION`：`h-and-m-personalized-fashion-recommendations`
 - `RAW_DIR`：项目根目录下的 `data/raw`
@@ -434,7 +434,7 @@ data/processed/features/trend_model_samples.parquet
 
 ### 8. trend_model_samples_train/valid/test.parquet
 
-基于 `trend_model_samples.parquet` 按时间顺序切分训练、验证和测试样本。默认最后 8 个样本周为 test，之前 8 个样本周为 valid，更早样本周为 train。切分配置集中在 `src/fashion_trend/config.py`：
+基于 `trend_model_samples.parquet` 按时间顺序切分训练、验证和测试样本。默认最后 8 个样本周为 test，之前 8 个样本周为 valid，更早样本周为 train。切分配置集中在 `src/fashion_trend/foundation/paths.py`：
 
 ```text
 TREND_SPLIT_VALID_WEEKS = 8
@@ -562,7 +562,21 @@ NDCG@5/10/20
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
 
-趋势共享实现位于 `src/fashion_trend/trend/` 子包。`article_sales.py`、`attribute_heat.py`、`targets.py`、`samples.py`、`splits.py` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
+## 实现位置
+
+项目内部代码按业务域组织在 `src/fashion_trend/` 下：
+
+- `foundation/`：路径、日志、原子写入、通用校验和 artifact 安全。
+- `datasets/`：原始数据下载、解压和基础检查。
+- `transactions/`：周级交易表和交易窗口。
+- `catalog/`：商品表清洗和静态属性图。
+- `trend/`：属性热度、标签、样本、时间切分、趋势模型训练和趋势评价。
+- `recommendation/`：候选、重排序、Top-12 和推荐评价。
+- `reports/`：图表、表格和案例导出。
+
+`src/00_*.py` 到 `src/16_*.py` 仍是用户运行入口；脚本保留高层流程索引，计算事实位于业务包。保持现有用户命令不变。
+
+趋势共享实现位于 `src/fashion_trend/trend/` 子包。`article_sales.py`、`attribute_heat.py`、`targets.py`、`samples.py`、`splits.py`、`training.py`、`evaluation.py` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/` 存放各趋势模型实现；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 
 ## 验证
 
