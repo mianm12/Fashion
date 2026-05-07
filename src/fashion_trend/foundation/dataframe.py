@@ -47,9 +47,7 @@ def validate_non_negative_values(
     source_name: str,
 ) -> None:
     invalid_columns = [
-        column
-        for column in columns
-        if bool((dataframe[column] < 0).any())
+        column for column in columns if bool((dataframe[column] < 0).any())
     ]
     if invalid_columns:
         raise ValueError(f"{source_name} 存在负数: {', '.join(invalid_columns)}")
@@ -61,9 +59,7 @@ def validate_positive_values(
     source_name: str,
 ) -> None:
     invalid_columns = [
-        column
-        for column in columns
-        if bool((dataframe[column] <= 0).any())
+        column for column in columns if bool((dataframe[column] <= 0).any())
     ]
     if invalid_columns:
         raise ValueError(f"{source_name} 存在非正数: {', '.join(invalid_columns)}")

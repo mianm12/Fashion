@@ -4,7 +4,6 @@ from fashion_trend.datasets.profile import validate_raw_dataset_files
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.paths import RAW_HM_DIR
 
-
 LOG_SOURCE = "data-check"
 
 

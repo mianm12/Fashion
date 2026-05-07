@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from fashion_trend.catalog.graph import read_attribute_nodes
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic
 from fashion_trend.foundation.paths import PATH
-from fashion_trend.catalog.graph import read_attribute_nodes
 from fashion_trend.trend.attribute_heat import (
     read_attribute_week_heat,
     validate_attribute_nodes_for_heat,

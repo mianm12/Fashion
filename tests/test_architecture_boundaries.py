@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src" / "fashion_trend"
 PROJECT_ROOT = PACKAGE_ROOT.parents[1]
 TESTS_ROOT = PROJECT_ROOT / "tests"
@@ -45,9 +44,7 @@ def iter_python_files(package_name: str) -> list[Path]:
     package_path = PACKAGE_ROOT / package_name
     assert package_path.exists(), f"package missing: fashion_trend.{package_name}"
     return sorted(
-        path
-        for path in package_path.rglob("*.py")
-        if "__pycache__" not in path.parts
+        path for path in package_path.rglob("*.py") if "__pycache__" not in path.parts
     )
 
 
@@ -177,7 +174,9 @@ def test_imported_modules_resolves_init_relative_sibling_alias(tmp_path) -> None
 def test_trend_facade_import_offenders_detects_absolute_from_imports(tmp_path) -> None:
     module_path = tmp_path / "example.py"
     trend_package = f"{PACKAGE_NAME}.trend"
-    module_path.write_text(f"from {trend_package} import article_sales\n", encoding="utf-8")
+    module_path.write_text(
+        f"from {trend_package} import article_sales\n", encoding="utf-8"
+    )
 
     assert trend_facade_import_offenders([module_path]) == [
         f"{module_path}: {trend_package}.article_sales"

@@ -13,6 +13,7 @@ from fashion_trend.catalog.graph import (
     build_attribute_graph_frames,
     build_attribute_hierarchy_edges,
     build_attribute_nodes,
+    publish_graph_frames,
 )
 
 
@@ -218,5 +219,46 @@ class TestAttributeGraphFile:
         assert nodes_attribute_path.read_text() == old_nodes_attribute
         assert edges_article_attribute_path.is_dir()
         assert not edges_attribute_hierarchy_path.exists()
+        assert list(output_dir.glob("*.tmp")) == []
+        assert list(output_dir.glob("*.bak")) == []
+
+    def test_publish_graph_frames_keeps_unpublished_outputs_on_backup_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        output_dir = tmp_path / "graph"
+        output_dir.mkdir()
+        output_paths = {
+            "nodes_article": output_dir / "nodes_article.csv",
+            "nodes_attribute": output_dir / "nodes_attribute.csv",
+            "edges_article_attribute": output_dir / "edges_article_attribute.csv",
+            "edges_attribute_hierarchy": output_dir / "edges_attribute_hierarchy.csv",
+        }
+        old_contents = {
+            graph_name: f"old {graph_name}\n" for graph_name in output_paths
+        }
+        for graph_name, output_path in output_paths.items():
+            output_path.write_text(old_contents[graph_name], encoding="utf-8")
+
+        graph_frames = {
+            graph_name: pd.DataFrame({"value": [f"new {graph_name}"]})
+            for graph_name in output_paths
+        }
+        original_replace = Path.replace
+
+        def fail_nodes_attribute_backup(self: Path, target: Path) -> Path:
+            if (
+                self.name == "nodes_attribute.csv"
+                and target.name == "nodes_attribute.csv.bak"
+            ):
+                raise OSError("simulated backup failure")
+            return original_replace(self, target)
+
+        monkeypatch.setattr(Path, "replace", fail_nodes_attribute_backup)
+
+        with pytest.raises(OSError, match="simulated backup failure"):
+            publish_graph_frames(graph_frames, output_dir)
+
+        for graph_name, output_path in output_paths.items():
+            assert output_path.read_text(encoding="utf-8") == old_contents[graph_name]
         assert list(output_dir.glob("*.tmp")) == []
         assert list(output_dir.glob("*.bak")) == []

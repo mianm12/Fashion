@@ -39,8 +39,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source=LOG_SOURCE,
             )
         log.info(
-            "业务阶段: split 样本 -> "
-            f"outputs/models/{args.model}/predictions.csv",
+            "业务阶段: split 样本 -> " f"outputs/models/{args.model}/predictions.csv",
             source=LOG_SOURCE,
         )
         log.info(

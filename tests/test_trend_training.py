@@ -35,6 +35,9 @@ from fashion_trend.trend.models.registry import (
     get_trend_model_trainer,
     list_trend_model_names,
 )
+from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
+from fashion_trend.trend.splits import build_trend_model_split_frames
 from fashion_trend.trend.training import (
     build_trend_train_metadata,
     derive_trend_model_output_paths,
@@ -42,9 +45,6 @@ from fashion_trend.trend.training import (
     validate_trend_train_result,
     write_trend_model_outputs,
 )
-from fashion_trend.trend.predictions import validate_trend_model_predictions
-from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
-from fashion_trend.trend.splits import build_trend_model_split_frames
 from tests.trend_samples import sample_trend_model_samples_for_split
 
 
@@ -771,11 +771,9 @@ class TestTrendTraining:
             ],
             check_names=False,
         )
-        expected_share = (
-            _expected_normalized_pred_share(
-                predictions,
-                float(LAST_WEEK_PARAMS["epsilon"]),
-            )
+        expected_share = _expected_normalized_pred_share(
+            predictions,
+            float(LAST_WEEK_PARAMS["epsilon"]),
         )
         pd.testing.assert_series_equal(
             predictions["pred_share_t1"],
@@ -808,11 +806,9 @@ class TestTrendTraining:
             expected_growth,
             check_names=False,
         )
-        expected_share = (
-            _expected_normalized_pred_share(
-                predictions,
-                float(MOVING_AVERAGE_PARAMS["epsilon"]),
-            )
+        expected_share = _expected_normalized_pred_share(
+            predictions,
+            float(MOVING_AVERAGE_PARAMS["epsilon"]),
         )
         pd.testing.assert_series_equal(
             predictions["pred_share_t1"],

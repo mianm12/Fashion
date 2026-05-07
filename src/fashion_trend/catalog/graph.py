@@ -407,8 +407,10 @@ def cleanup_graph_publish_files(paths_by_name: dict[str, Path]) -> None:
 def rollback_graph_outputs(
     output_paths: dict[str, Path],
     backup_paths: dict[str, Path],
+    changed_graph_names: set[str],
 ) -> None:
-    for graph_name, output_path in output_paths.items():
+    for graph_name in changed_graph_names:
+        output_path = output_paths[graph_name]
         if output_path.is_file():
             output_path.unlink()
 
@@ -440,6 +442,8 @@ def publish_graph_frames(
         graph_name: output_path.with_suffix(output_path.suffix + ".bak")
         for graph_name, output_path in output_paths.items()
     }
+    backed_up_graph_names: set[str] = set()
+    published_graph_names: set[str] = set()
 
     try:
         for graph_name, graph_frame in graph_frames.items():
@@ -451,12 +455,18 @@ def publish_graph_frames(
             remove_file_if_exists(backup_paths[graph_name])
             if output_path.is_file():
                 output_path.replace(backup_paths[graph_name])
+                backed_up_graph_names.add(graph_name)
 
         for graph_name, temp_path in temp_paths.items():
             temp_path.replace(output_paths[graph_name])
+            published_graph_names.add(graph_name)
     except Exception:
         try:
-            rollback_graph_outputs(output_paths, backup_paths)
+            rollback_graph_outputs(
+                output_paths,
+                backup_paths,
+                changed_graph_names=backed_up_graph_names | published_graph_names,
+            )
         finally:
             cleanup_graph_publish_files(temp_paths)
             cleanup_graph_publish_files(backup_paths)

@@ -3,12 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from fashion_trend.foundation.dataframe import validate_required_columns
 from fashion_trend.trend.models.base import (
     MODEL_TYPE_BASELINE,
     TrendTrainContext,
     TrendTrainResult,
 )
-from fashion_trend.foundation.dataframe import validate_required_columns
 from fashion_trend.trend.predictions import (
     derive_normalized_pred_share_t1,
     validate_trend_model_predictions,
