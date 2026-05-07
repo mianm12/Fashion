@@ -19,13 +19,9 @@ from fashion_trend.evaluation import (
 )
 from fashion_trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
 from fashion_trend.training import run_trend_model_training
-from fashion_trend.trend import (
-    TREND_MODEL_PREDICTION_COLUMNS,
-    build_trend_model_split_frames,
-    write_json,
-    write_trend_csv,
-    write_trend_parquet,
-)
+from fashion_trend.trend.io import write_json, write_trend_csv, write_trend_parquet
+from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
+from fashion_trend.trend.splits import build_trend_model_split_frames
 from tests.trend_samples import (
     sample_trend_model_samples_for_split,
     sample_trend_predictions_for_evaluation,

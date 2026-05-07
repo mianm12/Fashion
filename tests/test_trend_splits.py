@@ -5,13 +5,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fashion_trend.trend import (
-    TREND_MODEL_SPLIT_COLUMNS,
+from fashion_trend.trend.io import write_json, write_trend_parquet
+from fashion_trend.trend.schema import TREND_MODEL_SPLIT_COLUMNS
+from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
     build_trend_model_split_metadata,
     read_trend_model_split,
-    write_json,
-    write_trend_parquet,
 )
 from tests.trend_samples import sample_trend_model_samples_for_split
 

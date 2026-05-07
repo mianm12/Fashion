@@ -41,12 +41,10 @@ from fashion_trend.training import (
     validate_trend_train_result,
     write_trend_model_outputs,
 )
-from fashion_trend.trend import (
-    TREND_MODEL_PREDICTION_COLUMNS,
-    build_trend_model_split_frames,
-    validate_trend_model_predictions,
-    write_trend_parquet,
-)
+from fashion_trend.trend.io import write_trend_parquet
+from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
+from fashion_trend.trend.splits import build_trend_model_split_frames
 from tests.trend_samples import sample_trend_model_samples_for_split
 
 
