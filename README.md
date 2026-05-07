@@ -562,7 +562,7 @@ NDCG@5/10/20
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
 
-趋势共享实现位于 `src/fashion_trend/trend/` 子包。`article_sales.py`、`attribute_heat.py`、`targets.py`、`samples.py`、`splits.py` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/__init__.py` 只保留旧导入兼容。
+趋势共享实现位于 `src/fashion_trend/trend/` 子包。`article_sales.py`、`attribute_heat.py`、`targets.py`、`samples.py`、`splits.py` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 
 ## 验证
 

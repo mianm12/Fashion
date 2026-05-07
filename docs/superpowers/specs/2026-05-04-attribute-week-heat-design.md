@@ -1,5 +1,17 @@
 # 商品周销量与属性周热度设计
 
+## 状态
+
+本设计是较早期的历史设计，早于后续领域驱动模块迁移。当前实现不再使用单文件 `src/fashion_trend/trend.py` 或 `fashion_trend.trend` 聚合入口；内部代码必须直接导入具体模块。
+
+当前 ownership：
+
+- 周级交易稳定产物读取：`fashion_trend.transactions.weekly.read_weekly_transactions`
+- 商品目录图读取：`fashion_trend.catalog.graph.read_article_attribute_edges`、`fashion_trend.catalog.graph.read_attribute_nodes`
+- 商品周销量阶段：`fashion_trend.trend.article_sales`
+- 属性周热度阶段：`fashion_trend.trend.attribute_heat`
+- CSV/Parquet/JSON 原子写出：`fashion_trend.foundation.io`
+
 ## 范围
 
 本轮按 `docs/gpt-research/implementation-plan.md` 中的开发顺序推进两个连续产物：
@@ -14,11 +26,14 @@
 - `src/05_compute_article_week_sales.py`
 - `src/06_compute_attribute_week_heat.py`
 
-新增通用模块：
+新增通用模块（历史设计；当前已拆分为具体领域模块）：
 
-- `src/fashion_trend/trend.py`
+- `src/fashion_trend/transactions/weekly.py`
+- `src/fashion_trend/catalog/graph.py`
+- `src/fashion_trend/trend/article_sales.py`
+- `src/fashion_trend/trend/attribute_heat.py`
 
-顶层脚本需要表达清楚的工作逻辑顺序，而不是只作为 CLI 包装层。可复用的数据读取、校验、聚合和写出逻辑放在 `src/fashion_trend/trend.py`。
+顶层脚本需要表达清楚的工作逻辑顺序，而不是只作为 CLI 包装层。可复用的数据读取、校验、聚合和写出逻辑放在当前 ownership 对应的具体模块中。
 
 ## 架构
 
@@ -28,10 +43,10 @@
 
 1. 从 `fashion_trend.config.PATH` 读取输入输出路径。
 2. 校验 `transactions_train_weekly.parquet` 是否存在。
-3. 调用 `fashion_trend.trend.read_weekly_transactions` 读取必要列。
-4. 调用 `fashion_trend.trend.build_article_week_sales_frame` 聚合商品周销量。
-5. 调用 `fashion_trend.trend.validate_article_week_sales` 校验输出表。
-6. 调用 `fashion_trend.trend.write_trend_csv` 写出 CSV。
+3. 调用 `fashion_trend.transactions.weekly.read_weekly_transactions` 读取必要列。
+4. 调用 `fashion_trend.trend.article_sales.build_article_week_sales_frame` 聚合商品周销量。
+5. 调用 `fashion_trend.trend.article_sales.validate_article_week_sales` 校验输出表。
+6. 调用 `fashion_trend.foundation.io.write_csv_atomic` 写出 CSV。
 7. 输出周数、商品数、行数和目标文件路径日志。
 
 脚本只捕获可定位的输入、校验和写出错误，并返回非零退出码。错误信息需要保留具体文件路径、缺失字段或异常数据范围。
@@ -42,27 +57,27 @@
 
 1. 从 `fashion_trend.config.PATH` 读取输入输出路径。
 2. 校验 `article_week_sales.csv` 和 `edges_article_attribute.csv` 是否存在。
-3. 调用 `fashion_trend.trend.read_article_week_sales` 读取商品周销量。
-4. 调用 `fashion_trend.trend.read_article_attribute_edges` 读取商品-属性边。
-5. 调用 `fashion_trend.trend.validate_article_week_sales` 和 `validate_article_attribute_edges_for_heat` 校验输入。
-6. 调用 `fashion_trend.trend.build_attribute_week_heat_frame` 连接、聚合并计算热度指标。
-7. 调用 `fashion_trend.trend.validate_attribute_week_heat` 校验输出表。
-8. 调用 `fashion_trend.trend.write_trend_csv` 写出 CSV。
+3. 调用 `fashion_trend.trend.article_sales.read_article_week_sales` 读取商品周销量。
+4. 调用 `fashion_trend.catalog.graph.read_article_attribute_edges` 和 `read_attribute_nodes` 读取商品-属性边与属性节点。
+5. 调用 `fashion_trend.trend.article_sales.validate_article_week_sales` 和 `fashion_trend.trend.attribute_heat` 中的 heat 专属 validator 校验输入。
+6. 调用 `fashion_trend.trend.attribute_heat.build_attribute_week_heat_frame` 连接、聚合并计算热度指标。
+7. 调用 `fashion_trend.trend.attribute_heat.validate_attribute_week_heat` 校验输出表。
+8. 调用 `fashion_trend.foundation.io.write_csv_atomic` 写出 CSV。
 9. 输出周数、属性类型数、属性节点数、行数和目标文件路径日志。
 
 如果商品销量表中存在无法映射到商品-属性边的 `article_id`，脚本应失败，不静默丢弃这些销量。
 
-### `src/fashion_trend/trend.py`
+### 当前具体模块
 
-通用模块负责可测试的业务逻辑：
+历史设计中的单文件趋势模块已经拆分。当前可测试业务逻辑按 ownership 分散在：
 
-- 字段常量和输出列顺序。
-- 文件读取函数。
-- DataFrame 级聚合函数。
-- 输入和输出校验函数。
-- CSV 写出函数。
+- `src/fashion_trend/transactions/weekly.py`：周级交易读取。
+- `src/fashion_trend/catalog/graph.py`：商品-属性边和属性节点读取。
+- `src/fashion_trend/trend/article_sales.py`：商品周销量聚合和校验。
+- `src/fashion_trend/trend/attribute_heat.py`：属性周热度聚合和校验。
+- `src/fashion_trend/foundation/io.py`：原子写出。
 
-该模块不依赖命令行参数，不读取全局状态。脚本传入路径，模块函数返回 DataFrame、行数统计或抛出可定位异常。
+这些模块不依赖命令行参数，不读取全局状态。脚本传入路径，模块函数返回 DataFrame、行数统计或抛出可定位异常。
 
 ## 数据表
 
