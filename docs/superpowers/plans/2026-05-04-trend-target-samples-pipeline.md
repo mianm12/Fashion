@@ -1,10 +1,12 @@
 # 趋势标签与趋势训练样本 Implementation Plan
 
+> 本文件是历史计划，已被当前业务域架构替代。下文历史步骤中出现的 `src/fashion_trend/trend.py` 不再作为有效实现路径；当前应分别使用 `src/fashion_trend/trend/` 包内阶段模块、`src/fashion_trend/transactions/weekly.py` 和 `src/fashion_trend/catalog/graph.py`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 先把 `attribute_week_heat.csv` 调整为完整属性-周面板，再生成趋势标签表 `attribute_week_target.csv` 和趋势训练样本表 `trend_model_samples.parquet`。
 
-**Architecture:** 继续把可测试的数据逻辑放在 `src/fashion_trend/trend.py`，脚本只负责编排路径、日志、校验、写出和退出码。完整面板由 `article_week_sales.week_id` 和 `nodes_attribute.attr_id` 构造，阶段 5 的标签与样本都消费这张完整事实表，避免不同阶段各自补 0。样本表只使用当前周和历史周特征，`t+1` 信息只出现在目标字段。
+**Architecture:** 历史计划曾把可测试的数据逻辑放在单文件 `src/fashion_trend/trend.py`。当前实现已迁移到具体模块：趋势阶段逻辑位于 `src/fashion_trend/trend/` 包内，周级交易 reader 位于 `src/fashion_trend/transactions/weekly.py`，目录图 reader 位于 `src/fashion_trend/catalog/graph.py`；脚本只负责编排路径、日志、校验、写出和退出码。完整面板由 `article_week_sales.week_id` 和 `nodes_attribute.attr_id` 构造，阶段 5 的标签与样本都消费这张完整事实表，避免不同阶段各自补 0。样本表只使用当前周和历史周特征，`t+1` 信息只出现在目标字段。
 
 **Tech Stack:** Python 3.10-3.12，`pandas`，`numpy`，`pyarrow`，标准库 `csv` / `pathlib` / `unittest` / `tempfile`，现有 `fashion_trend.config.PATH` 和 `fashion_trend.log`。
 
@@ -12,8 +14,8 @@
 
 ## 文件结构
 
-- Modify: `src/fashion_trend/trend.py`
-  - 增加属性节点读取、完整属性-周面板构造、趋势标签构造、趋势样本构造、Parquet 写出和对应校验函数。
+- Historical Modify: `src/fashion_trend/trend.py`
+  - 历史计划写法。当前实现路径应映射到 `trend/attribute_heat.py`、`trend/targets.py`、`trend/samples.py`、`transactions/weekly.py`、`catalog/graph.py` 和 `foundation/io.py`。
 - Modify: `src/06_compute_attribute_week_heat.py`
   - 额外读取 `nodes_attribute.csv`，调用完整面板版本的热度构造与校验。
 - Create: `src/07_build_trend_targets.py`

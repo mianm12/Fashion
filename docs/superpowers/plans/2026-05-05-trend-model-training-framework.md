@@ -1,5 +1,7 @@
 # Trend Model Training Framework Implementation Plan
 
+> 本文件是历史计划，部分步骤描述的是从旧 baseline 入口迁移到通用训练框架的过程。下文出现的 `src/fashion_trend/trend.py`、`src/fashion_trend/models/baseline_last_week.py`、`src/10_train_trend_baseline.py` 是历史迁移来源或旧实现路径；当前趋势数据逻辑已由业务域架构拆到 `src/fashion_trend/trend/` 包内具体模块、`transactions/weekly.py` 和 `catalog/graph.py`。training/evaluation/models 的进一步业务域迁移由后续 Task 5 处理，本文不表示该迁移已经完成。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the baseline-specific training entrypoint with a general trend model training framework that supports all future trend models while only implementing `last_week` now.
@@ -28,8 +30,8 @@
   - Replaced by `src/fashion_trend/models/last_week.py`.
 - Modify: `src/fashion_trend/models/__init__.py`
   - Keep package docstring.
-- Modify: `src/fashion_trend/trend.py`
-  - Rename generic prediction contract from baseline-specific names to trend-model names.
+- Historical Modify: `src/fashion_trend/trend.py`
+  - 历史计划写法。当前预测契约位于 `src/fashion_trend/trend/predictions.py` 和 `src/fashion_trend/trend/schema.py`。
 - Modify: `src/fashion_trend/config.py`
   - Remove model-specific `PATH["output_model_last_week_*"]` entries; keep `OUTPUT_MODELS_DIR`.
 - Modify: `tests/test_trend.py`

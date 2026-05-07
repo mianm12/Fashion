@@ -1,10 +1,12 @@
 # 趋势 Last Week Baseline Implementation Plan
 
+> 本文件是历史计划，已被后续通用趋势模型训练框架和业务域架构替代。下文出现的 `src/fashion_trend/trend.py`、`src/fashion_trend/models/baseline_last_week.py`、`src/10_train_trend_baseline.py` 均为历史实现路径；当前趋势阶段逻辑使用 `src/fashion_trend/trend/` 包内具体模块，当前模型入口使用 `src/10_train_trend_model.py --model last_week`，模型实现为 `src/fashion_trend/models/last_week.py`。Task 5 尚未完成前，root `training.py`、`evaluation.py`、`models/` 的迁移仍由后续任务处理。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the first trend baseline pipeline: split `trend_model_samples.parquet` into train/valid/test files, run the `last_week` baseline, and write model outputs under `outputs/models/last_week/`.
 
-**Architecture:** Keep reusable DataFrame logic in `src/fashion_trend/trend.py` and the baseline formula in `src/fashion_trend/models/baseline_last_week.py`. `src/09_split_trend_model_samples.py` owns time splitting and writes processed feature splits; `src/10_train_trend_baseline.py` only consumes those split files and writes model outputs. Config owns paths and split widths so model scripts do not hard-code dataset layout.
+**Architecture:** Historical version kept reusable DataFrame logic in `src/fashion_trend/trend.py` and the baseline formula in `src/fashion_trend/models/baseline_last_week.py`. Current code uses concrete trend modules plus `src/fashion_trend/models/last_week.py`; `src/09_split_trend_model_samples.py` owns time splitting, and `src/10_train_trend_model.py --model last_week` consumes split files and writes model outputs. Config owns paths and split widths so model scripts do not hard-code dataset layout.
 
 **Tech Stack:** Python 3.10-3.12, `pandas`, `numpy`, `pyarrow`, standard library `argparse` / `json` / `pathlib` / `unittest` / `tempfile`, existing `fashion_trend.config.PATH`, `fashion_trend.trend`, and `fashion_trend.log`.
 
@@ -14,16 +16,16 @@
 
 - Modify: `src/fashion_trend/config.py`
   - Add output directories, train/valid/test split widths, split feature paths, and last_week output paths.
-- Modify: `src/fashion_trend/trend.py`
-  - Add split constants, split construction/validation helpers, JSON writer, split parquet reader, and baseline prediction validation.
+- Historical Modify: `src/fashion_trend/trend.py`
+  - 历史计划写法。当前 split / prediction / writer 职责已拆到 `trend/splits.py`、`trend/predictions.py` 和 `foundation/io.py`。
 - Create: `src/09_split_trend_model_samples.py`
   - Top-level script that reads full trend samples, applies config-owned time split, and writes train/valid/test parquet plus split metadata JSON.
 - Create: `src/fashion_trend/models/__init__.py`
   - Package marker for baseline model modules.
-- Create: `src/fashion_trend/models/baseline_last_week.py`
-  - DataFrame-level `last_week` prediction logic with no path or CLI dependencies.
-- Create: `src/10_train_trend_baseline.py`
-  - Top-level CLI that reads split parquet files, runs `last_week`, and writes predictions, params, and metadata.
+- Historical Create: `src/fashion_trend/models/baseline_last_week.py`
+  - 历史计划写法。当前模型实现为 `src/fashion_trend/models/last_week.py`。
+- Historical Create: `src/10_train_trend_baseline.py`
+  - 历史计划写法。当前训练入口为 `src/10_train_trend_model.py --model last_week`。
 - Modify: `tests/test_trend.py`
   - Add tests for split logic, split metadata, last_week predictions, prediction validation, and JSON writing.
 - Modify: `README.md`

@@ -781,15 +781,15 @@ git commit -m "refactor: 迁移数据交易和商品目录域"
 
 - [ ] **Step 1：移动周级交易读取 ownership**
 
-如果 `read_weekly_transactions()` 仍在 `trend/article_sales.py`，将它移动到 `src/fashion_trend/transactions/weekly.py`，因为它读取的是稳定交易产物。
+如果 `read_weekly_transactions()` 仍在 `trend/article_sales.py`，将它移动到 `src/fashion_trend/transactions/weekly.py`，因为它读取的是稳定交易产物。不要在 `trend/article_sales.py` 中导入或重新导出该 reader，避免恢复旧 reader 泄漏。
 
-然后在 `trend/article_sales.py` 中导入：
+然后在 `src/05_compute_article_week_sales.py` 中直接导入：
 
 ```python
 from fashion_trend.transactions.weekly import read_weekly_transactions
 ```
 
-`build_article_week_sales_frame()` 和 `validate_article_week_sales()` 保留在 `trend/article_sales.py`。
+`trend/article_sales.py` 只保留 `build_article_week_sales_frame()`、`validate_article_week_sales()` 和商品周销量读取/校验等 article sales 阶段逻辑。
 
 - [ ] **Step 2：把 catalog 图读取从 trend heat 中移出**
 
