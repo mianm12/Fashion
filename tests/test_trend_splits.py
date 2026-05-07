@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fashion_trend.trend.io import write_json, write_trend_parquet
+from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_COLUMNS
 from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
@@ -88,7 +88,7 @@ class TestTrendModelSplitFrame:
             test_weeks=4,
         )
         input_path = tmp_path / "trend_model_samples_train.parquet"
-        write_trend_parquet(split_frames["train"], input_path)
+        write_parquet_atomic(split_frames["train"], input_path)
 
         split = read_trend_model_split(input_path)
 
@@ -107,7 +107,7 @@ class TestTrendModelSplitFrame:
         invalid_split = split_frames["train"].copy()
         invalid_split.loc[invalid_split.index[0], "split"] = "holdout"
         input_path = tmp_path / "trend_model_samples_train.parquet"
-        write_trend_parquet(invalid_split, input_path)
+        write_parquet_atomic(invalid_split, input_path)
 
         with pytest.raises(ValueError, match="非法 split"):
             read_trend_model_split(input_path)
@@ -126,18 +126,18 @@ class TestTrendModelSplitFrame:
             ignore_index=True,
         )
         input_path = tmp_path / "trend_model_samples_train.parquet"
-        write_trend_parquet(duplicate_split, input_path)
+        write_parquet_atomic(duplicate_split, input_path)
 
         with pytest.raises(ValueError, match="week_id, attr_id"):
             read_trend_model_split(input_path)
 
 
 class TestTrendModelSplitWrite:
-    def test_write_json_creates_parent_and_writes_sorted_keys(
+    def test_write_json_atomic_creates_parent_and_preserves_payload_order(
         self, tmp_path: Path
     ) -> None:
         output_path = tmp_path / "nested" / "metadata.json"
 
-        write_json({"b": 2, "a": 1}, output_path)
+        write_json_atomic({"b": 2, "a": 1}, output_path)
 
-        assert output_path.read_text(encoding="utf-8") == '{\n  "a": 1,\n  "b": 2\n}\n'
+        assert output_path.read_text(encoding="utf-8") == '{\n  "b": 2,\n  "a": 1\n}\n'

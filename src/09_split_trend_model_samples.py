@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from fashion_trend import log
-from fashion_trend.config import PATH, TREND_SPLIT_TEST_WEEKS, TREND_SPLIT_VALID_WEEKS
-from fashion_trend.trend.io import write_json, write_trend_parquet
+from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
+from fashion_trend.foundation.paths import (
+    PATH,
+    TREND_SPLIT_TEST_WEEKS,
+    TREND_SPLIT_VALID_WEEKS,
+)
 from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
     build_trend_model_split_metadata,
@@ -34,7 +38,7 @@ def split_trend_model_samples() -> dict[str, object]:
         "test": PATH["features_trend_model_samples_test"],
     }
     for split_name, split_frame in split_frames.items():
-        write_trend_parquet(split_frame, output_paths[split_name])
+        write_parquet_atomic(split_frame, output_paths[split_name])
 
     metadata = build_trend_model_split_metadata(
         split_frames,
@@ -43,7 +47,7 @@ def split_trend_model_samples() -> dict[str, object]:
         valid_weeks=TREND_SPLIT_VALID_WEEKS,
         test_weeks=TREND_SPLIT_TEST_WEEKS,
     )
-    write_json(metadata, PATH["features_trend_model_samples_split_metadata"])
+    write_json_atomic(metadata, PATH["features_trend_model_samples_split_metadata"])
     return metadata
 
 

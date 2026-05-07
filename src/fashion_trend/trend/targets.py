@@ -5,17 +5,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from fashion_trend.trend.attribute_heat import validate_attribute_week_heat
-from fashion_trend.trend.schema import (
-    ATTRIBUTE_WEEK_TARGET_COLUMNS,
-    ATTRIBUTE_WEEK_TARGET_DTYPES,
-)
-from fashion_trend.trend.validation import (
+from fashion_trend.foundation.dataframe import (
     validate_no_missing_values,
     validate_non_negative_values,
     validate_positive_values,
     validate_required_columns,
     validate_unique_key,
+)
+from fashion_trend.trend.attribute_heat import validate_attribute_week_heat
+from fashion_trend.trend.schema import (
+    ATTRIBUTE_WEEK_TARGET_COLUMNS,
+    ATTRIBUTE_WEEK_TARGET_DTYPES,
 )
 
 
@@ -110,7 +110,7 @@ def validate_attribute_week_target(
         raise ValueError("epsilon 必须为正数。")
 
     validate_required_columns(
-        attribute_week_target.columns.tolist(),
+        attribute_week_target,
         ATTRIBUTE_WEEK_TARGET_COLUMNS,
         source_name="属性趋势标签表",
     )

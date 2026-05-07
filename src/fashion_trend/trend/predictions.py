@@ -3,16 +3,16 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from fashion_trend.foundation.dataframe import (
+    validate_no_missing_values,
+    validate_required_columns,
+    validate_unique_key,
+)
 from fashion_trend.trend.schema import (
     TREND_MODEL_PRED_SHARE_GROUP_COLUMNS,
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SHARE_TOLERANCE,
     TREND_MODEL_SPLIT_VALUES,
-)
-from fashion_trend.trend.validation import (
-    validate_no_missing_values,
-    validate_required_columns,
-    validate_unique_key,
 )
 
 
@@ -23,7 +23,7 @@ def validate_trend_model_predictions(
     if predictions.columns.tolist() != list(TREND_MODEL_PREDICTION_COLUMNS):
         raise ValueError("趋势模型预测表列必须与契约完全一致。")
     validate_required_columns(
-        predictions.columns.tolist(),
+        predictions,
         TREND_MODEL_PREDICTION_COLUMNS,
         source_name="趋势模型预测表",
     )
@@ -50,7 +50,7 @@ def validate_trend_model_predictions(
         "target_rank_in_type_t1",
     )
     validate_required_columns(
-        split_samples.columns.tolist(),
+        split_samples,
         copied_sample_columns,
         source_name="趋势模型输入样本",
     )
@@ -88,7 +88,7 @@ def derive_normalized_pred_share_t1(
     epsilon: float,
 ) -> pd.Series:
     validate_required_columns(
-        predictions.columns.tolist(),
+        predictions,
         (*TREND_MODEL_PRED_SHARE_GROUP_COLUMNS, "share_t", "pred_target_growth"),
         source_name="趋势模型预测原始表",
     )
@@ -126,7 +126,7 @@ def validate_pred_share_t1_distribution(
     source_name: str,
 ) -> None:
     validate_required_columns(
-        predictions.columns.tolist(),
+        predictions,
         (*TREND_MODEL_PRED_SHARE_GROUP_COLUMNS, "pred_share_t1"),
         source_name=source_name,
     )

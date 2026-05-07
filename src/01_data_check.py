@@ -1,3 +1,3 @@
 import pandas as pd
 
-from fashion_trend.config import PATH
+from fashion_trend.foundation.paths import PATH

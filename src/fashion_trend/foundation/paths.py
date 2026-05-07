@@ -11,7 +11,7 @@ DEFAULT_COMPETITION = "h-and-m-personalized-fashion-recommendations"
 # 1. Project paths
 # ============================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 DATA_DIR = PROJECT_ROOT / "data"
 

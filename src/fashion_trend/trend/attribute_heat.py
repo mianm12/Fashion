@@ -6,6 +6,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from fashion_trend.foundation.dataframe import (
+    validate_no_missing_values,
+    validate_non_negative_values,
+    validate_positive_values,
+    validate_required_columns,
+    validate_unique_key,
+)
 from fashion_trend.trend.article_sales import validate_article_week_sales
 from fashion_trend.trend.schema import (
     ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS,
@@ -15,20 +22,13 @@ from fashion_trend.trend.schema import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_DTYPES,
 )
-from fashion_trend.trend.validation import (
-    validate_no_missing_values,
-    validate_non_negative_values,
-    validate_positive_values,
-    validate_required_columns,
-    validate_unique_key,
-)
 
 
 def validate_article_attribute_edges_for_heat(
     article_attribute_edges: pd.DataFrame,
 ) -> None:
     validate_required_columns(
-        article_attribute_edges.columns.tolist(),
+        article_attribute_edges,
         ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS,
         source_name="商品-属性边表",
     )
@@ -139,7 +139,7 @@ def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataF
 
 def validate_attribute_nodes_for_heat(attribute_nodes: pd.DataFrame) -> None:
     validate_required_columns(
-        attribute_nodes.columns.tolist(),
+        attribute_nodes,
         ATTRIBUTE_NODE_HEAT_COLUMNS,
         source_name="属性节点表",
     )
@@ -302,7 +302,7 @@ def validate_attribute_week_heat(
     expected_attribute_nodes: pd.DataFrame | None = None,
 ) -> None:
     validate_required_columns(
-        attribute_week_heat.columns.tolist(),
+        attribute_week_heat,
         ATTRIBUTE_WEEK_HEAT_COLUMNS,
         source_name="属性周热度表",
     )

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from fashion_trend import log
 from fashion_trend.articles import clean_articles_file
-from fashion_trend.config import PATH
+from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.paths import PATH
 
 LOG_SOURCE = "clean-articles"
 

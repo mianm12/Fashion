@@ -19,7 +19,11 @@ from fashion_trend.evaluation import (
 )
 from fashion_trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
 from fashion_trend.training import run_trend_model_training
-from fashion_trend.trend.io import write_json, write_trend_csv, write_trend_parquet
+from fashion_trend.foundation.io import (
+    write_csv_atomic,
+    write_json_atomic,
+    write_parquet_atomic,
+)
 from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
 from fashion_trend.trend.splits import build_trend_model_split_frames
 from tests.trend_samples import (
@@ -68,7 +72,7 @@ class TestTrendEvaluation:
     ) -> None:
         predictions = sample_trend_predictions_for_evaluation()
         prediction_path = tmp_path / "predictions.csv"
-        write_trend_csv(predictions, prediction_path)
+        write_csv_atomic(predictions, prediction_path)
 
         loaded = read_trend_model_predictions(prediction_path)
 
@@ -82,7 +86,7 @@ class TestTrendEvaluation:
         predictions = sample_trend_predictions_for_evaluation()
         predictions["debug_score"] = 1.0
         prediction_path = tmp_path / "predictions.csv"
-        write_trend_csv(predictions, prediction_path)
+        write_csv_atomic(predictions, prediction_path)
 
         with pytest.raises(ValueError, match="列"):
             read_trend_model_predictions(prediction_path)
@@ -94,7 +98,7 @@ class TestTrendEvaluation:
         predictions = sample_trend_predictions_for_evaluation()
         predictions = predictions.loc[:, list(reversed(TREND_MODEL_PREDICTION_COLUMNS))]
         prediction_path = tmp_path / "predictions.csv"
-        write_trend_csv(predictions, prediction_path)
+        write_csv_atomic(predictions, prediction_path)
 
         with pytest.raises(ValueError, match="列"):
             read_trend_model_predictions(prediction_path)
@@ -267,8 +271,8 @@ class TestTrendEvaluation:
             tmp_path / "outputs" / "metrics" / "last_week" / "trend_metrics.json"
         )
         model_metadata_path = prediction_path.parent / "metadata.json"
-        write_trend_csv(predictions, prediction_path)
-        write_json({"model_name": "last_week"}, model_metadata_path)
+        write_csv_atomic(predictions, prediction_path)
+        write_json_atomic({"model_name": "last_week"}, model_metadata_path)
         payload = build_trend_metrics_payload(
             predictions,
             model_name="last_week",
@@ -318,7 +322,7 @@ class TestTrendEvaluation:
         model_root = tmp_path / "outputs" / "models"
         metrics_root = tmp_path / "outputs" / "metrics"
         prediction_path = model_root / "last_week" / "predictions.csv"
-        write_trend_csv(predictions, prediction_path)
+        write_csv_atomic(predictions, prediction_path)
 
         payload = run_trend_model_evaluation(
             "last_week",
@@ -348,7 +352,7 @@ class TestTrendEvaluation:
             "test": tmp_path / "trend_model_samples_test.parquet",
         }
         for split_name, split_frame in split_frames.items():
-            write_trend_parquet(split_frame, input_paths[split_name])
+            write_parquet_atomic(split_frame, input_paths[split_name])
 
         model_root = tmp_path / "outputs" / "models"
         metrics_root = tmp_path / "outputs" / "metrics"

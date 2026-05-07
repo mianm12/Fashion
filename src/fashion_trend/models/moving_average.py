@@ -8,6 +8,7 @@ from fashion_trend.models.base import (
     TrendTrainContext,
     TrendTrainResult,
 )
+from fashion_trend.foundation.dataframe import validate_required_columns
 from fashion_trend.trend.predictions import (
     derive_normalized_pred_share_t1,
     validate_trend_model_predictions,
@@ -16,7 +17,6 @@ from fashion_trend.trend.schema import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
 )
-from fashion_trend.trend.validation import validate_required_columns
 
 MOVING_AVERAGE_MODEL_NAME = "moving_average"
 MOVING_AVERAGE_GROWTH_LAGS: tuple[str, ...] = ("growth_lag_1", "growth_lag_2")
@@ -54,7 +54,7 @@ def predict_moving_average(split_samples: pd.DataFrame) -> pd.DataFrame:
             "moving_average 模型输入样本缺少必需列: " + ", ".join(missing_columns)
         )
     validate_required_columns(
-        split_samples.columns.tolist(),
+        split_samples,
         MOVING_AVERAGE_REQUIRED_COLUMNS,
         source_name="moving_average 模型输入样本",
     )

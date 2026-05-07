@@ -8,17 +8,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from fashion_trend.config import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
-from fashion_trend.trend.io import write_json
+from fashion_trend.foundation.dataframe import (
+    validate_no_missing_values,
+    validate_required_columns,
+    validate_unique_key,
+)
+from fashion_trend.foundation.io import write_json_atomic
+from fashion_trend.foundation.paths import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
 from fashion_trend.trend.predictions import validate_pred_share_t1_distribution
 from fashion_trend.trend.schema import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
-)
-from fashion_trend.trend.validation import (
-    validate_no_missing_values,
-    validate_required_columns,
-    validate_unique_key,
 )
 
 TREND_EVALUATION_SPLITS: tuple[str, ...] = ("valid", "test")
@@ -69,7 +69,7 @@ def validate_trend_model_predictions_for_evaluation(
     if predictions.columns.tolist() != list(TREND_MODEL_PREDICTION_COLUMNS):
         raise ValueError("趋势模型评价预测表列必须与契约完全一致。")
     validate_required_columns(
-        predictions.columns.tolist(),
+        predictions,
         TREND_MODEL_PREDICTION_COLUMNS,
         source_name="趋势模型评价预测表",
     )
@@ -176,7 +176,7 @@ def compute_trend_metrics(
     """只对 valid/test 预测表聚合整体、属性类型和分组指标。"""
     _validate_k_values(k_values)
     validate_required_columns(
-        predictions.columns.tolist(),
+        predictions,
         [
             *TREND_EVALUATION_GROUP_COLUMNS,
             "attr_id",
@@ -271,7 +271,7 @@ def build_trend_metrics_payload(
 def write_trend_metrics(payload: dict[str, object], output_path: Path) -> None:
     """确认 payload 是严格 JSON 后写出趋势评价指标。"""
     _validate_json_payload(payload)
-    write_json(payload, output_path)
+    write_json_atomic(payload, output_path)
 
 
 def run_trend_model_evaluation(

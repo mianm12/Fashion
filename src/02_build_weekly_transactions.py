@@ -8,8 +8,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from fashion_trend import log
-from fashion_trend.config import PATH
+from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.paths import PATH
 
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "t_dat",

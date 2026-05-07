@@ -17,11 +17,18 @@ from fashion_trend.trend.attribute_heat import (
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
 )
-from fashion_trend.trend.io import (
+from fashion_trend.foundation.dataframe import (
+    validate_no_missing_values,
+    validate_non_negative_values,
+    validate_positive_values,
+    validate_required_columns,
+    validate_unique_key,
+)
+from fashion_trend.foundation.io import (
     remove_file_if_exists,
-    write_json,
-    write_trend_csv,
-    write_trend_parquet,
+    write_csv_atomic,
+    write_json_atomic,
+    write_parquet_atomic,
 )
 from fashion_trend.trend.predictions import (
     derive_normalized_pred_share_t1,
@@ -67,11 +74,4 @@ from fashion_trend.trend.targets import (
     read_attribute_week_target,
     validate_attribute_week_target,
     validate_attribute_week_target_matches_heat,
-)
-from fashion_trend.trend.validation import (
-    validate_no_missing_values,
-    validate_non_negative_values,
-    validate_positive_values,
-    validate_required_columns,
-    validate_unique_key,
 )

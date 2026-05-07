@@ -12,7 +12,7 @@ from fashion_trend.trend.article_sales import (
     read_weekly_transactions,
     validate_article_week_sales,
 )
-from fashion_trend.trend.io import write_trend_csv
+from fashion_trend.foundation.io import write_csv_atomic
 from fashion_trend.trend.schema import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
@@ -237,7 +237,7 @@ class TestTrendCsvWrite:
     def test_write_trend_csv_creates_parent_directory(self, tmp_path: Path) -> None:
         output_path = tmp_path / "nested" / "attribute_week_heat.csv"
 
-        write_trend_csv(sample_article_week_sales(), output_path)
+        write_csv_atomic(sample_article_week_sales(), output_path)
 
         assert output_path.exists()
 
@@ -245,7 +245,7 @@ class TestTrendCsvWrite:
         output_path = tmp_path / "attribute_week_heat.csv"
         output_path.write_text("stale", encoding="utf-8")
 
-        write_trend_csv(sample_article_week_sales(), output_path)
+        write_csv_atomic(sample_article_week_sales(), output_path)
 
         assert output_path.read_text(encoding="utf-8") != "stale"
 
@@ -257,7 +257,7 @@ class TestTrendCsvWrite:
         output_path.mkdir()
 
         with pytest.raises(OSError):
-            write_trend_csv(sample_article_week_sales(), output_path)
+            write_csv_atomic(sample_article_week_sales(), output_path)
 
         assert not output_path.with_suffix(".csv.tmp").exists()
 
@@ -277,7 +277,7 @@ class TestTrendCsvWrite:
             }
         )
 
-        write_trend_csv(dataframe, output_path)
+        write_csv_atomic(dataframe, output_path)
 
         lines = output_path.read_text(encoding="utf-8").splitlines()
         expected_header = ",".join(

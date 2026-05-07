@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from fashion_trend import log
-from fashion_trend.config import PATH
+from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.foundation.paths import PATH
 from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
     read_weekly_transactions,
     validate_article_week_sales,
 )
-from fashion_trend.trend.io import write_trend_csv
 
 LOG_SOURCE = "article-week-sales"
 
@@ -19,7 +19,7 @@ def compute_article_week_sales() -> dict[str, int]:
     weekly_transactions = read_weekly_transactions(PATH["interim_transactions_weekly"])
     article_week_sales = build_article_week_sales_frame(weekly_transactions)
     validate_article_week_sales(article_week_sales)
-    write_trend_csv(article_week_sales, PATH["trend_article_week_sales"])
+    write_csv_atomic(article_week_sales, PATH["trend_article_week_sales"])
 
     return {
         "rows": len(article_week_sales),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from typing import Sequence
 
-from fashion_trend import log
+from fashion_trend.foundation import logging as log
 from fashion_trend.evaluation import run_trend_model_evaluation
 
 LOG_SOURCE = "trend-model-eval"

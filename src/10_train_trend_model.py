@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from typing import Sequence
 
-from fashion_trend import log
+from fashion_trend.foundation import logging as log
 from fashion_trend.models.registry import UnknownTrendModelError
 from fashion_trend.training import run_trend_model_training
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES

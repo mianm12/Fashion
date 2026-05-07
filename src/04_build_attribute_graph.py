@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from fashion_trend import log
 from fashion_trend.articles import build_attribute_graph_files
-from fashion_trend.config import GRAPH_DIR, PATH
+from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.paths import GRAPH_DIR, PATH
 
 LOG_SOURCE = "attribute-graph"
 

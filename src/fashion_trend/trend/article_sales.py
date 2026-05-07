@@ -6,17 +6,17 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from fashion_trend.trend.schema import (
-    ARTICLE_WEEK_SALES_COLUMNS,
-    ARTICLE_WEEK_SALES_DTYPES,
-    WEEKLY_TRANSACTION_COLUMNS,
-)
-from fashion_trend.trend.validation import (
+from fashion_trend.foundation.dataframe import (
     validate_no_missing_values,
     validate_non_negative_values,
     validate_positive_values,
     validate_required_columns,
     validate_unique_key,
+)
+from fashion_trend.trend.schema import (
+    ARTICLE_WEEK_SALES_COLUMNS,
+    ARTICLE_WEEK_SALES_DTYPES,
+    WEEKLY_TRANSACTION_COLUMNS,
 )
 
 
@@ -30,7 +30,7 @@ def read_weekly_transactions(weekly_transactions_path: Path) -> pd.DataFrame:
         raise ValueError(f"无法读取周级交易表: {weekly_transactions_path}") from exc
 
     validate_required_columns(
-        parquet_file.schema_arrow.names,
+        pd.DataFrame(columns=parquet_file.schema_arrow.names),
         WEEKLY_TRANSACTION_COLUMNS,
         source_name="周级交易表",
     )
@@ -46,7 +46,7 @@ def read_weekly_transactions(weekly_transactions_path: Path) -> pd.DataFrame:
 
 def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.DataFrame:
     validate_required_columns(
-        weekly_transactions.columns.tolist(),
+        weekly_transactions,
         WEEKLY_TRANSACTION_COLUMNS,
         source_name="周级交易表",
     )
@@ -85,7 +85,7 @@ def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.Data
 
 def validate_article_week_sales(article_week_sales: pd.DataFrame) -> None:
     validate_required_columns(
-        article_week_sales.columns.tolist(),
+        article_week_sales,
         ARTICLE_WEEK_SALES_COLUMNS,
         source_name="商品周销量表",
     )

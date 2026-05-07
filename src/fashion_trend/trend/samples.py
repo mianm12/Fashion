@@ -5,6 +5,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from fashion_trend.foundation.dataframe import (
+    validate_no_missing_values,
+    validate_positive_values,
+    validate_required_columns,
+    validate_unique_key,
+)
 from fashion_trend.trend.attribute_heat import (
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
@@ -15,12 +21,6 @@ from fashion_trend.trend.schema import (
     TREND_MODEL_SAMPLE_COLUMNS,
 )
 from fashion_trend.trend.targets import validate_attribute_week_target_matches_heat
-from fashion_trend.trend.validation import (
-    validate_no_missing_values,
-    validate_positive_values,
-    validate_required_columns,
-    validate_unique_key,
-)
 
 
 def read_attribute_hierarchy_edges(
@@ -64,7 +64,7 @@ def build_attribute_graph_features_frame(
 ) -> pd.DataFrame:
     validate_attribute_nodes_for_heat(attribute_nodes)
     validate_required_columns(
-        attribute_hierarchy_edges.columns.tolist(),
+        attribute_hierarchy_edges,
         ATTRIBUTE_HIERARCHY_EDGE_COLUMNS,
         source_name="属性层级边表",
     )
@@ -250,7 +250,7 @@ def build_trend_model_samples_frame(
 
 def validate_trend_model_samples(trend_model_samples: pd.DataFrame) -> None:
     validate_required_columns(
-        trend_model_samples.columns.tolist(),
+        trend_model_samples,
         TREND_MODEL_SAMPLE_COLUMNS,
         source_name="趋势训练样本表",
     )

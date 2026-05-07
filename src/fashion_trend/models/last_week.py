@@ -7,6 +7,7 @@ from fashion_trend.models.base import (
     TrendTrainContext,
     TrendTrainResult,
 )
+from fashion_trend.foundation.dataframe import validate_required_columns
 from fashion_trend.trend.predictions import (
     derive_normalized_pred_share_t1,
     validate_trend_model_predictions,
@@ -15,7 +16,6 @@ from fashion_trend.trend.schema import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
 )
-from fashion_trend.trend.validation import validate_required_columns
 
 LAST_WEEK_MODEL_NAME = "last_week"
 LAST_WEEK_PARAMS: dict[str, object] = {
@@ -51,7 +51,7 @@ def predict_last_week(split_samples: pd.DataFrame) -> pd.DataFrame:
             "last_week 模型输入样本缺少必需列: " + ", ".join(missing_columns)
         )
     validate_required_columns(
-        split_samples.columns.tolist(),
+        split_samples,
         LAST_WEEK_REQUIRED_COLUMNS,
         source_name="last_week 模型输入样本",
     )

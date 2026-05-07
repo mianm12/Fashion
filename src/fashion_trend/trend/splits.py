@@ -4,15 +4,15 @@ from pathlib import Path
 
 import pandas as pd
 
+from fashion_trend.foundation.dataframe import (
+    validate_no_missing_values,
+    validate_required_columns,
+    validate_unique_key,
+)
 from fashion_trend.trend.samples import validate_trend_model_samples
 from fashion_trend.trend.schema import (
     TREND_MODEL_SPLIT_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
-)
-from fashion_trend.trend.validation import (
-    validate_no_missing_values,
-    validate_required_columns,
-    validate_unique_key,
 )
 
 
@@ -99,7 +99,7 @@ def validate_trend_model_split_frame(
     expected_split: str | None = None,
 ) -> None:
     validate_required_columns(
-        split_frame.columns.tolist(),
+        split_frame,
         TREND_MODEL_SPLIT_COLUMNS,
         source_name="趋势样本 split",
     )
@@ -160,7 +160,7 @@ def read_trend_model_split(input_path: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"趋势样本 split 不存在: {input_path}")
     dataframe = pd.read_parquet(input_path)
     validate_required_columns(
-        dataframe.columns.tolist(),
+        dataframe,
         TREND_MODEL_SPLIT_COLUMNS,
         source_name=f"趋势样本 split: {input_path}",
     )

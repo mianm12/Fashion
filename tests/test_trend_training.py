@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fashion_trend.config import OUTPUT_MODELS_DIR
+from fashion_trend.foundation.io import write_parquet_atomic
+from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR
 from fashion_trend.models.base import (
     MODEL_TYPE_BASELINE,
     TrendArtifact,
@@ -41,7 +42,6 @@ from fashion_trend.training import (
     validate_trend_train_result,
     write_trend_model_outputs,
 )
-from fashion_trend.trend.io import write_trend_parquet
 from fashion_trend.trend.predictions import validate_trend_model_predictions
 from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
 from fashion_trend.trend.splits import build_trend_model_split_frames
@@ -519,7 +519,7 @@ class TestTrendTraining:
             "test": tmp_path / "trend_model_samples_test.parquet",
         }
         for split_name, split_frame in split_frames.items():
-            write_trend_parquet(split_frame, input_paths[split_name])
+            write_parquet_atomic(split_frame, input_paths[split_name])
 
         metadata = run_trend_model_training(
             LAST_WEEK_MODEL_NAME,
@@ -551,7 +551,7 @@ class TestTrendTraining:
             "test": tmp_path / "trend_model_samples_test.parquet",
         }
         for split_name, split_frame in split_frames.items():
-            write_trend_parquet(split_frame, input_paths[split_name])
+            write_parquet_atomic(split_frame, input_paths[split_name])
 
         metadata = run_trend_model_training(
             MOVING_AVERAGE_MODEL_NAME,

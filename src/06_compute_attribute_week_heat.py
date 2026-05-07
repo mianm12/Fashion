@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fashion_trend import log
-from fashion_trend.config import PATH
+from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.foundation.paths import PATH
 from fashion_trend.trend.article_sales import (
     read_article_week_sales,
     validate_article_week_sales,
@@ -14,7 +15,6 @@ from fashion_trend.trend.attribute_heat import (
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
 )
-from fashion_trend.trend.io import write_trend_csv
 
 LOG_SOURCE = "attribute-week-heat"
 
@@ -47,7 +47,7 @@ def compute_attribute_week_heat() -> dict[str, int]:
         expected_week_ids=sorted(article_week_sales["week_id"].unique()),
         expected_attribute_nodes=attribute_nodes,
     )
-    write_trend_csv(attribute_week_heat, PATH["trend_attribute_week_heat"])
+    write_csv_atomic(attribute_week_heat, PATH["trend_attribute_week_heat"])
 
     return {
         "rows": len(attribute_week_heat),

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from fashion_trend import log
-from fashion_trend.config import PATH
+from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.foundation.paths import PATH
 from fashion_trend.trend.attribute_heat import (
     read_attribute_nodes,
     read_attribute_week_heat,
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
 )
-from fashion_trend.trend.io import write_trend_csv
 from fashion_trend.trend.targets import (
     build_attribute_week_target_frame,
     validate_attribute_week_target,
@@ -37,7 +37,7 @@ def build_trend_targets() -> dict[str, int]:
         expected_week_count=int(attribute_week_heat["week_id"].nunique()),
         expected_attribute_count=len(attribute_nodes),
     )
-    write_trend_csv(attribute_week_target, PATH["trend_attribute_week_target"])
+    write_csv_atomic(attribute_week_target, PATH["trend_attribute_week_target"])
 
     return {
         "rows": len(attribute_week_target),

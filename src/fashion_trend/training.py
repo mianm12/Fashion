@@ -8,7 +8,13 @@ from typing import Mapping
 
 import pandas as pd
 
-from fashion_trend.config import OUTPUT_MODELS_DIR, PATH
+from fashion_trend.foundation.io import (
+    remove_file_if_exists,
+    write_binary_atomic,
+    write_csv_atomic,
+    write_json_atomic,
+)
+from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR, PATH
 from fashion_trend.models.base import (
     KNOWN_MODEL_TYPES,
     TrendArtifact,
@@ -16,7 +22,6 @@ from fashion_trend.models.base import (
     TrendTrainResult,
 )
 from fashion_trend.models.registry import get_trend_model_trainer
-from fashion_trend.trend.io import remove_file_if_exists, write_json, write_trend_csv
 from fashion_trend.trend.predictions import validate_trend_model_predictions
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
 from fashion_trend.trend.splits import read_trend_model_split
@@ -303,13 +308,13 @@ def _write_output_payload(
     output_path: Path,
 ) -> None:
     if isinstance(payload, pd.DataFrame):
-        write_trend_csv(payload, output_path)
+        write_csv_atomic(payload, output_path)
         return
     if isinstance(payload, dict):
-        write_json(payload, output_path)
+        write_json_atomic(payload, output_path)
         return
     if isinstance(payload, bytes):
-        _write_binary(payload, output_path)
+        write_binary_atomic(payload, output_path)
         return
     raise ValueError("不支持的趋势模型输出 payload。")
 
@@ -331,14 +336,3 @@ def _remove_backup_outputs(
     for _final_path, backup_path in published_paths:
         if backup_path is not None:
             remove_file_if_exists(backup_path)
-
-
-def _write_binary(payload: bytes, output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        tmp_output_path.write_bytes(payload)
-        tmp_output_path.replace(output_path)
-    except Exception:
-        remove_file_if_exists(tmp_output_path)
-        raise
