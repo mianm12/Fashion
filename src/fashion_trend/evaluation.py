@@ -9,14 +9,16 @@ import numpy as np
 import pandas as pd
 
 from fashion_trend.config import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
-from fashion_trend.trend import (
+from fashion_trend.trend.io import write_json
+from fashion_trend.trend.predictions import validate_pred_share_t1_distribution
+from fashion_trend.trend.schema import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
+)
+from fashion_trend.trend.validation import (
     validate_no_missing_values,
-    validate_pred_share_t1_distribution,
     validate_required_columns,
     validate_unique_key,
-    write_json,
 )
 
 TREND_EVALUATION_SPLITS: tuple[str, ...] = ("valid", "test")

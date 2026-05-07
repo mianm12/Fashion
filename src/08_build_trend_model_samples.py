@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
-    build_trend_model_samples_frame,
-    read_attribute_hierarchy_edges,
+from fashion_trend.trend.attribute_heat import (
     read_attribute_nodes,
     read_attribute_week_heat,
-    read_attribute_week_target,
-    validate_trend_model_samples,
-    write_trend_parquet,
 )
+from fashion_trend.trend.io import write_trend_parquet
+from fashion_trend.trend.samples import (
+    build_trend_model_samples_frame,
+    read_attribute_hierarchy_edges,
+    validate_trend_model_samples,
+)
+from fashion_trend.trend.targets import read_attribute_week_target
 
 LOG_SOURCE = "trend-model-samples"
 

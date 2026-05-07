@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
-    build_attribute_week_target_frame,
+from fashion_trend.trend.attribute_heat import (
     read_attribute_nodes,
     read_attribute_week_heat,
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
+)
+from fashion_trend.trend.io import write_trend_csv
+from fashion_trend.trend.targets import (
+    build_attribute_week_target_frame,
     validate_attribute_week_target,
-    write_trend_csv,
 )
 
 LOG_SOURCE = "trend-targets"

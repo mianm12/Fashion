@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH, TREND_SPLIT_TEST_WEEKS, TREND_SPLIT_VALID_WEEKS
-from fashion_trend.trend import (
+from fashion_trend.trend.io import write_json, write_trend_parquet
+from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
     build_trend_model_split_metadata,
     validate_trend_model_split_frames,
-    write_json,
-    write_trend_parquet,
 )
 
 LOG_SOURCE = "trend-model-split"

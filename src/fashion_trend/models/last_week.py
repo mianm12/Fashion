@@ -7,13 +7,15 @@ from fashion_trend.models.base import (
     TrendTrainContext,
     TrendTrainResult,
 )
-from fashion_trend.trend import (
-    TREND_MODEL_PREDICTION_COLUMNS,
-    TREND_MODEL_SPLIT_VALUES,
+from fashion_trend.trend.predictions import (
     derive_normalized_pred_share_t1,
-    validate_required_columns,
     validate_trend_model_predictions,
 )
+from fashion_trend.trend.schema import (
+    TREND_MODEL_PREDICTION_COLUMNS,
+    TREND_MODEL_SPLIT_VALUES,
+)
+from fashion_trend.trend.validation import validate_required_columns
 
 LAST_WEEK_MODEL_NAME = "last_week"
 LAST_WEEK_PARAMS: dict[str, object] = {

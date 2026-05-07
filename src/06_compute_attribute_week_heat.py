@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
+from fashion_trend.trend.article_sales import (
+    read_article_week_sales,
+    validate_article_week_sales,
+)
+from fashion_trend.trend.attribute_heat import (
     build_attribute_week_heat_frame,
     read_article_attribute_edges,
-    read_article_week_sales,
     read_attribute_nodes,
     validate_article_attribute_edges_for_heat,
-    validate_article_week_sales,
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
-    write_trend_csv,
 )
+from fashion_trend.trend.io import write_trend_csv
 
 LOG_SOURCE = "attribute-week-heat"
 

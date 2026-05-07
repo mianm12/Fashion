@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fashion_trend import log
 from fashion_trend.config import PATH
-from fashion_trend.trend import (
+from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
     read_weekly_transactions,
     validate_article_week_sales,
-    write_trend_csv,
 )
+from fashion_trend.trend.io import write_trend_csv
 
 LOG_SOURCE = "article-week-sales"
 

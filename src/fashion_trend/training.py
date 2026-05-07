@@ -16,14 +16,10 @@ from fashion_trend.models.base import (
     TrendTrainResult,
 )
 from fashion_trend.models.registry import get_trend_model_trainer
-from fashion_trend.trend import (
-    TREND_MODEL_SPLIT_VALUES,
-    read_trend_model_split,
-    remove_file_if_exists,
-    validate_trend_model_predictions,
-    write_json,
-    write_trend_csv,
-)
+from fashion_trend.trend.io import remove_file_if_exists, write_json, write_trend_csv
+from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
+from fashion_trend.trend.splits import read_trend_model_split
 
 
 def default_trend_model_input_paths() -> dict[str, Path]:
