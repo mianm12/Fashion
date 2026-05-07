@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src" / "fashion_trend"
+PACKAGE_NAME = PACKAGE_ROOT.name
 
 BUSINESS_DOMAINS = {
     "datasets",
@@ -15,13 +16,17 @@ BUSINESS_DOMAINS = {
     "reports",
 }
 
+HISTORICAL_ROOT_MODULE_NAMES = {
+    "articles",
+    "config",
+    "data_loader",
+    "evaluation",
+    "log",
+    "training",
+}
+
 HISTORICAL_ROOT_MODULES = {
-    "articles.py",
-    "config.py",
-    "data_loader.py",
-    "evaluation.py",
-    "log.py",
-    "training.py",
+    f"{module_name}.py" for module_name in HISTORICAL_ROOT_MODULE_NAMES
 }
 
 HISTORICAL_ROOT_PACKAGES = {
@@ -29,13 +34,8 @@ HISTORICAL_ROOT_PACKAGES = {
 }
 
 HISTORICAL_ROOT_IMPORTS = {
-    "fashion_trend.articles",
-    "fashion_trend.config",
-    "fashion_trend.data_loader",
-    "fashion_trend.evaluation",
-    "fashion_trend.log",
-    "fashion_trend.training",
-    "fashion_trend.models",
+    f"{PACKAGE_NAME}.{module_name}"
+    for module_name in HISTORICAL_ROOT_MODULE_NAMES | HISTORICAL_ROOT_PACKAGES
 }
 
 
@@ -111,7 +111,7 @@ def test_imported_modules_resolves_absolute_from_import_aliases(tmp_path) -> Non
         "\n".join(
             [
                 "from fashion_trend import catalog",
-                "from fashion_trend.trend import models",
+                f"from {PACKAGE_NAME}.trend import models",
                 "import fashion_trend.catalog.graph",
             ]
         ),
