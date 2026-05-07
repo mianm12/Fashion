@@ -4,7 +4,7 @@
 
 本计划最初用于把过大的趋势共享实现拆成 `fashion_trend.trend` 子包。早期计划中的兼容入口策略已经被后续领域驱动架构收敛取代。
 
-当前以 Task 4 后的边界为准：
+当前以 Task 5 后的边界为准：
 
 - `fashion_trend.trend` 只是趋势领域包标记。
 - `src/fashion_trend/trend/__init__.py` 只保留包说明 docstring，不再重新导出核心 API。
@@ -29,10 +29,19 @@ src/fashion_trend/
         samples.py
         splits.py
         predictions.py
+        training.py
+        evaluation.py
         schema.py
+        models/
+            __init__.py
+            base.py
+            last_week.py
+            moving_average.py
+            registry.py
 ```
 
-`src/fashion_trend/trend.py` 已移除。
+`src/fashion_trend/trend.py`、root `src/fashion_trend/training.py`、root
+`src/fashion_trend/evaluation.py` 和 root `src/fashion_trend/models/` 均已移除。
 
 ## 当前导入原则
 
@@ -55,6 +64,9 @@ from fashion_trend.trend.targets import build_attribute_week_target_frame
 from fashion_trend.trend.samples import build_trend_model_samples_frame
 from fashion_trend.trend.splits import build_trend_model_split_frames
 from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.training import run_trend_model_training
+from fashion_trend.trend.evaluation import run_trend_model_evaluation
+from fashion_trend.trend.models.registry import get_trend_model_trainer
 ```
 
 ## Task 4 后续验证
@@ -86,13 +98,13 @@ uv run python -m py_compile \
   src/09_split_trend_model_samples.py
 ```
 
-## 后续边界
+## Task 5 边界
 
-Task 5 负责迁移趋势模型、训练和评价相关模块，不在 Task 4 文档修正中移动或重写：
+趋势模型、训练和评价相关模块已经迁移到 `fashion_trend.trend` 域内：
 
-- `src/fashion_trend/training.py`
-- `src/fashion_trend/evaluation.py`
-- `src/fashion_trend/models/`
+- `src/fashion_trend/trend/training.py`
+- `src/fashion_trend/trend/evaluation.py`
+- `src/fashion_trend/trend/models/`
 
 ## 完成标准
 

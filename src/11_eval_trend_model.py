@@ -4,7 +4,7 @@ import argparse
 from typing import Sequence
 
 from fashion_trend.foundation import logging as log
-from fashion_trend.evaluation import run_trend_model_evaluation
+from fashion_trend.trend.evaluation import run_trend_model_evaluation
 
 LOG_SOURCE = "trend-model-eval"
 

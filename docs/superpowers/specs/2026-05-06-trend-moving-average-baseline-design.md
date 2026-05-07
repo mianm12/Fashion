@@ -24,7 +24,7 @@ uv run python src/11_eval_trend_model.py --model moving_average
 新增模型文件：
 
 ```text
-src/fashion_trend/models/moving_average.py
+src/fashion_trend/trend/models/moving_average.py
 ```
 
 `moving_average` trainer 只负责模型公式和预测表构造，不直接读取全局路径、不处理命令行、不写文件。训练 runner 继续负责 split 读取、结果校验、metadata 构造和产物写出。评价 runner 继续读取标准预测表并写出标准趋势评价结果。
@@ -41,8 +41,8 @@ src/fashion_trend/models/moving_average.py
 计划新增或调整以下文件：
 
 ```text
-src/fashion_trend/models/moving_average.py
-src/fashion_trend/models/registry.py
+src/fashion_trend/trend/models/moving_average.py
+src/fashion_trend/trend/models/registry.py
 tests/test_trend.py
 README.md
 docs/gpt-research/implementation-plan.md
@@ -52,8 +52,8 @@ docs/gpt-research/implementation-plan.md
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/fashion_trend/models/moving_average.py` | `moving_average` trainer、参数常量和预测公式 |
-| `src/fashion_trend/models/registry.py` | 注册 `moving_average`，让通用训练入口可以发现模型 |
+| `src/fashion_trend/trend/models/moving_average.py` | `moving_average` trainer、参数常量和预测公式 |
+| `src/fashion_trend/trend/models/registry.py` | 注册 `moving_average`，让通用训练入口可以发现模型 |
 | `tests/test_trend.py` | 增加公式、registry、runner、评价复用相关测试 |
 | `README.md` | 同步 Moving Average baseline 的运行命令和产物 |
 | `docs/gpt-research/implementation-plan.md` | 对齐当前统一训练入口和标准评价产物 |
@@ -213,7 +213,7 @@ target_growth vs pred_target_growth
 实现完成后的最小验证命令：
 
 ```sh
-uv run python -m py_compile src/fashion_trend/models/moving_average.py src/fashion_trend/models/registry.py
+uv run python -m py_compile src/fashion_trend/trend/models/moving_average.py src/fashion_trend/trend/models/registry.py
 uv run python -m unittest discover -s tests -v
 uv run python src/10_train_trend_model.py --model moving_average
 uv run python src/11_eval_trend_model.py --model moving_average

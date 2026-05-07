@@ -11,31 +11,31 @@ import pytest
 
 from fashion_trend.foundation.io import write_parquet_atomic
 from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR
-from fashion_trend.models.base import (
+from fashion_trend.trend.models.base import (
     MODEL_TYPE_BASELINE,
     TrendArtifact,
     TrendTrainContext,
     TrendTrainResult,
 )
-from fashion_trend.models.last_week import (
+from fashion_trend.trend.models.last_week import (
     LAST_WEEK_MODEL_NAME,
     LAST_WEEK_PARAMS,
     LastWeekTrainer,
     predict_last_week,
 )
-from fashion_trend.models.moving_average import (
+from fashion_trend.trend.models.moving_average import (
     MOVING_AVERAGE_GROWTH_LAGS,
     MOVING_AVERAGE_MODEL_NAME,
     MOVING_AVERAGE_PARAMS,
     MovingAverageTrainer,
     predict_moving_average,
 )
-from fashion_trend.models.registry import (
+from fashion_trend.trend.models.registry import (
     UnknownTrendModelError,
     get_trend_model_trainer,
     list_trend_model_names,
 )
-from fashion_trend.training import (
+from fashion_trend.trend.training import (
     build_trend_train_metadata,
     derive_trend_model_output_paths,
     run_trend_model_training,
@@ -176,6 +176,24 @@ class TestTrendTraining:
             derive_trend_model_output_paths("last_week")["output_dir"]
             == OUTPUT_MODELS_DIR / "last_week"
         )
+
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "",
+            ".",
+            "../escape",
+            "/tmp/escape",
+            "nested/model",
+            "model/..",
+        ],
+    )
+    def test_derive_trend_model_output_paths_rejects_unsafe_model_name(
+        self,
+        model_name: str,
+    ) -> None:
+        with pytest.raises(ValueError, match="model_name"):
+            derive_trend_model_output_paths(model_name, Path("outputs/models"))
 
     def test_validate_trend_train_result_rejects_wrong_model_name(self) -> None:
         split_frames = build_trend_model_split_frames(

@@ -8,6 +8,10 @@ from typing import Mapping
 
 import pandas as pd
 
+from fashion_trend.foundation.artifacts import (
+    validate_output_parent_dirs,
+    validate_safe_path_segment,
+)
 from fashion_trend.foundation.io import (
     remove_file_if_exists,
     write_binary_atomic,
@@ -15,13 +19,13 @@ from fashion_trend.foundation.io import (
     write_json_atomic,
 )
 from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR, PATH
-from fashion_trend.models.base import (
+from fashion_trend.trend.models.base import (
     KNOWN_MODEL_TYPES,
     TrendArtifact,
     TrendTrainContext,
     TrendTrainResult,
 )
-from fashion_trend.models.registry import get_trend_model_trainer
+from fashion_trend.trend.models.registry import get_trend_model_trainer
 from fashion_trend.trend.predictions import validate_trend_model_predictions
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
 from fashion_trend.trend.splits import read_trend_model_split
@@ -39,7 +43,9 @@ def derive_trend_model_output_paths(
     model_name: str,
     output_root: Path = OUTPUT_MODELS_DIR,
 ) -> dict[str, Path]:
+    validate_safe_path_segment(model_name, "model_name")
     output_dir = output_root / model_name
+    validate_output_parent_dirs(output_dir, output_root)
     return {
         "output_dir": output_dir,
         "predictions": output_dir / "predictions.csv",
@@ -286,21 +292,7 @@ def _validate_output_destinations(
         seen_paths.add(final_path)
         if final_path.exists() and final_path.is_dir():
             raise IsADirectoryError(f"趋势模型输出路径是目录: {final_path}")
-        _validate_output_parent_dirs(final_path.parent, output_dir)
-
-
-def _validate_output_parent_dirs(parent_path: Path, output_dir: Path) -> None:
-    try:
-        relative_parent = parent_path.relative_to(output_dir)
-    except ValueError as exc:
-        raise ValueError(f"趋势模型输出父目录不在输出目录内: {parent_path}") from exc
-    current_path = output_dir
-    if current_path.exists() and not current_path.is_dir():
-        raise NotADirectoryError(f"趋势模型输出目录不是目录: {current_path}")
-    for path_part in relative_parent.parts:
-        current_path = current_path / path_part
-        if current_path.exists() and not current_path.is_dir():
-            raise NotADirectoryError(f"趋势模型输出父路径不是目录: {current_path}")
+        validate_output_parent_dirs(final_path.parent, output_dir)
 
 
 def _write_output_payload(

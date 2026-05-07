@@ -10,7 +10,7 @@
 uv run python src/10_train_trend_model.py --model last_week
 ```
 
-当前 last_week 模型实现为 `src/fashion_trend/models/last_week.py`。Task 5 尚未完成前，不要把 root `models/` 已迁移到 `trend/models/` 作为已完成事实；root `models` 的业务域迁移由后续任务处理。
+当前 last_week 模型实现为 `src/fashion_trend/trend/models/last_week.py`。Task 5 已将 root `models/` 迁移到 `trend/models/`，root `models` 不再作为有效架构存在。
 
 ## 范围
 
@@ -73,7 +73,7 @@ src/10_train_trend_baseline.py  # 历史入口，当前由 src/10_train_trend_mo
 新增模型包（历史设计）：
 
 ```text
-src/fashion_trend/models/
+src/fashion_trend/trend/models/
     __init__.py
     baseline_last_week.py  # 历史模块，当前由 last_week.py 替代
 ```
@@ -82,7 +82,7 @@ src/fashion_trend/models/
 
 历史设计中的 `src/10_train_trend_baseline.py` 曾是 baseline CLI 入口。当前有效入口是 `src/10_train_trend_model.py --model last_week`，负责解析参数、读取已切分样本、调用模型、写出结果和输出日志。它不负责划分数据集。
 
-历史设计中的 `src/fashion_trend/models/baseline_last_week.py` 已被 `src/fashion_trend/models/last_week.py` 替代；后者只负责 `last_week` baseline 的 DataFrame 级预测逻辑，不读取全局路径，不处理命令行参数，不写文件。
+历史设计中的 `src/fashion_trend/models/baseline_last_week.py` 已被 `src/fashion_trend/trend/models/last_week.py` 替代；后者只负责 `last_week` baseline 的 DataFrame 级预测逻辑，不读取全局路径，不处理命令行参数，不写文件。
 
 ## CLI
 
@@ -394,7 +394,7 @@ baseline 输入校验：
 
 ```sh
 uv run python -m unittest tests.test_trend -v
-uv run python -m py_compile src/09_split_trend_model_samples.py src/10_train_trend_model.py src/fashion_trend/models/last_week.py
+uv run python -m py_compile src/09_split_trend_model_samples.py src/10_train_trend_model.py src/fashion_trend/trend/models/last_week.py
 ```
 
 如果本地已有完整真实数据，还应运行：

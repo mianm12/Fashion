@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from fashion_trend.evaluation import (
+from fashion_trend.foundation.io import (
+    write_csv_atomic,
+    write_json_atomic,
+    write_parquet_atomic,
+)
+from fashion_trend.trend.evaluation import (
     build_trend_metrics_payload,
     compute_trend_group_metrics,
     compute_trend_metrics,
@@ -17,15 +22,10 @@ from fashion_trend.evaluation import (
     validate_trend_model_predictions_for_evaluation,
     write_trend_metrics,
 )
-from fashion_trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
-from fashion_trend.training import run_trend_model_training
-from fashion_trend.foundation.io import (
-    write_csv_atomic,
-    write_json_atomic,
-    write_parquet_atomic,
-)
+from fashion_trend.trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
 from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
 from fashion_trend.trend.splits import build_trend_model_split_frames
+from fashion_trend.trend.training import run_trend_model_training
 from tests.trend_samples import (
     sample_trend_model_samples_for_split,
     sample_trend_predictions_for_evaluation,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from fashion_trend.models.base import (
+from fashion_trend.trend.models.base import (
     MODEL_TYPE_BASELINE,
     TrendTrainContext,
     TrendTrainResult,

@@ -2,7 +2,7 @@
 
 ## 状态
 
-本设计是较早期的历史设计，早于后续领域驱动模块迁移。当前实现不再使用单文件 `src/fashion_trend/trend.py` 承载通用趋势工具；评价模块应直接复用 `fashion_trend.trend.schema`、`fashion_trend.trend.predictions` 和 `fashion_trend.foundation.io` 等具体模块。
+本设计是较早期的历史设计，早于后续领域驱动模块迁移。当前实现不再使用单文件 `src/fashion_trend/trend.py` 承载通用趋势工具；评价模块位于 `fashion_trend.trend.evaluation`，并直接复用 `fashion_trend.trend.schema`、`fashion_trend.trend.predictions` 和 `fashion_trend.foundation.io` 等具体模块。
 
 ## 范围
 
@@ -35,7 +35,7 @@ last_week
 新增核心模块：
 
 ```text
-src/fashion_trend/evaluation.py
+src/fashion_trend/trend/evaluation.py
 ```
 
 新增顶层脚本：
@@ -44,7 +44,7 @@ src/fashion_trend/evaluation.py
 src/11_eval_trend_model.py
 ```
 
-CLI 只负责解析 `--model`、调用 runner、打印摘要和返回退出码。评价逻辑、路径推导、预测读取、指标计算、JSON payload 构造和写出都放在 `fashion_trend.evaluation` 中。
+CLI 只负责解析 `--model`、调用 runner、打印摘要和返回退出码。评价逻辑、路径推导、预测读取、指标计算、JSON payload 构造和写出都放在 `fashion_trend.trend.evaluation` 中。
 
 这样可以保持当前训练层已经建立的边界：
 
@@ -59,7 +59,7 @@ CLI 只负责解析 `--model`、调用 runner、打印摘要和返回退出码�
 
 ```text
 src/11_eval_trend_model.py
-src/fashion_trend/evaluation.py
+src/fashion_trend/trend/evaluation.py
 tests/test_trend.py
 README.md
 docs/gpt-research/implementation-plan.md
@@ -70,7 +70,7 @@ docs/gpt-research/implementation-plan.md
 | 文件 | 职责 |
 | --- | --- |
 | `src/11_eval_trend_model.py` | 趋势模型评价 CLI，解析 `--model` 并调用评价 runner |
-| `src/fashion_trend/evaluation.py` | 评价路径推导、预测读取、指标计算、JSON payload 和写出 |
+| `src/fashion_trend/trend/evaluation.py` | 评价路径推导、预测读取、指标计算、JSON payload 和写出 |
 | `tests/test_trend.py` | 增加评价模块的单元测试 |
 | `README.md` | 同步当前趋势评价命令、产物和验证说明 |
 | `docs/gpt-research/implementation-plan.md` | 补充当前实现脚本名与产物命名，避免和旧计划脚本名漂移 |

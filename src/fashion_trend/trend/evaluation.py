@@ -8,6 +8,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from fashion_trend.foundation.artifacts import (
+    validate_output_parent_dirs,
+    validate_safe_path_segment,
+)
 from fashion_trend.foundation.dataframe import (
     validate_no_missing_values,
     validate_required_columns,
@@ -42,11 +46,14 @@ def derive_trend_metric_output_paths(
     metrics_output_root: Path = OUTPUT_METRICS_DIR,
 ) -> dict[str, Path]:
     """根据模型名推导预测输入路径和趋势评价输出路径。"""
-    _validate_metric_model_name(model_name)
+    validate_safe_path_segment(model_name, "model_name")
+    prediction_dir = model_output_root / model_name
     output_dir = metrics_output_root / model_name
+    validate_output_parent_dirs(prediction_dir, model_output_root)
+    validate_output_parent_dirs(output_dir, metrics_output_root)
     return {
         "output_dir": output_dir,
-        "predictions": model_output_root / model_name / "predictions.csv",
+        "predictions": prediction_dir / "predictions.csv",
         "metrics": output_dir / "trend_metrics.json",
     }
 
@@ -304,18 +311,6 @@ def _validate_integer_week_ids(week_ids: pd.Series, source_name: str) -> pd.Seri
     if numeric_week_ids.isna().any() or not (numeric_week_ids % 1 == 0).all():
         raise ValueError(f"{source_name} week_id 必须为整数。")
     return numeric_week_ids.astype("int64")
-
-
-def _validate_metric_model_name(model_name: str) -> None:
-    model_path = Path(model_name)
-    if (
-        not model_name
-        or model_path.is_absolute()
-        or "/" in model_name
-        or "\\" in model_name
-        or model_name in {".", ".."}
-    ):
-        raise ValueError("趋势评价 model_name 必须是安全的单一路径段。")
 
 
 def _validate_k_values(k_values: Sequence[int]) -> None:
