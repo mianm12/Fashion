@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from fashion_trend.datasets.download import download_competition
+from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.paths import DEFAULT_COMPETITION, RAW_DIR
+
+LOG_SOURCE = "download-data"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -61,6 +63,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = parse_args(argv)
     try:
+        log.info(
+            f"输入数据源: Kaggle competition={args.competition}",
+            source=LOG_SOURCE,
+        )
+        log.info(
+            f"关键参数: unzip={args.unzip}, force={args.force}",
+            source=LOG_SOURCE,
+        )
+        log.info(f"输出目录: {args.data_dir}", source=LOG_SOURCE)
+        log.info("业务阶段: Kaggle 下载/解压 -> raw H&M 数据目录", source=LOG_SOURCE)
         destination = download_competition(
             competition=args.competition,
             data_dir=args.data_dir,
@@ -68,10 +80,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             force=args.force,
         )
     except RuntimeError as exc:
-        print(exc, file=sys.stderr)
+        log.error(str(exc), source=LOG_SOURCE)
         return 1
 
-    print(f"Dataset ready at {destination}")
+    log.info(f"原始数据目录已就绪: {destination}", source=LOG_SOURCE)
     return 0
 
 

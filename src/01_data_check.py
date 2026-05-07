@@ -11,6 +11,10 @@ LOG_SOURCE = "data-check"
 def main() -> int:
     try:
         log.info(f"检查原始数据目录: {RAW_HM_DIR}", source=LOG_SOURCE)
+        log.info(
+            "业务阶段: 原始 CSV 文件存在性/可读性检查 -> 行数摘要",
+            source=LOG_SOURCE,
+        )
         row_counts = validate_raw_dataset_files(RAW_HM_DIR)
     except (FileNotFoundError, OSError, ValueError) as exc:
         log.error(f"处理失败: {exc}", source=LOG_SOURCE)

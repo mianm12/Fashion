@@ -21,6 +21,10 @@ def build_trend_model_samples() -> dict[str, int]:
     log.info(
         f"输入属性周热度表: {PATH['trend_attribute_week_heat']}", source=LOG_SOURCE
     )
+    log.info(
+        "业务阶段: 属性热度 + 趋势标签 + 属性图 -> trend_model_samples.parquet",
+        source=LOG_SOURCE,
+    )
     attribute_week_heat = read_attribute_week_heat(PATH["trend_attribute_week_heat"])
 
     log.info(

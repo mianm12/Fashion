@@ -4,6 +4,7 @@ import argparse
 from typing import Sequence
 
 from fashion_trend.foundation import logging as log
+from fashion_trend.foundation.paths import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
 from fashion_trend.trend.evaluation import run_trend_model_evaluation
 
 LOG_SOURCE = "trend-model-eval"
@@ -28,6 +29,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return exc.code if isinstance(exc.code, int) else 1
 
     try:
+        log.info(f"模型名称参数: {args.model}", source=LOG_SOURCE)
+        log.info(
+            f"输入预测文件: {OUTPUT_MODELS_DIR / args.model / 'predictions.csv'}",
+            source=LOG_SOURCE,
+        )
+        log.info(
+            "业务阶段: "
+            f"outputs/models/{args.model}/predictions.csv -> "
+            f"outputs/metrics/{args.model}/trend_metrics.json",
+            source=LOG_SOURCE,
+        )
+        log.info(
+            f"输出指标文件: {OUTPUT_METRICS_DIR / args.model / 'trend_metrics.json'}",
+            source=LOG_SOURCE,
+        )
         metrics = run_trend_model_evaluation(args.model)
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         log.error(f"处理失败: {exc}", source=LOG_SOURCE)

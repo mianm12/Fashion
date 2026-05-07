@@ -9,6 +9,11 @@ LOG_SOURCE = "attribute-graph"
 
 def main() -> int:
     try:
+        log.info(f"输入文件: {PATH['interim_articles_clean']}", source=LOG_SOURCE)
+        log.info(
+            "业务阶段: 商品属性抽取 -> attribute graph CSV 文件",
+            source=LOG_SOURCE,
+        )
         output_counts = build_attribute_graph_files(
             clean_articles_path=PATH["interim_articles_clean"],
             graph_dir=GRAPH_DIR,

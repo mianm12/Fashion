@@ -18,6 +18,10 @@ def main() -> int:
     """
     try:
         log.info(f"输入文件: {PATH['raw_transactions']}", source=LOG_SOURCE)
+        log.info(
+            "业务阶段: 交易周聚合 -> transactions_train_weekly.parquet",
+            source=LOG_SOURCE,
+        )
         build_weekly_transactions(
             raw_transactions_path=PATH["raw_transactions"],
             weekly_transactions_path=PATH["interim_transactions_weekly"],

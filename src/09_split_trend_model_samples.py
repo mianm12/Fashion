@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pandas import read_parquet
+
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
 from fashion_trend.foundation.paths import (
@@ -19,12 +21,19 @@ LOG_SOURCE = "trend-model-split"
 def split_trend_model_samples() -> dict[str, object]:
     input_path = PATH["features_trend_model_samples"]
     log.info(f"输入趋势样本表: {input_path}", source=LOG_SOURCE)
+    log.info(
+        f"关键参数: valid_weeks={TREND_SPLIT_VALID_WEEKS}, "
+        f"test_weeks={TREND_SPLIT_TEST_WEEKS}",
+        source=LOG_SOURCE,
+    )
+    log.info(
+        "业务阶段: trend_model_samples.parquet -> train/valid/test split parquet",
+        source=LOG_SOURCE,
+    )
     if not input_path.exists():
         raise FileNotFoundError(f"趋势样本表不存在: {input_path}")
 
-    import pandas as pd
-
-    trend_model_samples = pd.read_parquet(input_path)
+    trend_model_samples = read_parquet(input_path)
     split_frames = build_trend_model_split_frames(
         trend_model_samples,
         valid_weeks=TREND_SPLIT_VALID_WEEKS,

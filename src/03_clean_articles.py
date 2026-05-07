@@ -9,6 +9,11 @@ LOG_SOURCE = "clean-articles"
 
 def main() -> int:
     try:
+        log.info(f"输入文件: {PATH['raw_articles']}", source=LOG_SOURCE)
+        log.info(
+            "业务阶段: 商品字段清洗/稳妥字段裁剪 -> articles_clean.csv",
+            source=LOG_SOURCE,
+        )
         row_count = clean_articles_file(
             raw_articles_path=PATH["raw_articles"],
             mvp_output_path=PATH["interim_articles_clean_mvp"],

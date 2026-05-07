@@ -23,6 +23,10 @@ LOG_SOURCE = "attribute-week-heat"
 
 def compute_attribute_week_heat() -> dict[str, int]:
     log.info(f"输入商品周销量表: {PATH['trend_article_week_sales']}", source=LOG_SOURCE)
+    log.info(
+        "业务阶段: 属性图 + article_week_sales.csv -> attribute_week_heat.csv",
+        source=LOG_SOURCE,
+    )
     article_week_sales = read_article_week_sales(PATH["trend_article_week_sales"])
     validate_article_week_sales(article_week_sales)
 

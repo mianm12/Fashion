@@ -22,6 +22,10 @@ def build_trend_targets() -> dict[str, int]:
     log.info(
         f"输入属性周热度表: {PATH['trend_attribute_week_heat']}", source=LOG_SOURCE
     )
+    log.info(
+        "业务阶段: attribute_week_heat.csv -> attribute_week_target.csv",
+        source=LOG_SOURCE,
+    )
     attribute_nodes = read_attribute_nodes(PATH["graph_nodes_attribute"])
     validate_attribute_nodes_for_heat(attribute_nodes)
     attribute_week_heat = read_attribute_week_heat(PATH["trend_attribute_week_heat"])
