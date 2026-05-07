@@ -184,10 +184,12 @@ def test_datasets_depends_only_on_foundation() -> None:
     )
 
 
-def test_catalog_does_not_depend_on_trend_recommendation_or_reports() -> None:
+def test_catalog_depends_only_on_foundation() -> None:
     assert_package_does_not_import(
         "catalog",
         {
+            "fashion_trend.datasets",
+            "fashion_trend.transactions",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
@@ -195,10 +197,11 @@ def test_catalog_does_not_depend_on_trend_recommendation_or_reports() -> None:
     )
 
 
-def test_transactions_does_not_depend_on_catalog_trend_recommendation_or_reports() -> None:
+def test_transactions_depends_only_on_foundation() -> None:
     assert_package_does_not_import(
         "transactions",
         {
+            "fashion_trend.datasets",
             "fashion_trend.catalog",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
@@ -207,10 +210,14 @@ def test_transactions_does_not_depend_on_catalog_trend_recommendation_or_reports
     )
 
 
-def test_trend_does_not_depend_on_recommendation_or_reports() -> None:
+def test_trend_depends_only_on_stable_input_domains() -> None:
     assert_package_does_not_import(
         "trend",
-        {"fashion_trend.recommendation", "fashion_trend.reports"},
+        {
+            "fashion_trend.datasets",
+            "fashion_trend.recommendation",
+            "fashion_trend.reports",
+        },
     )
 
 
