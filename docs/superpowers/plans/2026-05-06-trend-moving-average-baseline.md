@@ -1,12 +1,14 @@
 # Moving Average 趋势 Baseline 实施计划
 
+> 本文件是历史实施计划。下文出现的 root `src/fashion_trend/models/`、`src/fashion_trend/training.py`、`src/fashion_trend/evaluation.py`、`fashion_trend.models`、`fashion_trend.training` 和 `fashion_trend.evaluation` 均为当时的计划路径或旧实现路径；当前趋势实验层已迁移到 `fashion_trend.trend.models`、`fashion_trend.trend.training` 和 `fashion_trend.trend.evaluation`。
+
 > **给 agentic worker 的要求：** 实施本计划时必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，并按任务逐项执行。步骤使用 checkbox（`- [ ]`）语法跟踪。
 
 **目标：** 新增 `moving_average` 确定性趋势 baseline，并复用现有趋势模型训练与评价 runner 完成训练和趋势评价。
 
-**架构：** 在 `fashion_trend.models` 下新增独立 `moving_average` trainer 模块，在现有 registry 中注册模型，并复用 `run_trend_model_training()` 与 `run_trend_model_evaluation()`。模型使用 `growth_lag_1` 和 `growth_lag_2` 的均值预测 `target_growth`，再用与 `last_week` 一致的 epsilon 公式推导 `pred_share_t1`。
+**架构：** 历史计划写法是在 `fashion_trend.models` 下新增独立 `moving_average` trainer；当前有效架构已迁移到 `fashion_trend.trend.models`，并复用 `fashion_trend.trend.training.run_trend_model_training()` 与 `fashion_trend.trend.evaluation.run_trend_model_evaluation()`。模型使用 `growth_lag_1` 和 `growth_lag_2` 的均值预测 `target_growth`，再用与 `last_week` 一致的 epsilon 公式推导 `pred_share_t1`。
 
-**技术栈：** Python 3.10-3.12、pandas、numpy、标准库 `unittest`，复用现有 `fashion_trend.models`、`fashion_trend.training`、`fashion_trend.evaluation` 和 `fashion_trend.trend` 工具。
+**技术栈：** Python 3.10-3.12、pandas、numpy、标准库 `unittest`，当前实现复用 `fashion_trend.trend.models`、`fashion_trend.trend.training`、`fashion_trend.trend.evaluation` 和其他 `fashion_trend.trend.*` 工具。
 
 ---
 

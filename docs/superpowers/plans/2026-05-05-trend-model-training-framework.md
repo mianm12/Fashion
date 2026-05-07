@@ -1,12 +1,12 @@
 # Trend Model Training Framework Implementation Plan
 
-> 本文件是历史计划，部分步骤描述的是从旧 baseline 入口迁移到通用训练框架的过程。下文出现的 `src/fashion_trend/trend.py`、`src/fashion_trend/models/baseline_last_week.py`、`src/10_train_trend_baseline.py` 是历史迁移来源或旧实现路径；当前趋势数据逻辑已由业务域架构拆到 `src/fashion_trend/trend/` 包内具体模块、`transactions/weekly.py` 和 `catalog/graph.py`。training/evaluation/models 的进一步业务域迁移由后续 Task 5 处理，本文不表示该迁移已经完成。
+> 本文件是历史计划，部分步骤描述的是从旧 baseline 入口迁移到通用训练框架的过程。下文出现的 `src/fashion_trend/trend.py`、`src/fashion_trend/models/baseline_last_week.py`、`src/10_train_trend_baseline.py`、root `src/fashion_trend/models/`、root `src/fashion_trend/training.py`、root `src/fashion_trend/evaluation.py`、`fashion_trend.models`、`fashion_trend.training` 和 `fashion_trend.evaluation` 均为历史计划写法或旧实现路径；当前实现已由 `fashion_trend.trend.models`、`fashion_trend.trend.training`、`fashion_trend.trend.evaluation` 以及 `src/fashion_trend/trend/` 包内具体模块替代，稳定交易 reader 位于 `transactions/weekly.py`，目录图 reader 位于 `catalog/graph.py`。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the baseline-specific training entrypoint with a general trend model training framework that supports all future trend models while only implementing `last_week` now.
 
-**Architecture:** Add a `TrendModelTrainer` protocol, registry, and common runner. Move `last_week` into a trainer module under `fashion_trend.models`, derive model output paths from `outputs/models/<model_name>/`, and keep the top-level CLI as orchestration only.
+**Architecture:** 历史计划写法是在 `fashion_trend.models` 下新增 trainer；当前有效架构已迁移到 `fashion_trend.trend.models`，并由 `fashion_trend.trend.training` 负责通用 runner。模型输出路径仍来自 `outputs/models/<model_name>/`，顶层 CLI 只做编排。
 
 **Tech Stack:** Python 3.10-3.12, pandas, numpy, standard-library `argparse`, `dataclasses`, `typing.Protocol`, `unittest`, existing CSV/JSON/Parquet helpers in `fashion_trend.trend`.
 

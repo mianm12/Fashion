@@ -4,6 +4,8 @@
 
 本设计是较早期的历史设计，早于后续领域驱动模块迁移。当前实现不再使用单文件 `src/fashion_trend/trend.py` 承载趋势逻辑；趋势数据、样本、切分和预测契约分别位于 `fashion_trend.trend.*` 具体模块，稳定交易 reader 位于 `fashion_trend.transactions.weekly`，目录图 reader 位于 `fashion_trend.catalog.graph`。
 
+下文文件组织表和代码块中的 root `src/fashion_trend/models/`、root `src/fashion_trend/training.py`、`fashion_trend.models` 和 `fashion_trend.training` 均为历史设计路径；当前有效实现已由 `src/fashion_trend/trend/models/`、`src/fashion_trend/trend/training.py`、`fashion_trend.trend.models` 和 `fashion_trend.trend.training` 替代。
+
 ## 范围
 
 本轮将当前 `last_week` baseline 训练入口升级为面向所有趋势预测模型的训练框架，但只迁移和实现一个模型：

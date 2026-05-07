@@ -145,7 +145,7 @@ tests/test_architecture_boundaries.py
 uv run pytest tests/test_trend_article_sales.py tests/test_trend_attribute_heat.py tests/test_trend_targets.py tests/test_trend_samples.py tests/test_trend_splits.py tests/test_architecture_boundaries.py -q
 ```
 
-在 Task 5 完成前，`tests/test_architecture_boundaries.py` 可能仍只因历史 root `evaluation.py`、`training.py` 和 root `models/` 未迁移而失败。
+历史说明：Task 5 完成前，该架构测试曾可能因 root `evaluation.py`、`training.py` 和 root `models/` 未迁移而失败。当前这些 root 路径已迁移到 `fashion_trend.trend.evaluation`、`fashion_trend.trend.training` 和 `fashion_trend.trend.models`。
 
 编译验证：
 

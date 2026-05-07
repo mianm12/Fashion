@@ -1,12 +1,14 @@
 # 趋势评价模块实施计划
 
+> 本文件是历史实施计划。下文出现的 root `src/fashion_trend/evaluation.py`、`fashion_trend.evaluation`、root `src/fashion_trend/training.py` 和 `fashion_trend.training` 均为当时的计划路径或旧实现路径；当前趋势评价 runner 已迁移到 `fashion_trend.trend.evaluation`，训练 runner 位于 `fashion_trend.trend.training`。
+
 > **给 agentic worker 的要求：** 实施本计划时必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，并按任务逐项执行。步骤使用 checkbox（`- [ ]`）语法跟踪。
 
 **目标：** 构建可复用的趋势模型评价 runner，读取 `outputs/models/<model>/predictions.csv`，写出 `outputs/metrics/<model>/trend_metrics.json`。
 
-**架构：** 新增 `fashion_trend.evaluation` 模块，负责路径推导、预测读取、输入校验、指标计算、JSON payload 构造和写出。新增 `src/11_eval_trend_model.py` 作为薄 CLI，保持训练产物在 `outputs/models/<model>/`，趋势评价产物在 `outputs/metrics/<model>/`。
+**架构：** 历史计划写法是新增 root `fashion_trend.evaluation` 模块；当前有效架构已迁移到 `fashion_trend.trend.evaluation`，由它负责路径推导、预测读取、输入校验、指标计算、JSON payload 构造和写出。`src/11_eval_trend_model.py` 仍作为薄 CLI，保持训练产物在 `outputs/models/<model>/`，趋势评价产物在 `outputs/metrics/<model>/`。
 
-**技术栈：** Python 3.10-3.12、pandas、numpy、标准库 `argparse`、`json`、`math`、`unittest`，复用现有 `fashion_trend.config`、`fashion_trend.trend`、`fashion_trend.training` 中的工具。
+**技术栈：** Python 3.10-3.12、pandas、numpy、标准库 `argparse`、`json`、`math`、`unittest`，当前实现复用 `fashion_trend.trend.*` 和 `fashion_trend.foundation.*` 中的工具。
 
 ---
 
