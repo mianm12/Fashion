@@ -217,7 +217,25 @@ def test_trend_does_not_depend_on_recommendation_or_reports() -> None:
 def test_recommendation_does_not_depend_on_trend_model_internals() -> None:
     assert_package_does_not_import(
         "recommendation",
-        {"fashion_trend.models", "fashion_trend.trend.models"},
+        {
+            "fashion_trend.models",
+            "fashion_trend.trend.models",
+            "fashion_trend.trend.training",
+            "fashion_trend.trend.evaluation",
+        },
+    )
+
+
+def test_reports_does_not_depend_on_core_computation_domains() -> None:
+    assert_package_does_not_import(
+        "reports",
+        {
+            "fashion_trend.datasets",
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+            "fashion_trend.recommendation",
+        },
     )
 
 
