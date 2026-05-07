@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fashion_trend.articles import build_attribute_graph_files
+from fashion_trend.catalog.graph import build_attribute_graph_files
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.paths import GRAPH_DIR, PATH
 

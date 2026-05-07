@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fashion_trend.articles import (
+from fashion_trend.catalog.graph import (
     ATTRIBUTE_COLUMNS,
     build_article_attribute_edges,
     build_article_nodes,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fashion_trend.articles import clean_articles_file
+from fashion_trend.catalog.articles import clean_articles_file
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.paths import PATH
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fashion_trend.articles import (
+from fashion_trend.catalog.articles import (
     CLEAN_ARTICLE_COLUMNS,
     MVP_ARTICLE_COLUMNS,
     build_clean_article_frames,
