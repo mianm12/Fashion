@@ -558,10 +558,10 @@ NDCG@5/10/20
 
 ## 验证
 
-当前测试使用标准库 `unittest`，不依赖真实 H&M 数据：
+当前测试使用 `pytest`，不依赖真实 H&M 数据：
 
 ```sh
-uv run python -m unittest discover -s tests -v
+uv run pytest
 ```
 
 已覆盖的核心逻辑包括：

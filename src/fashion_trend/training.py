@@ -112,7 +112,9 @@ def build_trend_train_metadata(
             "week_max": int(split_week_ids.max()),
         }
 
-    week_ids = _validate_integer_week_ids(result.predictions["week_id"], "趋势模型 metadata")
+    week_ids = _validate_integer_week_ids(
+        result.predictions["week_id"], "趋势模型 metadata"
+    )
     core_metadata: dict[str, object] = {
         "model_name": result.model_name,
         "model_type": result.model_type,
@@ -136,8 +138,7 @@ def build_trend_train_metadata(
     overlapping_keys = sorted(set(core_metadata) & set(result.metadata))
     if overlapping_keys:
         raise ValueError(
-            "趋势模型 metadata 不能覆盖 runner 核心字段: "
-            + ", ".join(overlapping_keys)
+            "趋势模型 metadata 不能覆盖 runner 核心字段: " + ", ".join(overlapping_keys)
         )
     return {**core_metadata, **result.metadata}
 
@@ -236,13 +237,13 @@ def _validate_output_payloads(
     _validate_artifacts(result.artifacts)
     for artifact in result.artifacts:
         if isinstance(artifact.payload, dict):
-            _validate_json_payload(artifact.payload, f"artifact: {artifact.relative_path}")
+            _validate_json_payload(
+                artifact.payload, f"artifact: {artifact.relative_path}"
+            )
             continue
         if isinstance(artifact.payload, (pd.DataFrame, bytes)):
             continue
-        raise ValueError(
-            "不支持的趋势模型 artifact payload: " + artifact.relative_path
-        )
+        raise ValueError("不支持的趋势模型 artifact payload: " + artifact.relative_path)
 
 
 def _validate_json_payload(payload: dict[str, object], source_name: str) -> None:

@@ -293,9 +293,9 @@ def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.Data
     normalized_transactions = weekly_transactions.loc[
         :, list(WEEKLY_TRANSACTION_COLUMNS)
     ].copy()
-    normalized_transactions["article_id"] = normalized_transactions["article_id"].astype(
-        "string"
-    )
+    normalized_transactions["article_id"] = normalized_transactions[
+        "article_id"
+    ].astype("string")
 
     sales = (
         normalized_transactions.groupby(["week_id", "article_id"], as_index=False)
@@ -454,7 +454,9 @@ def read_attribute_week_target(attribute_week_target_path: Path) -> pd.DataFrame
     try:
         header = pd.read_csv(attribute_week_target_path, nrows=0)
     except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取属性趋势标签表: {attribute_week_target_path}") from exc
+        raise ValueError(
+            f"无法读取属性趋势标签表: {attribute_week_target_path}"
+        ) from exc
 
     missing_columns = sorted(set(ATTRIBUTE_WEEK_TARGET_COLUMNS) - set(header.columns))
     if missing_columns:
@@ -471,7 +473,9 @@ def read_attribute_week_target(attribute_week_target_path: Path) -> pd.DataFrame
             dtype=ATTRIBUTE_WEEK_TARGET_DTYPES,
         )
     except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取属性趋势标签表: {attribute_week_target_path}") from exc
+        raise ValueError(
+            f"无法读取属性趋势标签表: {attribute_week_target_path}"
+        ) from exc
 
 
 def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataFrame:
@@ -481,7 +485,9 @@ def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataF
     try:
         header = pd.read_csv(article_attribute_edges_path, nrows=0)
     except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取商品-属性边表: {article_attribute_edges_path}") from exc
+        raise ValueError(
+            f"无法读取商品-属性边表: {article_attribute_edges_path}"
+        ) from exc
 
     missing_columns = sorted(
         set(ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS) - set(header.columns)
@@ -500,7 +506,9 @@ def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataF
             dtype=ARTICLE_ATTRIBUTE_EDGE_HEAT_DTYPES,
         )
     except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取商品-属性边表: {article_attribute_edges_path}") from exc
+        raise ValueError(
+            f"无法读取商品-属性边表: {article_attribute_edges_path}"
+        ) from exc
 
 
 def validate_attribute_nodes_for_heat(attribute_nodes: pd.DataFrame) -> None:
@@ -561,9 +569,13 @@ def read_attribute_hierarchy_edges(
     try:
         header = pd.read_csv(attribute_hierarchy_edges_path, nrows=0)
     except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取属性层级边表: {attribute_hierarchy_edges_path}") from exc
+        raise ValueError(
+            f"无法读取属性层级边表: {attribute_hierarchy_edges_path}"
+        ) from exc
 
-    missing_columns = sorted(set(ATTRIBUTE_HIERARCHY_EDGE_COLUMNS) - set(header.columns))
+    missing_columns = sorted(
+        set(ATTRIBUTE_HIERARCHY_EDGE_COLUMNS) - set(header.columns)
+    )
     if missing_columns:
         raise ValueError(
             "属性层级边表缺少必要字段: "
@@ -578,7 +590,9 @@ def read_attribute_hierarchy_edges(
             dtype=ATTRIBUTE_HIERARCHY_EDGE_DTYPES,
         )
     except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取属性层级边表: {attribute_hierarchy_edges_path}") from exc
+        raise ValueError(
+            f"无法读取属性层级边表: {attribute_hierarchy_edges_path}"
+        ) from exc
 
 
 def validate_attribute_edge_node_metadata_consistency(
@@ -600,8 +614,7 @@ def validate_attribute_edge_node_metadata_consistency(
 
     for column in ["attr_type", "attr_value"]:
         mismatch_mask = (
-            merged_attributes[f"{column}_edge"]
-            != merged_attributes[f"{column}_node"]
+            merged_attributes[f"{column}_edge"] != merged_attributes[f"{column}_node"]
         )
         if mismatch_mask.any():
             mismatch = merged_attributes[mismatch_mask].iloc[0]
@@ -741,7 +754,9 @@ def validate_attribute_week_heat(
                 expected_attribute_nodes
             )
             if len(attribute_week_heat) != expected_rows:
-                raise ValueError("属性周热度表行数与完整 week_id x attr_id 面板不一致。")
+                raise ValueError(
+                    "属性周热度表行数与完整 week_id x attr_id 面板不一致。"
+                )
 
     if (attribute_week_heat["type_total_heat"] < attribute_week_heat["heat_cnt"]).any():
         raise ValueError("属性周热度表存在 type_total_heat 小于 heat_cnt 的记录。")
@@ -755,7 +770,9 @@ def validate_attribute_week_heat(
         attribute_week_heat["type_total_heat"].to_numpy()
         == expected_type_total_heat.to_numpy()
     ).all():
-        raise ValueError("属性周热度表存在 type_total_heat 与 heat_cnt 分组求和不一致。")
+        raise ValueError(
+            "属性周热度表存在 type_total_heat 与 heat_cnt 分组求和不一致。"
+        )
 
     share_totals = attribute_week_heat.groupby(["week_id", "attr_type"])[
         "heat_share"
@@ -771,7 +788,9 @@ def validate_attribute_week_heat(
         ~np.isclose(share_totals, expected_share_totals, atol=1e-9, rtol=0)
     ]
     if not invalid_share_totals.empty:
-        raise ValueError("属性周热度表存在 week_id + attr_type 占比和不等于 1 或 0 的分组。")
+        raise ValueError(
+            "属性周热度表存在 week_id + attr_type 占比和不等于 1 或 0 的分组。"
+        )
 
     expected_heat_share = np.where(
         attribute_week_heat["type_total_heat"] > 0,
@@ -784,7 +803,9 @@ def validate_attribute_week_heat(
         atol=1e-9,
         rtol=0,
     ):
-        raise ValueError("属性周热度表存在 heat_share 与 heat_cnt / type_total_heat 不一致。")
+        raise ValueError(
+            "属性周热度表存在 heat_share 与 heat_cnt / type_total_heat 不一致。"
+        )
 
     expected_log_heat = np.log1p(attribute_week_heat["heat_cnt"])
     if not np.allclose(
@@ -998,14 +1019,20 @@ def validate_attribute_week_target_matches_heat(
     )
 
     for column in ["attr_type", "attr_value"]:
-        if not actual[column].astype("string").equals(expected[column].astype("string")):
+        if (
+            not actual[column]
+            .astype("string")
+            .equals(expected[column].astype("string"))
+        ):
             raise ValueError(
                 "属性趋势标签表与当前属性周热度表派生结果不一致："
                 f"{column} 字段不一致。"
             )
 
     numeric_columns = [
-        column for column in compare_columns if column not in {"attr_type", "attr_value"}
+        column
+        for column in compare_columns
+        if column not in {"attr_type", "attr_value"}
     ]
     if not np.allclose(
         actual.loc[:, numeric_columns].to_numpy(dtype=float),
@@ -1014,8 +1041,7 @@ def validate_attribute_week_target_matches_heat(
         rtol=0,
     ):
         raise ValueError(
-            "属性趋势标签表与当前属性周热度表派生结果不一致："
-            "数值字段不一致。"
+            "属性趋势标签表与当前属性周热度表派生结果不一致：" "数值字段不一致。"
         )
 
 
@@ -1082,9 +1108,9 @@ def build_attribute_graph_features_frame(
     )
     features = features.merge(parent_counts, on="attr_id", how="left")
     features = features.merge(child_counts, on="attr_id", how="left")
-    features[["parent_count", "child_count"]] = features[
-        ["parent_count", "child_count"]
-    ].fillna(0).astype("int64")
+    features[["parent_count", "child_count"]] = (
+        features[["parent_count", "child_count"]].fillna(0).astype("int64")
+    )
     features["degree"] = features["parent_count"] + features["child_count"]
     return features
 
@@ -1151,9 +1177,8 @@ def build_trend_model_samples_frame(
     base["history_active_weeks_t"] = (
         base["heat_t"].gt(0).astype("int64").groupby(base["attr_id"]).cumsum()
     )
-    base["is_trend_eligible_t"] = (
-        (base["history_total_heat_t"] >= 100)
-        & (base["history_active_weeks_t"] >= 8)
+    base["is_trend_eligible_t"] = (base["history_total_heat_t"] >= 100) & (
+        base["history_active_weeks_t"] >= 8
     )
     base["week_index"] = base["week_id"]
     base["week_mod_52"] = base["week_id"] % 52
@@ -1162,8 +1187,7 @@ def build_trend_model_samples_frame(
         attribute_week_heat["week_id"].max()
     }
     expected_target_keys = base[
-        (base["week_id"] >= min_lag_weeks)
-        & (base["week_id"].isin(non_last_week_ids))
+        (base["week_id"] >= min_lag_weeks) & (base["week_id"].isin(non_last_week_ids))
     ].loc[:, ["week_id", "attr_id"]]
     available_target_keys = attribute_week_target.loc[:, ["week_id", "attr_id"]]
     missing_target_keys = expected_target_keys.merge(

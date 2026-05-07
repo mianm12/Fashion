@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 from fashion_trend import log
-from fashion_trend.config import (
-    PATH,
-    TREND_SPLIT_TEST_WEEKS,
-    TREND_SPLIT_VALID_WEEKS,
-)
+from fashion_trend.config import PATH, TREND_SPLIT_TEST_WEEKS, TREND_SPLIT_VALID_WEEKS
 from fashion_trend.trend import (
     build_trend_model_split_frames,
     build_trend_model_split_metadata,

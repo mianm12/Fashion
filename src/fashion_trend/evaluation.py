@@ -101,7 +101,9 @@ def validate_trend_model_predictions_for_evaluation(
         raise ValueError("趋势模型评价预测表存在非法 split。")
     missing_eval_splits = set(TREND_EVALUATION_SPLITS) - split_values
     if missing_eval_splits:
-        raise ValueError(f"趋势模型评价预测表缺少评价 split: {sorted(missing_eval_splits)}")
+        raise ValueError(
+            f"趋势模型评价预测表缺少评价 split: {sorted(missing_eval_splits)}"
+        )
 
     model_values = set(predictions["model_name"].astype(str))
     if model_values != {model_name}:
@@ -422,11 +424,7 @@ def _summarize_metric_records(metric_records: Sequence[object]) -> dict[str, obj
     }
     for metric_name in ("precision_at_k", "recall_at_k", "ndcg_at_k"):
         keys = sorted(
-            {
-                key
-                for record in records
-                for key in record[metric_name]
-            },
+            {key for record in records for key in record[metric_name]},
             key=int,
         )
         summary[metric_name] = {
