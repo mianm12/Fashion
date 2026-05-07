@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from fashion_trend.models.base import (
@@ -11,6 +10,7 @@ from fashion_trend.models.base import (
 from fashion_trend.trend import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
+    derive_normalized_pred_share_t1,
     validate_required_columns,
     validate_trend_model_predictions,
 )
@@ -20,7 +20,9 @@ LAST_WEEK_PARAMS: dict[str, object] = {
     "model_name": LAST_WEEK_MODEL_NAME,
     "formula": "pred_target_growth = growth_lag_1",
     "derived_formula": (
-        "pred_share_t1 = exp(pred_target_growth) * " "(share_t + epsilon) - epsilon"
+        "raw_pred_share_t1 = exp(pred_target_growth) * "
+        "(share_t + epsilon) - epsilon; "
+        "pred_share_t1 = group_normalize(max(raw_pred_share_t1, 0))"
     ),
     "epsilon": 1e-6,
 }
@@ -71,9 +73,9 @@ def predict_last_week(split_samples: pd.DataFrame) -> pd.DataFrame:
     predictions.insert(4, "model_name", LAST_WEEK_MODEL_NAME)
     predictions["pred_target_growth"] = predictions["growth_lag_1"]
     epsilon = float(LAST_WEEK_PARAMS["epsilon"])
-    predictions["pred_share_t1"] = (
-        np.exp(predictions["pred_target_growth"]) * (predictions["share_t"] + epsilon)
-        - epsilon
+    predictions["pred_share_t1"] = derive_normalized_pred_share_t1(
+        predictions,
+        epsilon,
     )
     predictions = predictions.loc[:, list(TREND_MODEL_PREDICTION_COLUMNS)]
     predictions = predictions.sort_values(

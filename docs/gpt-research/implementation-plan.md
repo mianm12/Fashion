@@ -1595,7 +1595,10 @@ src/10_train_trend_model.py --model last_week
 src/10_train_trend_model.py --model moving_average
 ```
 
-当前实现中，`last_week` 使用 `growth_lag_1` 预测 `target_growth`，承担原计划中 Previous Growth 的增长趋势基线语义；`moving_average` 使用最近两段增长的均值作为平滑 baseline。
+当前实现中，`last_week` 使用 `growth_lag_1` 预测 `target_growth`，承担原计划中
+Previous Growth 的增长趋势基线语义；`moving_average` 使用最近两段增长的均值作为平滑
+baseline。两者派生 `pred_share_t1` 时，先按 `target_growth` 的逆运算得到原始预测占比，
+再在同一 `split/week_id/attr_type` 内对非负原始值归一化，保证输出是合法占比分布。
 
 必须实现：
 

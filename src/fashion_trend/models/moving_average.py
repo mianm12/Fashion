@@ -11,6 +11,7 @@ from fashion_trend.models.base import (
 from fashion_trend.trend import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
+    derive_normalized_pred_share_t1,
     validate_required_columns,
     validate_trend_model_predictions,
 )
@@ -21,7 +22,9 @@ MOVING_AVERAGE_PARAMS: dict[str, object] = {
     "model_name": MOVING_AVERAGE_MODEL_NAME,
     "formula": "pred_target_growth = mean(growth_lag_1, growth_lag_2)",
     "derived_formula": (
-        "pred_share_t1 = exp(pred_target_growth) * " "(share_t + epsilon) - epsilon"
+        "raw_pred_share_t1 = exp(pred_target_growth) * "
+        "(share_t + epsilon) - epsilon; "
+        "pred_share_t1 = group_normalize(max(raw_pred_share_t1, 0))"
     ),
     "epsilon": 1e-6,
     "growth_lags": list(MOVING_AVERAGE_GROWTH_LAGS),
@@ -73,9 +76,9 @@ def predict_moving_average(split_samples: pd.DataFrame) -> pd.DataFrame:
     growth_lags = _read_growth_lags(split_samples)
     predictions["pred_target_growth"] = growth_lags.mean(axis=1)
     epsilon = float(MOVING_AVERAGE_PARAMS["epsilon"])
-    predictions["pred_share_t1"] = (
-        np.exp(predictions["pred_target_growth"]) * (predictions["share_t"] + epsilon)
-        - epsilon
+    predictions["pred_share_t1"] = derive_normalized_pred_share_t1(
+        predictions,
+        epsilon,
     )
     predictions = predictions.loc[:, list(TREND_MODEL_PREDICTION_COLUMNS)]
     _validate_finite_predictions(predictions)

@@ -139,6 +139,15 @@ class TestTrendEvaluation:
         with pytest.raises(ValueError, match="非有限数值"):
             validate_trend_model_predictions_for_evaluation(predictions, "last_week")
 
+    def test_validate_trend_model_predictions_for_evaluation_rejects_bad_pred_share(
+        self,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation()
+        predictions.loc[predictions.index[0], "pred_share_t1"] = 1.2
+
+        with pytest.raises(ValueError, match="pred_share_t1"):
+            validate_trend_model_predictions_for_evaluation(predictions, "last_week")
+
     def test_compute_trend_group_metrics_reports_regression_and_ranking(
         self,
     ) -> None:

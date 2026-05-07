@@ -466,6 +466,9 @@ uv run python src/09_split_trend_model_samples.py
 pred_target_growth = growth_lag_1
 ```
 
+派生 `pred_share_t1` 时，先按目标公式的逆运算得到原始预测占比，再在同一
+`split/week_id/attr_type` 内对非负原始值归一化，确保输出是合法占比分布。
+
 预测结果、参数和元数据统一写入：
 
 ```sh
@@ -488,6 +491,9 @@ uv run python src/10_train_trend_model.py --model last_week
 ```text
 pred_target_growth = mean(growth_lag_1, growth_lag_2)
 ```
+
+派生 `pred_share_t1` 的归一化口径与 `last_week` 一致，输出必须在同一
+`split/week_id/attr_type` 内求和为 1。
 
 预测结果、参数和元数据统一写入：
 

@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -49,14 +50,43 @@ from fashion_trend.trend import (
 from tests.trend_samples import sample_trend_model_samples_for_split
 
 
+def _expected_normalized_pred_share(
+    predictions: pd.DataFrame,
+    epsilon: float,
+) -> pd.Series:
+    raw_share = (
+        predictions["pred_target_growth"].map(math.exp)
+        * (predictions["share_t"] + epsilon)
+        - epsilon
+    )
+    non_negative_share = raw_share.clip(lower=0.0)
+    group_total = non_negative_share.groupby(
+        [
+            predictions["split"],
+            predictions["week_id"],
+            predictions["attr_type"],
+        ]
+    ).transform("sum")
+    return non_negative_share / group_total
+
+
+def _assert_pred_share_t1_distribution(predictions: pd.DataFrame) -> None:
+    assert predictions["pred_share_t1"].between(0.0, 1.0).all()
+    share_totals = predictions.groupby(["split", "week_id", "attr_type"])[
+        "pred_share_t1"
+    ].sum()
+    assert np.isclose(share_totals, 1.0, rtol=0, atol=1e-12).all()
+
+
 class TestTrendTraining:
     def test_last_week_params_are_stable(self) -> None:
         assert LAST_WEEK_PARAMS == {
             "model_name": "last_week",
             "formula": "pred_target_growth = growth_lag_1",
             "derived_formula": (
-                "pred_share_t1 = exp(pred_target_growth) * "
-                "(share_t + epsilon) - epsilon"
+                "raw_pred_share_t1 = exp(pred_target_growth) * "
+                "(share_t + epsilon) - epsilon; "
+                "pred_share_t1 = group_normalize(max(raw_pred_share_t1, 0))"
             ),
             "epsilon": 1e-6,
         }
@@ -79,8 +109,9 @@ class TestTrendTraining:
             "model_name": "moving_average",
             "formula": "pred_target_growth = mean(growth_lag_1, growth_lag_2)",
             "derived_formula": (
-                "pred_share_t1 = exp(pred_target_growth) * "
-                "(share_t + epsilon) - epsilon"
+                "raw_pred_share_t1 = exp(pred_target_growth) * "
+                "(share_t + epsilon) - epsilon; "
+                "pred_share_t1 = group_normalize(max(raw_pred_share_t1, 0))"
             ),
             "epsilon": 1e-6,
             "growth_lags": ["growth_lag_1", "growth_lag_2"],
@@ -725,15 +756,17 @@ class TestTrendTraining:
             check_names=False,
         )
         expected_share = (
-            predictions["pred_target_growth"].map(math.exp)
-            * (predictions["share_t"] + LAST_WEEK_PARAMS["epsilon"])
-            - LAST_WEEK_PARAMS["epsilon"]
+            _expected_normalized_pred_share(
+                predictions,
+                float(LAST_WEEK_PARAMS["epsilon"]),
+            )
         )
         pd.testing.assert_series_equal(
             predictions["pred_share_t1"],
             expected_share,
             check_names=False,
         )
+        _assert_pred_share_t1_distribution(predictions)
 
     def test_predict_moving_average_uses_two_growth_lags(self) -> None:
         split_frames = build_trend_model_split_frames(
@@ -760,15 +793,17 @@ class TestTrendTraining:
             check_names=False,
         )
         expected_share = (
-            predictions["pred_target_growth"].map(math.exp)
-            * (predictions["share_t"] + MOVING_AVERAGE_PARAMS["epsilon"])
-            - MOVING_AVERAGE_PARAMS["epsilon"]
+            _expected_normalized_pred_share(
+                predictions,
+                float(MOVING_AVERAGE_PARAMS["epsilon"]),
+            )
         )
         pd.testing.assert_series_equal(
             predictions["pred_share_t1"],
             expected_share,
             check_names=False,
         )
+        _assert_pred_share_t1_distribution(predictions)
 
     def test_predict_moving_average_rejects_missing_growth_lag(self) -> None:
         samples = sample_trend_model_samples_for_split().assign(split="train")
@@ -830,6 +865,41 @@ class TestTrendTraining:
         predictions.loc[0, "pred_target_growth"] = float("inf")
 
         with pytest.raises(ValueError, match="非有限"):
+            validate_trend_model_predictions(predictions, samples)
+
+    def test_validate_trend_model_predictions_rejects_invalid_pred_share(
+        self,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+        predictions.loc[0, "pred_share_t1"] = 1.2
+
+        with pytest.raises(ValueError, match="pred_share_t1"):
+            validate_trend_model_predictions(predictions, samples)
+
+    def test_validate_trend_model_predictions_rejects_unnormalized_pred_share(
+        self,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        predictions = predict_last_week(samples)
+        group_mask = (
+            (predictions["split"] == predictions.loc[0, "split"])
+            & (predictions["week_id"] == predictions.loc[0, "week_id"])
+            & (predictions["attr_type"] == predictions.loc[0, "attr_type"])
+        )
+        predictions.loc[group_mask, "pred_share_t1"] *= 0.5
+
+        with pytest.raises(ValueError, match="pred_share_t1"):
             validate_trend_model_predictions(predictions, samples)
 
     def test_validate_trend_model_predictions_rejects_extra_column(self) -> None:

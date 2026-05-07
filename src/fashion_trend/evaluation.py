@@ -13,6 +13,7 @@ from fashion_trend.trend import (
     TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
     validate_no_missing_values,
+    validate_pred_share_t1_distribution,
     validate_required_columns,
     validate_unique_key,
     write_json,
@@ -85,6 +86,7 @@ def validate_trend_model_predictions_for_evaluation(
         raise ValueError("趋势模型评价预测表无法校验数值字段。") from exc
     if not np.isfinite(finite_numeric_values).all():
         raise ValueError("趋势模型评价预测表存在非有限数值。")
+    validate_pred_share_t1_distribution(predictions, "趋势模型评价预测表")
 
     validate_no_missing_values(
         predictions,
