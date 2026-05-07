@@ -1,5 +1,9 @@
 # 趋势标签与趋势训练样本设计
 
+## 状态
+
+本设计是较早期的历史设计，早于后续领域驱动模块迁移。当前实现不再使用单文件 `src/fashion_trend/trend.py` 承载趋势逻辑；内部代码必须直接导入具体模块，例如 `fashion_trend.trend.attribute_heat`、`fashion_trend.trend.targets`、`fashion_trend.trend.samples`、`fashion_trend.transactions.weekly` 和 `fashion_trend.catalog.graph`。
+
 ## 范围
 
 本轮按推荐方案分两步推进：
@@ -21,7 +25,7 @@
 - 缺失属性-周不代表数据错误，而是该属性在该周热度为 0。
 - 标签和特征只能使用当前周 `t` 及之前的信息；`t+1` 只能出现在目标字段中。
 - 低频属性不在样本生成阶段直接删除，而是生成可过滤字段，供后续训练、评价和展示选择。
-- 继续复用 `src/fashion_trend/trend.py` 承载可测试的数据逻辑，脚本层只负责路径、日志、编排和错误返回。
+- 继续复用具体领域模块承载可测试的数据逻辑，脚本层只负责路径、日志、编排和错误返回。
 
 ## 上一阶段调整：完整属性-周面板
 

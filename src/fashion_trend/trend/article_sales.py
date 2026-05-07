@@ -11,7 +11,6 @@ from fashion_trend.foundation.dataframe import (
     validate_required_columns,
     validate_unique_key,
 )
-from fashion_trend.transactions.weekly import read_weekly_transactions
 from fashion_trend.trend.schema import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ARTICLE_WEEK_SALES_DTYPES,

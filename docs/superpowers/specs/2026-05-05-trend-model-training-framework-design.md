@@ -1,5 +1,9 @@
 # 趋势模型训练框架设计
 
+## 状态
+
+本设计是较早期的历史设计，早于后续领域驱动模块迁移。当前实现不再使用单文件 `src/fashion_trend/trend.py` 承载趋势逻辑；趋势数据、样本、切分和预测契约分别位于 `fashion_trend.trend.*` 具体模块，稳定交易 reader 位于 `fashion_trend.transactions.weekly`，目录图 reader 位于 `fashion_trend.catalog.graph`。
+
 ## 范围
 
 本轮将当前 `last_week` baseline 训练入口升级为面向所有趋势预测模型的训练框架，但只迁移和实现一个模型：
@@ -59,7 +63,7 @@ src/fashion_trend/training.py
 
 `src/10_train_trend_baseline.py` 不保留 wrapper。实现时删除旧文件，并同步 README 中的流水线命令。
 
-`src/fashion_trend/trend.py` 继续保留趋势数据构造、读取、通用校验和 CSV/Parquet/JSON 写出工具。模型注册、模型训练和模型专属逻辑不继续放入 `trend.py`。
+趋势数据构造、读取、通用校验和 CSV/Parquet/JSON 写出工具已按领域拆到具体模块。模型注册、模型训练和模型专属逻辑不放入趋势数据模块。
 
 ## 通用接口
 

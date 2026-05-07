@@ -1,5 +1,9 @@
 # 趋势评价模块设计
 
+## 状态
+
+本设计是较早期的历史设计，早于后续领域驱动模块迁移。当前实现不再使用单文件 `src/fashion_trend/trend.py` 承载通用趋势工具；评价模块应直接复用 `fashion_trend.trend.schema`、`fashion_trend.trend.predictions` 和 `fashion_trend.foundation.io` 等具体模块。
+
 ## 范围
 
 本轮实现趋势预测评价闭环，用于评价已经训练完成的趋势模型预测结果。
@@ -71,7 +75,7 @@ docs/gpt-research/implementation-plan.md
 | `README.md` | 同步当前趋势评价命令、产物和验证说明 |
 | `docs/gpt-research/implementation-plan.md` | 补充当前实现脚本名与产物命名，避免和旧计划脚本名漂移 |
 
-`src/fashion_trend/trend.py` 继续保留通用数据校验和写出工具。评价模块可以复用已有 `TREND_MODEL_PREDICTION_COLUMNS`、`TREND_MODEL_SPLIT_VALUES` 和 `write_json()`，但不把评价业务逻辑继续塞进 `trend.py`。
+通用数据校验、预测契约和写出工具已拆到具体模块。评价模块可以复用 `fashion_trend.trend.schema.TREND_MODEL_PREDICTION_COLUMNS`、`fashion_trend.trend.schema.TREND_MODEL_SPLIT_VALUES` 和 `fashion_trend.foundation.io.write_json_atomic()`，但不把评价业务逻辑放进趋势数据模块。
 
 ## CLI
 

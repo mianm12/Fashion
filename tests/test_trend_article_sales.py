@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import fashion_trend.trend.article_sales as article_sales_module
 from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
     read_article_week_sales,
@@ -43,6 +44,11 @@ def sample_article_week_sales() -> pd.DataFrame:
 
 
 class TestArticleWeekSalesFrame:
+    def test_article_sales_module_does_not_reexport_weekly_transaction_reader(
+        self,
+    ) -> None:
+        assert not hasattr(article_sales_module, "read_weekly_transactions")
+
     def test_read_weekly_transactions_rejects_missing_file(
         self,
         tmp_path: Path,
