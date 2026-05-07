@@ -115,7 +115,7 @@ $$
 ### 输出文件
 
 ```text
-data/processed/transactions/transactions_weekly_base.parquet
+data/interim/transactions_train_weekly.parquet
 ```
 
 ---
@@ -1306,14 +1306,13 @@ hm-fashion-trend-rec/
 │   │       ├── customers.csv
 │   │       └── sample_submission.csv
 │   │
+│   ├── interim/
+│   │   └── transactions_train_weekly.parquet
+│   │
 │   ├── processed/
 │   │   ├── basic/
 │   │   │   ├── data_profile.csv
 │   │   │   └── date_range.json
-│   │   │
-│   │   ├── transactions/
-│   │   │   ├── transactions_weekly_base.parquet
-│   │   │   └── transactions_train_small.parquet
 │   │   │
 │   │   ├── graph/
 │   │   │   ├── nodes_article.csv
@@ -1337,15 +1336,13 @@ hm-fashion-trend-rec/
 │   │       ├── recommendation_result.csv
 │   │       └── recommendation_eval.csv
 │
-├── models/
-│   ├── trend/
-│   │   ├── lgbm_trend_model.pkl
-│   │   └── feature_columns.json
-│   │
-│   └── recommend/
-│       └── best_linear_weights.json
-│
 ├── outputs/
+│   ├── models/
+│   │   └── <model>/
+│   │       ├── predictions.csv
+│   │       ├── metadata.json
+│   │       └── params.json
+│   │
 │   └── metrics/
 │       └── <model>/
 │           └── trend_metrics.json
@@ -1416,7 +1413,7 @@ hm-fashion-trend-rec/
 | 阶段          | 脚本                                  | 产出文件                                                                                                       |
 | ----------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 数据检查        | `01_data_check.py`                  | `data_profile.csv`, `date_range.json`                                                                      |
-| 周切分         | `02_build_weekly_transactions.py`   | `transactions_weekly_base.parquet`                                                                         |
+| 周切分         | `02_build_weekly_transactions.py`   | `data/interim/transactions_train_weekly.parquet`                                                           |
 | articles 清洗 | `03_clean_articles.py`              | `articles_clean_mvp.csv`, `articles_clean.csv`                                                             |
 | 属性图构建       | `04_build_attribute_graph.py`       | `nodes_article.csv`, `nodes_attribute.csv`, `edges_article_attribute.csv`, `edges_attribute_hierarchy.csv` |
 | 商品周销量       | `05_compute_article_week_sales.py`  | `article_week_sales.csv`                                                                                   |
@@ -1476,7 +1473,7 @@ src/02_build_weekly_transactions.py
 输出：
 
 ```text
-transactions_weekly_base.parquet
+transactions_train_weekly.parquet
 ```
 
 ---
