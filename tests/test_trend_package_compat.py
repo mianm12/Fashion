@@ -67,3 +67,29 @@ def test_article_sales_and_io_modules_export_stage_api() -> None:
     assert callable(write_json)
     assert callable(write_trend_csv)
     assert callable(write_trend_parquet)
+
+
+def test_heat_and_target_modules_export_stage_api() -> None:
+    from fashion_trend.trend.attribute_heat import (
+        build_attribute_week_heat_frame,
+        read_article_attribute_edges,
+        read_attribute_nodes,
+        read_attribute_week_heat,
+        validate_attribute_week_heat,
+    )
+    from fashion_trend.trend.targets import (
+        build_attribute_week_target_frame,
+        read_attribute_week_target,
+        validate_attribute_week_target,
+        validate_attribute_week_target_matches_heat,
+    )
+
+    assert callable(read_article_attribute_edges)
+    assert callable(read_attribute_nodes)
+    assert callable(read_attribute_week_heat)
+    assert callable(build_attribute_week_heat_frame)
+    assert callable(validate_attribute_week_heat)
+    assert callable(read_attribute_week_target)
+    assert callable(build_attribute_week_target_frame)
+    assert callable(validate_attribute_week_target)
+    assert callable(validate_attribute_week_target_matches_heat)
