@@ -119,3 +119,15 @@ def test_sample_and_split_modules_export_stage_api() -> None:
     assert callable(validate_trend_model_split_frame)
     assert callable(build_trend_model_split_metadata)
     assert callable(read_trend_model_split)
+
+
+def test_prediction_module_exports_contract_api() -> None:
+    from fashion_trend.trend.predictions import (
+        derive_normalized_pred_share_t1,
+        validate_pred_share_t1_distribution,
+        validate_trend_model_predictions,
+    )
+
+    assert callable(validate_trend_model_predictions)
+    assert callable(derive_normalized_pred_share_t1)
+    assert callable(validate_pred_share_t1_distribution)
