@@ -5,6 +5,8 @@ from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src" / "fashion_trend"
+PROJECT_ROOT = PACKAGE_ROOT.parents[1]
+TESTS_ROOT = PROJECT_ROOT / "tests"
 PACKAGE_NAME = PACKAGE_ROOT.name
 
 BUSINESS_DOMAINS = {
@@ -45,6 +47,15 @@ def iter_python_files(package_name: str) -> list[Path]:
     return sorted(
         path
         for path in package_path.rglob("*.py")
+        if "__pycache__" not in path.parts
+    )
+
+
+def iter_architecture_python_files() -> list[Path]:
+    return sorted(
+        path
+        for root in (PACKAGE_ROOT, TESTS_ROOT)
+        for path in root.rglob("*.py")
         if "__pycache__" not in path.parts
     )
 
@@ -161,6 +172,37 @@ def test_imported_modules_resolves_init_relative_sibling_alias(tmp_path) -> None
     module_path.write_text("from ..trend import models\n", encoding="utf-8")
 
     assert "fashion_trend.trend.models" in imported_modules(module_path)
+
+
+def test_trend_facade_import_offenders_detects_absolute_from_imports(tmp_path) -> None:
+    module_path = tmp_path / "example.py"
+    trend_package = f"{PACKAGE_NAME}.trend"
+    module_path.write_text(f"from {trend_package} import article_sales\n", encoding="utf-8")
+
+    assert trend_facade_import_offenders([module_path]) == [
+        f"{module_path}: {trend_package}.article_sales"
+    ]
+
+
+def trend_facade_import_offenders(paths: list[Path]) -> list[str]:
+    trend_package = f"{PACKAGE_NAME}.trend"
+    offenders: list[str] = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.level != 0 or node.module != trend_package:
+                continue
+            for alias in node.names:
+                imported_name = "*" if alias.name == "*" else alias.name
+                offenders.append(f"{path}: {trend_package}.{imported_name}")
+    return offenders
+
+
+def test_no_trend_package_facade_from_imports() -> None:
+    offenders = trend_facade_import_offenders(iter_architecture_python_files())
+    assert offenders == []
 
 
 def assert_package_does_not_import(

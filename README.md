@@ -574,7 +574,7 @@ NDCG@5/10/20
 - `recommendation/`：候选、重排序、Top-12 和推荐评价。
 - `reports/`：图表、表格和案例导出。
 
-`src/00_*.py` 到 `src/16_*.py` 仍是用户运行入口；脚本保留高层流程索引，计算事实位于业务包。保持现有用户命令不变。
+当前已实现的 `src/00_*.py` 到 `src/11_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
 
 趋势共享实现位于 `src/fashion_trend/trend/` 子包。`article_sales.py`、`attribute_heat.py`、`targets.py`、`samples.py`、`splits.py`、`training.py`、`evaluation.py` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/` 存放各趋势模型实现；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 

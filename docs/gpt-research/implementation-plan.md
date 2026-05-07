@@ -1393,12 +1393,7 @@ hm-fashion-trend-rec/
 │   ├── 09_split_trend_model_samples.py
 │   ├── 10_train_trend_model.py
 │   ├── 11_eval_trend_model.py
-│   ├── train_lgbm_trend.py  # 后续待新增
-│   ├── 12_build_user_profile.py
-│   ├── 13_build_recommend_candidates.py
-│   ├── 14_rerank_recommendations.py
-│   ├── 15_eval_recommendations.py
-│   └── 16_make_figures.py
+│   └── ...
 │
 ├── app/
 │   └── streamlit_app.py
@@ -1412,7 +1407,7 @@ hm-fashion-trend-rec/
 └── README.md
 ```
 
-当前实现中，用户可运行脚本继续位于 `src/` 根目录，内部计算事实按业务域进入 `src/fashion_trend/`：商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training.py`，趋势评价在 `src/fashion_trend/trend/evaluation.py`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`。
+当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/11_*.py`。后续推荐、报告和更多模型入口继续按编号脚本约定新增；内部计算事实按业务域进入 `src/fashion_trend/`：商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training.py`，趋势评价在 `src/fashion_trend/trend/evaluation.py`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`。
 
 ---
 
@@ -1707,7 +1702,7 @@ NDCG@10
 
 ---
 
-## 第 11 步：构建用户历史属性画像
+## 后续计划第 11 步：构建用户历史属性画像
 
 目标：
 
@@ -1718,7 +1713,7 @@ NDCG@10
 写：
 
 ```text
-src/12_build_user_profile.py
+12_build_user_profile.py
 ```
 
 输出：
@@ -1729,7 +1724,7 @@ user_profile.csv
 
 ---
 
-## 第 12 步：构造推荐候选集
+## 后续计划第 12 步：构造推荐候选集
 
 目标：
 
@@ -1740,7 +1735,7 @@ user_profile.csv
 写：
 
 ```text
-src/13_build_recommend_candidates.py
+13_build_recommend_candidates.py
 ```
 
 候选来源：
@@ -1759,7 +1754,7 @@ candidate_items.parquet
 
 ---
 
-## 第 13 步：线性重排序
+## 后续计划第 13 步：线性重排序
 
 目标：
 
@@ -1770,7 +1765,7 @@ candidate_items.parquet
 写：
 
 ```text
-src/14_rerank_recommendations.py
+14_rerank_recommendations.py
 ```
 
 输出：
@@ -1787,7 +1782,7 @@ recommendation_result.csv
 
 ---
 
-## 第 14 步：推荐评价
+## 后续计划第 14 步：推荐评价
 
 目标：
 
@@ -1798,7 +1793,7 @@ recommendation_result.csv
 写：
 
 ```text
-src/15_eval_recommendations.py
+15_eval_recommendations.py
 ```
 
 输出：
@@ -1819,7 +1814,7 @@ Coverage
 
 ---
 
-## 第 15 步：生成论文图表
+## 后续计划第 15 步：生成论文图表
 
 目标：
 
@@ -1830,7 +1825,7 @@ Coverage
 写：
 
 ```text
-src/16_make_figures.py
+16_make_figures.py
 ```
 
 输出：
