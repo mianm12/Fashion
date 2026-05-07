@@ -93,3 +93,29 @@ def test_heat_and_target_modules_export_stage_api() -> None:
     assert callable(build_attribute_week_target_frame)
     assert callable(validate_attribute_week_target)
     assert callable(validate_attribute_week_target_matches_heat)
+
+
+def test_sample_and_split_modules_export_stage_api() -> None:
+    from fashion_trend.trend.samples import (
+        build_attribute_graph_features_frame,
+        build_trend_model_samples_frame,
+        read_attribute_hierarchy_edges,
+        validate_trend_model_samples,
+    )
+    from fashion_trend.trend.splits import (
+        build_trend_model_split_frames,
+        build_trend_model_split_metadata,
+        read_trend_model_split,
+        validate_trend_model_split_frame,
+        validate_trend_model_split_frames,
+    )
+
+    assert callable(read_attribute_hierarchy_edges)
+    assert callable(build_attribute_graph_features_frame)
+    assert callable(build_trend_model_samples_frame)
+    assert callable(validate_trend_model_samples)
+    assert callable(build_trend_model_split_frames)
+    assert callable(validate_trend_model_split_frames)
+    assert callable(validate_trend_model_split_frame)
+    assert callable(build_trend_model_split_metadata)
+    assert callable(read_trend_model_split)
