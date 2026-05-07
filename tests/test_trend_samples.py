@@ -5,14 +5,18 @@ import math
 import pandas as pd
 import pytest
 
-from fashion_trend.trend import (ATTRIBUTE_WEEK_HEAT_COLUMNS,
-                                 TREND_MODEL_SAMPLE_COLUMNS,
-                                 build_attribute_graph_features_frame,
-                                 build_attribute_week_target_frame,
-                                 build_trend_model_samples_frame)
-from tests.trend_samples import (sample_attribute_hierarchy_edges,
-                                 sample_attribute_nodes,
-                                 sample_long_attribute_week_heat)
+from fashion_trend.trend import (
+    ATTRIBUTE_WEEK_HEAT_COLUMNS,
+    TREND_MODEL_SAMPLE_COLUMNS,
+    build_attribute_graph_features_frame,
+    build_attribute_week_target_frame,
+    build_trend_model_samples_frame,
+)
+from tests.trend_samples import (
+    sample_attribute_hierarchy_edges,
+    sample_attribute_nodes,
+    sample_long_attribute_week_heat,
+)
 
 
 class TestTrendModelSamplesFrame:
@@ -81,9 +85,8 @@ class TestTrendModelSamplesFrame:
     ) -> None:
         heat = sample_long_attribute_week_heat()
         target = build_attribute_week_target_frame(heat)
-        black_week4_mask = (
-            (target["week_id"] == 4)
-            & (target["attr_id"] == "colour_group_name::Black")
+        black_week4_mask = (target["week_id"] == 4) & (
+            target["attr_id"] == "colour_group_name::Black"
         )
         target.loc[black_week4_mask, "heat_t1"] = 9
         target.loc[black_week4_mask, "share_t1"] = 0.9
@@ -169,13 +172,10 @@ class TestTrendModelSamplesFrame:
         heat = sample_long_attribute_week_heat()
         week6 = heat[heat["week_id"] == 5].copy()
         week6["week_id"] = 6
-        heat = (
-            pd.concat([heat, week6], ignore_index=True)
-            .sort_values(
-                ["week_id", "attr_type", "heat_cnt", "attr_id"],
-                ascending=[True, True, False, True],
-                ignore_index=True,
-            )
+        heat = pd.concat([heat, week6], ignore_index=True).sort_values(
+            ["week_id", "attr_type", "heat_cnt", "attr_id"],
+            ascending=[True, True, False, True],
+            ignore_index=True,
         )
         heat["rank_in_type"] = (
             heat.groupby(["week_id", "attr_type"]).cumcount().add(1).astype("int64")

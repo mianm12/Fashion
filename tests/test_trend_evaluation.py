@@ -8,17 +8,28 @@ from pathlib import Path
 import pytest
 
 from fashion_trend.evaluation import (
-    build_trend_metrics_payload, compute_trend_group_metrics,
-    compute_trend_metrics, derive_trend_metric_output_paths,
-    read_trend_model_predictions, run_trend_model_evaluation,
-    validate_trend_model_predictions_for_evaluation, write_trend_metrics)
+    build_trend_metrics_payload,
+    compute_trend_group_metrics,
+    compute_trend_metrics,
+    derive_trend_metric_output_paths,
+    read_trend_model_predictions,
+    run_trend_model_evaluation,
+    validate_trend_model_predictions_for_evaluation,
+    write_trend_metrics,
+)
 from fashion_trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
 from fashion_trend.training import run_trend_model_training
-from fashion_trend.trend import (TREND_MODEL_PREDICTION_COLUMNS,
-                                 build_trend_model_split_frames, write_json,
-                                 write_trend_csv, write_trend_parquet)
-from tests.trend_samples import (sample_trend_model_samples_for_split,
-                                 sample_trend_predictions_for_evaluation)
+from fashion_trend.trend import (
+    TREND_MODEL_PREDICTION_COLUMNS,
+    build_trend_model_split_frames,
+    write_json,
+    write_trend_csv,
+    write_trend_parquet,
+)
+from tests.trend_samples import (
+    sample_trend_model_samples_for_split,
+    sample_trend_predictions_for_evaluation,
+)
 
 
 class TestTrendEvaluation:
@@ -30,12 +41,8 @@ class TestTrendEvaluation:
         )
 
         assert paths["output_dir"] == Path("outputs/metrics/last_week")
-        assert paths["predictions"] == Path(
-            "outputs/models/last_week/predictions.csv"
-        )
-        assert paths["metrics"] == Path(
-            "outputs/metrics/last_week/trend_metrics.json"
-        )
+        assert paths["predictions"] == Path("outputs/models/last_week/predictions.csv")
+        assert paths["metrics"] == Path("outputs/metrics/last_week/trend_metrics.json")
 
     @pytest.mark.parametrize(
         "model_name",

@@ -5,11 +5,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fashion_trend.trend import (TREND_MODEL_SPLIT_COLUMNS,
-                                 build_trend_model_split_frames,
-                                 build_trend_model_split_metadata,
-                                 read_trend_model_split, write_json,
-                                 write_trend_parquet)
+from fashion_trend.trend import (
+    TREND_MODEL_SPLIT_COLUMNS,
+    build_trend_model_split_frames,
+    build_trend_model_split_metadata,
+    read_trend_model_split,
+    write_json,
+    write_trend_parquet,
+)
 from tests.trend_samples import sample_trend_model_samples_for_split
 
 
@@ -138,7 +141,4 @@ class TestTrendModelSplitWrite:
 
         write_json({"b": 2, "a": 1}, output_path)
 
-        assert (
-            output_path.read_text(encoding="utf-8")
-            == '{\n  "a": 1,\n  "b": 2\n}\n'
-        )
+        assert output_path.read_text(encoding="utf-8") == '{\n  "a": 1,\n  "b": 2\n}\n'

@@ -9,9 +9,9 @@ from fashion_trend.articles import (
     ATTRIBUTE_COLUMNS,
     build_article_attribute_edges,
     build_article_nodes,
+    build_attribute_graph_files,
     build_attribute_graph_frames,
     build_attribute_hierarchy_edges,
-    build_attribute_graph_files,
     build_attribute_nodes,
 )
 
@@ -22,7 +22,11 @@ def sample_clean_articles() -> pd.DataFrame:
             "article_id": ["0108775015", "0108775044", "0110065001"],
             "product_code": ["0108775", "0108775", "0110065"],
             "prod_name": ["Strap top", "Strap top", "Bra"],
-            "product_group_name": ["Garment Upper body", "Garment Upper body", "Underwear"],
+            "product_group_name": [
+                "Garment Upper body",
+                "Garment Upper body",
+                "Underwear",
+            ],
             "product_type_name": ["Vest top", "T-shirt", "Bra"],
             "garment_group_name": ["Jersey Basic", "Jersey Basic", "Under-, Nightwear"],
             "colour_group_name": ["Black", "Black", "White"],
@@ -56,7 +60,9 @@ class TestAttributeGraphBuilder:
     def test_build_attribute_nodes_counts_articles_and_marks_core_fields(self) -> None:
         nodes_attribute = build_attribute_nodes(sample_clean_articles())
 
-        black_node = nodes_attribute.set_index("attr_id").loc["colour_group_name::Black"]
+        black_node = nodes_attribute.set_index("attr_id").loc[
+            "colour_group_name::Black"
+        ]
         assert int(black_node["article_count"]) == 2
         assert int(black_node["is_core_attr"]) == 1
         assert black_node["level"] == "child"
@@ -65,7 +71,9 @@ class TestAttributeGraphBuilder:
         assert int(index_node["is_core_attr"]) == 0
         assert index_node["level"] == "parent_child"
 
-    def test_build_article_attribute_edges_returns_one_edge_per_article_attribute(self) -> None:
+    def test_build_article_attribute_edges_returns_one_edge_per_article_attribute(
+        self,
+    ) -> None:
         edges = build_article_attribute_edges(sample_clean_articles())
 
         assert len(edges) == 3 * len(ATTRIBUTE_COLUMNS)
@@ -77,21 +85,23 @@ class TestAttributeGraphBuilder:
         assert first_edge["edge_type"] == "has_product_group"
         assert float(first_edge["edge_weight"]) == 1.0
 
-    def test_build_attribute_hierarchy_edges_counts_parent_child_cooccurrence(self) -> None:
+    def test_build_attribute_hierarchy_edges_counts_parent_child_cooccurrence(
+        self,
+    ) -> None:
         hierarchy_edges = build_attribute_hierarchy_edges(sample_clean_articles())
 
         colour_edge = hierarchy_edges[
-            (
-                hierarchy_edges["parent_attr_id"]
-                == "perceived_colour_master_name::Black"
-            )
+            (hierarchy_edges["parent_attr_id"] == "perceived_colour_master_name::Black")
             & (hierarchy_edges["child_attr_id"] == "colour_group_name::Black")
         ].iloc[0]
         assert colour_edge["relation_type"] == "colour_master_contains_colour"
         assert int(colour_edge["edge_weight"]) == 2
 
         section_edge = hierarchy_edges[
-            (hierarchy_edges["parent_attr_id"] == "section_name::Womens Everyday Basics")
+            (
+                hierarchy_edges["parent_attr_id"]
+                == "section_name::Womens Everyday Basics"
+            )
             & (hierarchy_edges["child_attr_id"] == "department_name::Jersey Basic")
         ].iloc[0]
         assert section_edge["relation_type"] == "section_contains_department"
@@ -156,10 +166,14 @@ class TestAttributeGraphFile:
             graph_dir=output_dir,
         )
 
-        edges_lines = (output_dir / "edges_article_attribute.csv").read_text(
-            encoding="utf-8"
-        ).splitlines()
-        comma_value_line = next(line for line in edges_lines if "Under-, Nightwear" in line)
+        edges_lines = (
+            (output_dir / "edges_article_attribute.csv")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+        comma_value_line = next(
+            line for line in edges_lines if "Under-, Nightwear" in line
+        )
         assert (
             edges_lines[0]
             == '"article_id","article_node_id","attr_id","attr_type","attr_value","edge_type","edge_weight"'

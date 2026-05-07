@@ -76,9 +76,9 @@ class TestArticleWeekSalesFrame:
         sales = build_article_week_sales_frame(sample_weekly_transactions())
 
         assert sales.columns.tolist() == list(ARTICLE_WEEK_SALES_COLUMNS)
-        assert sales[
-            ["week_id", "article_id", "sales_cnt", "sales_user_cnt"]
-        ].to_dict("records") == [
+        assert sales[["week_id", "article_id", "sales_cnt", "sales_user_cnt"]].to_dict(
+            "records"
+        ) == [
             {
                 "week_id": 0,
                 "article_id": "0108775015",

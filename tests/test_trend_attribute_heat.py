@@ -5,15 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from fashion_trend.trend import (ATTRIBUTE_WEEK_HEAT_COLUMNS,
-                                 build_attribute_week_heat_frame,
-                                 read_article_attribute_edges,
-                                 validate_article_attribute_edges_for_heat,
-                                 validate_attribute_week_heat)
-from tests.trend_samples import (sample_article_attribute_edges,
-                                 sample_attribute_article_week_sales,
-                                 sample_attribute_nodes,
-                                 sample_attribute_week_heat)
+from fashion_trend.trend import (
+    ATTRIBUTE_WEEK_HEAT_COLUMNS,
+    build_attribute_week_heat_frame,
+    read_article_attribute_edges,
+    validate_article_attribute_edges_for_heat,
+    validate_attribute_week_heat,
+)
+from tests.trend_samples import (
+    sample_article_attribute_edges,
+    sample_attribute_article_week_sales,
+    sample_attribute_nodes,
+    sample_attribute_week_heat,
+)
 
 
 class TestAttributeWeekHeatFrame:
@@ -69,8 +73,7 @@ class TestAttributeWeekHeatFrame:
         assert set(heat["attr_id"]) == set(sample_attribute_nodes()["attr_id"])
 
         zero_row = heat[
-            (heat["week_id"] == 0)
-            & (heat["attr_id"] == "colour_group_name::Blue")
+            (heat["week_id"] == 0) & (heat["attr_id"] == "colour_group_name::Blue")
         ].iloc[0]
         assert int(zero_row["heat_cnt"]) == 0
         assert float(zero_row["heat_share"]) == 0.0
@@ -88,31 +91,28 @@ class TestAttributeWeekHeatFrame:
         week0_colour = heat[
             (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
         ].sort_values("rank_in_type")
-        assert (
-            week0_colour[
-                ["attr_id", "heat_cnt", "type_total_heat", "rank_in_type"]
-            ].to_dict("records")
-            == [
-                {
-                    "attr_id": "colour_group_name::Black",
-                    "heat_cnt": 2,
-                    "type_total_heat": 3,
-                    "rank_in_type": 1,
-                },
-                {
-                    "attr_id": "colour_group_name::White",
-                    "heat_cnt": 1,
-                    "type_total_heat": 3,
-                    "rank_in_type": 2,
-                },
-                {
-                    "attr_id": "colour_group_name::Blue",
-                    "heat_cnt": 0,
-                    "type_total_heat": 3,
-                    "rank_in_type": 3,
-                },
-            ]
-        )
+        assert week0_colour[
+            ["attr_id", "heat_cnt", "type_total_heat", "rank_in_type"]
+        ].to_dict("records") == [
+            {
+                "attr_id": "colour_group_name::Black",
+                "heat_cnt": 2,
+                "type_total_heat": 3,
+                "rank_in_type": 1,
+            },
+            {
+                "attr_id": "colour_group_name::White",
+                "heat_cnt": 1,
+                "type_total_heat": 3,
+                "rank_in_type": 2,
+            },
+            {
+                "attr_id": "colour_group_name::Blue",
+                "heat_cnt": 0,
+                "type_total_heat": 3,
+                "rank_in_type": 3,
+            },
+        ]
         assert math.isclose(float(week0_colour.iloc[0]["heat_share"]), 2 / 3)
         assert math.isclose(float(week0_colour.iloc[1]["heat_share"]), 1 / 3)
         assert math.isclose(float(week0_colour.iloc[0]["log_heat"]), math.log1p(2))
@@ -120,31 +120,28 @@ class TestAttributeWeekHeatFrame:
         week1_product = heat[
             (heat["week_id"] == 1) & (heat["attr_type"] == "product_type_name")
         ].sort_values("rank_in_type")
-        assert (
-            week1_product[
-                ["attr_id", "heat_cnt", "type_total_heat", "rank_in_type"]
-            ].to_dict("records")
-            == [
-                {
-                    "attr_id": "product_type_name::Vest top",
-                    "heat_cnt": 1,
-                    "type_total_heat": 1,
-                    "rank_in_type": 1,
-                },
-                {
-                    "attr_id": "product_type_name::Bra",
-                    "heat_cnt": 0,
-                    "type_total_heat": 1,
-                    "rank_in_type": 2,
-                },
-                {
-                    "attr_id": "product_type_name::Dress",
-                    "heat_cnt": 0,
-                    "type_total_heat": 1,
-                    "rank_in_type": 3,
-                },
-            ]
-        )
+        assert week1_product[
+            ["attr_id", "heat_cnt", "type_total_heat", "rank_in_type"]
+        ].to_dict("records") == [
+            {
+                "attr_id": "product_type_name::Vest top",
+                "heat_cnt": 1,
+                "type_total_heat": 1,
+                "rank_in_type": 1,
+            },
+            {
+                "attr_id": "product_type_name::Bra",
+                "heat_cnt": 0,
+                "type_total_heat": 1,
+                "rank_in_type": 2,
+            },
+            {
+                "attr_id": "product_type_name::Dress",
+                "heat_cnt": 0,
+                "type_total_heat": 1,
+                "rank_in_type": 3,
+            },
+        ]
         assert math.isclose(float(week1_product.iloc[0]["heat_share"]), 1.0)
 
     def test_build_attribute_week_heat_frame_rejects_unmapped_sales_articles(
@@ -231,8 +228,8 @@ class TestAttributeWeekHeatFrame:
 
     def test_validate_attribute_week_heat_rejects_invalid_share_total(self) -> None:
         heat = sample_attribute_week_heat()
-        week0_colour_mask = (
-            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        week0_colour_mask = (heat["week_id"] == 0) & (
+            heat["attr_type"] == "colour_group_name"
         )
         heat.loc[week0_colour_mask.idxmax(), "heat_share"] = 0.5
 
@@ -243,8 +240,8 @@ class TestAttributeWeekHeatFrame:
         self,
     ) -> None:
         heat = sample_attribute_week_heat()
-        week0_colour_mask = (
-            (heat["week_id"] == 0) & (heat["attr_type"] == "colour_group_name")
+        week0_colour_mask = (heat["week_id"] == 0) & (
+            heat["attr_type"] == "colour_group_name"
         )
         heat.loc[week0_colour_mask, "type_total_heat"] = 999
 

@@ -9,28 +9,43 @@ import pandas as pd
 import pytest
 
 from fashion_trend.config import OUTPUT_MODELS_DIR
-from fashion_trend.models.base import (MODEL_TYPE_BASELINE, TrendArtifact,
-                                       TrendTrainContext, TrendTrainResult)
-from fashion_trend.models.last_week import (LAST_WEEK_MODEL_NAME,
-                                            LAST_WEEK_PARAMS, LastWeekTrainer,
-                                            predict_last_week)
-from fashion_trend.models.moving_average import (MOVING_AVERAGE_GROWTH_LAGS,
-                                                 MOVING_AVERAGE_MODEL_NAME,
-                                                 MOVING_AVERAGE_PARAMS,
-                                                 MovingAverageTrainer,
-                                                 predict_moving_average)
-from fashion_trend.models.registry import (UnknownTrendModelError,
-                                           get_trend_model_trainer,
-                                           list_trend_model_names)
-from fashion_trend.training import (build_trend_train_metadata,
-                                    derive_trend_model_output_paths,
-                                    run_trend_model_training,
-                                    validate_trend_train_result,
-                                    write_trend_model_outputs)
-from fashion_trend.trend import (TREND_MODEL_PREDICTION_COLUMNS,
-                                 build_trend_model_split_frames,
-                                 validate_trend_model_predictions,
-                                 write_trend_parquet)
+from fashion_trend.models.base import (
+    MODEL_TYPE_BASELINE,
+    TrendArtifact,
+    TrendTrainContext,
+    TrendTrainResult,
+)
+from fashion_trend.models.last_week import (
+    LAST_WEEK_MODEL_NAME,
+    LAST_WEEK_PARAMS,
+    LastWeekTrainer,
+    predict_last_week,
+)
+from fashion_trend.models.moving_average import (
+    MOVING_AVERAGE_GROWTH_LAGS,
+    MOVING_AVERAGE_MODEL_NAME,
+    MOVING_AVERAGE_PARAMS,
+    MovingAverageTrainer,
+    predict_moving_average,
+)
+from fashion_trend.models.registry import (
+    UnknownTrendModelError,
+    get_trend_model_trainer,
+    list_trend_model_names,
+)
+from fashion_trend.training import (
+    build_trend_train_metadata,
+    derive_trend_model_output_paths,
+    run_trend_model_training,
+    validate_trend_train_result,
+    write_trend_model_outputs,
+)
+from fashion_trend.trend import (
+    TREND_MODEL_PREDICTION_COLUMNS,
+    build_trend_model_split_frames,
+    validate_trend_model_predictions,
+    write_trend_parquet,
+)
 from tests.trend_samples import sample_trend_model_samples_for_split
 
 
@@ -733,9 +748,9 @@ class TestTrendTraining:
             ["week_id", "attr_type", "attr_id"],
             ignore_index=True,
         )
-        expected_growth = ordered_samples.loc[
-            :, ["growth_lag_1", "growth_lag_2"]
-        ].mean(axis=1)
+        expected_growth = ordered_samples.loc[:, ["growth_lag_1", "growth_lag_2"]].mean(
+            axis=1
+        )
 
         assert predictions.columns.tolist() == list(TREND_MODEL_PREDICTION_COLUMNS)
         assert set(predictions["model_name"]) == {MOVING_AVERAGE_MODEL_NAME}

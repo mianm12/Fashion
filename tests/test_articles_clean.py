@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import pandas as pd
+import pytest
 
 from fashion_trend.articles import (
     CLEAN_ARTICLE_COLUMNS,
@@ -48,9 +47,13 @@ class TestCleanArticleFrame:
         assert "detail_desc" not in mvp_articles.columns
         assert "detail_desc" not in clean_articles.columns
 
-    def test_build_clean_article_frames_casts_identifier_columns_to_string(self) -> None:
+    def test_build_clean_article_frames_casts_identifier_columns_to_string(
+        self,
+    ) -> None:
         raw_articles = sample_raw_articles()
-        raw_articles["article_id"] = pd.Series(["0108775015", "0108775044"], dtype="string")
+        raw_articles["article_id"] = pd.Series(
+            ["0108775015", "0108775044"], dtype="string"
+        )
         raw_articles["product_code"] = pd.Series(["0108775", "0108775"], dtype="string")
 
         mvp_articles, clean_articles = build_clean_article_frames(raw_articles)
@@ -84,7 +87,9 @@ class TestCleanArticleFrame:
 
 
 class TestCleanArticleFile:
-    def test_clean_articles_file_writes_mvp_and_clean_outputs(self, tmp_path: Path) -> None:
+    def test_clean_articles_file_writes_mvp_and_clean_outputs(
+        self, tmp_path: Path
+    ) -> None:
         raw_path = tmp_path / "articles.csv"
         mvp_output_path = tmp_path / "articles_clean_mvp.csv"
         clean_output_path = tmp_path / "articles_clean.csv"
