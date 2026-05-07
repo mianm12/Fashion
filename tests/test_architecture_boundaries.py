@@ -28,6 +28,16 @@ HISTORICAL_ROOT_PACKAGES = {
     "models",
 }
 
+HISTORICAL_ROOT_IMPORTS = {
+    "fashion_trend.articles",
+    "fashion_trend.config",
+    "fashion_trend.data_loader",
+    "fashion_trend.evaluation",
+    "fashion_trend.log",
+    "fashion_trend.training",
+    "fashion_trend.models",
+}
+
 
 def iter_python_files(package_name: str) -> list[Path]:
     package_path = PACKAGE_ROOT / package_name
@@ -40,6 +50,7 @@ def iter_python_files(package_name: str) -> list[Path]:
 
 
 def imported_modules(path: Path) -> set[str]:
+    # These architecture checks intentionally cover static import statements only.
     tree = ast.parse(path.read_text(encoding="utf-8"))
     modules: set[str] = set()
     for node in ast.walk(tree):
@@ -166,83 +177,86 @@ def assert_package_does_not_import(
     assert not offenders, "\n".join(offenders)
 
 
+def forbidden_imports(*module_names: str) -> set[str]:
+    return HISTORICAL_ROOT_IMPORTS | set(module_names)
+
+
 def test_foundation_has_no_business_domain_imports() -> None:
     forbidden = {f"fashion_trend.{name}" for name in BUSINESS_DOMAINS}
-    assert_package_does_not_import("foundation", forbidden)
+    assert_package_does_not_import("foundation", HISTORICAL_ROOT_IMPORTS | forbidden)
 
 
 def test_datasets_depends_only_on_foundation() -> None:
     assert_package_does_not_import(
         "datasets",
-        {
+        forbidden_imports(
             "fashion_trend.transactions",
             "fashion_trend.catalog",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
-        },
+        ),
     )
 
 
 def test_catalog_depends_only_on_foundation() -> None:
     assert_package_does_not_import(
         "catalog",
-        {
+        forbidden_imports(
             "fashion_trend.datasets",
             "fashion_trend.transactions",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
-        },
+        ),
     )
 
 
 def test_transactions_depends_only_on_foundation() -> None:
     assert_package_does_not_import(
         "transactions",
-        {
+        forbidden_imports(
             "fashion_trend.datasets",
             "fashion_trend.catalog",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
-        },
+        ),
     )
 
 
 def test_trend_depends_only_on_stable_input_domains() -> None:
     assert_package_does_not_import(
         "trend",
-        {
+        forbidden_imports(
             "fashion_trend.datasets",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
-        },
+        ),
     )
 
 
 def test_recommendation_does_not_depend_on_trend_model_internals() -> None:
     assert_package_does_not_import(
         "recommendation",
-        {
-            "fashion_trend.models",
+        forbidden_imports(
             "fashion_trend.trend.models",
             "fashion_trend.trend.training",
             "fashion_trend.trend.evaluation",
-        },
+        ),
     )
 
 
 def test_reports_does_not_depend_on_core_computation_domains() -> None:
     assert_package_does_not_import(
         "reports",
-        {
+        forbidden_imports(
             "fashion_trend.datasets",
             "fashion_trend.transactions",
             "fashion_trend.catalog",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
-        },
+        ),
     )
 
 
