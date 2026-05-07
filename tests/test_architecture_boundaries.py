@@ -24,6 +24,10 @@ HISTORICAL_ROOT_MODULES = {
     "training.py",
 }
 
+HISTORICAL_ROOT_PACKAGES = {
+    "models",
+}
+
 
 def iter_python_files(package_name: str) -> list[Path]:
     package_path = PACKAGE_ROOT / package_name
@@ -167,20 +171,38 @@ def test_foundation_has_no_business_domain_imports() -> None:
     assert_package_does_not_import("foundation", forbidden)
 
 
-def test_catalog_does_not_depend_on_trend_or_recommendation() -> None:
+def test_datasets_depends_only_on_foundation() -> None:
     assert_package_does_not_import(
-        "catalog",
-        {"fashion_trend.trend", "fashion_trend.recommendation"},
+        "datasets",
+        {
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+            "fashion_trend.recommendation",
+            "fashion_trend.reports",
+        },
     )
 
 
-def test_transactions_does_not_depend_on_catalog_trend_or_recommendation() -> None:
+def test_catalog_does_not_depend_on_trend_recommendation_or_reports() -> None:
+    assert_package_does_not_import(
+        "catalog",
+        {
+            "fashion_trend.trend",
+            "fashion_trend.recommendation",
+            "fashion_trend.reports",
+        },
+    )
+
+
+def test_transactions_does_not_depend_on_catalog_trend_recommendation_or_reports() -> None:
     assert_package_does_not_import(
         "transactions",
         {
             "fashion_trend.catalog",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
+            "fashion_trend.reports",
         },
     )
 
@@ -204,5 +226,14 @@ def test_historical_root_modules_are_removed() -> None:
         path.name
         for path in PACKAGE_ROOT.iterdir()
         if path.is_file() and path.name in HISTORICAL_ROOT_MODULES
+    )
+    assert existing == []
+
+
+def test_historical_root_packages_are_removed() -> None:
+    existing = sorted(
+        path.name
+        for path in PACKAGE_ROOT.iterdir()
+        if path.is_dir() and path.name in HISTORICAL_ROOT_PACKAGES
     )
     assert existing == []
