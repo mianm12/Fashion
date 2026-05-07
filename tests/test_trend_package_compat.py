@@ -49,3 +49,21 @@ def test_trend_validation_module_rejects_missing_columns() -> None:
             ("present", "missing_col"),
             source_name="测试表",
         )
+
+
+def test_article_sales_and_io_modules_export_stage_api() -> None:
+    from fashion_trend.trend.article_sales import (
+        build_article_week_sales_frame,
+        read_article_week_sales,
+        read_weekly_transactions,
+        validate_article_week_sales,
+    )
+    from fashion_trend.trend.io import write_json, write_trend_csv, write_trend_parquet
+
+    assert callable(read_weekly_transactions)
+    assert callable(build_article_week_sales_frame)
+    assert callable(validate_article_week_sales)
+    assert callable(read_article_week_sales)
+    assert callable(write_json)
+    assert callable(write_trend_csv)
+    assert callable(write_trend_parquet)
