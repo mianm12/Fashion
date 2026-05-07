@@ -1384,9 +1384,10 @@ hm-fashion-trend-rec/
 │   │
 │   ├── 01_data_check.py
 │   ├── 02_build_weekly_transactions.py
-│   ├── 03_build_attribute_graph.py
-│   ├── 04_compute_article_week_sales.py
-│   ├── 05_compute_attribute_week_heat.py
+│   ├── 03_clean_articles.py
+│   ├── 04_build_attribute_graph.py
+│   ├── 05_compute_article_week_sales.py
+│   ├── 06_compute_attribute_week_heat.py
 │   ├── 07_build_trend_targets.py
 │   ├── 08_build_trend_model_samples.py
 │   ├── 09_split_trend_model_samples.py
@@ -1421,9 +1422,10 @@ hm-fashion-trend-rec/
 | ----------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 数据检查        | `01_data_check.py`                  | `data_profile.csv`, `date_range.json`                                                                      |
 | 周切分         | `02_build_weekly_transactions.py`   | `transactions_weekly_base.parquet`                                                                         |
-| 属性图构建       | `03_build_attribute_graph.py`       | `nodes_article.csv`, `nodes_attribute.csv`, `edges_article_attribute.csv`, `edges_attribute_hierarchy.csv` |
-| 商品周销量       | `04_compute_article_week_sales.py`  | `article_week_sales.csv`                                                                                   |
-| 属性周热度       | `05_compute_attribute_week_heat.py` | `attribute_week_heat.csv`                                                                                  |
+| articles 清洗 | `03_clean_articles.py`              | `articles_clean_mvp.csv`, `articles_clean.csv`                                                             |
+| 属性图构建       | `04_build_attribute_graph.py`       | `nodes_article.csv`, `nodes_attribute.csv`, `edges_article_attribute.csv`, `edges_attribute_hierarchy.csv` |
+| 商品周销量       | `05_compute_article_week_sales.py`  | `article_week_sales.csv`                                                                                   |
+| 属性周热度       | `06_compute_attribute_week_heat.py` | `attribute_week_heat.csv`                                                                                  |
 | 趋势标签        | `07_build_trend_targets.py`         | `attribute_week_target.csv`                                                                                |
 | 趋势样本        | `08_build_trend_model_samples.py`   | `trend_model_samples.parquet`                                                                              |
 | baseline 训练 | `10_train_trend_model.py --model <model>` | `outputs/models/<model>/predictions.csv`, `params.json`, `metadata.json`                                   |
@@ -1484,7 +1486,30 @@ transactions_weekly_base.parquet
 
 ---
 
-## 第 3 步：构建静态商品属性图
+## 第 3 步：清洗 articles 商品表
+
+目标：
+
+```text
+从 articles.csv 生成后续属性图使用的清洗商品表。
+```
+
+写：
+
+```text
+src/03_clean_articles.py
+```
+
+输出：
+
+```text
+articles_clean_mvp.csv
+articles_clean.csv
+```
+
+---
+
+## 第 4 步：构建静态商品属性图
 
 目标：
 
@@ -1495,7 +1520,7 @@ transactions_weekly_base.parquet
 写：
 
 ```text
-src/03_build_attribute_graph.py
+src/04_build_attribute_graph.py
 ```
 
 输出：
@@ -1509,7 +1534,7 @@ edges_attribute_hierarchy.csv
 
 ---
 
-## 第 4 步：计算商品周销量
+## 第 5 步：计算商品周销量
 
 目标：
 
@@ -1520,7 +1545,7 @@ edges_attribute_hierarchy.csv
 写：
 
 ```text
-src/04_compute_article_week_sales.py
+src/05_compute_article_week_sales.py
 ```
 
 输出：
@@ -1531,7 +1556,7 @@ article_week_sales.csv
 
 ---
 
-## 第 5 步：计算属性周热度
+## 第 6 步：计算属性周热度
 
 目标：
 
@@ -1542,7 +1567,7 @@ article_week_sales.csv
 写：
 
 ```text
-src/05_compute_attribute_week_heat.py
+src/06_compute_attribute_week_heat.py
 ```
 
 输出：
@@ -1553,7 +1578,7 @@ attribute_week_heat.csv
 
 ---
 
-## 第 6 步：构造趋势标签
+## 第 7 步：构造趋势标签
 
 目标：
 
@@ -1575,7 +1600,7 @@ attribute_week_target.csv
 
 ---
 
-## 第 7 步：构造趋势训练样本
+## 第 8 步：构造趋势训练样本
 
 目标：
 
@@ -1597,7 +1622,7 @@ trend_model_samples.parquet
 
 ---
 
-## 第 8 步：先跑 baseline
+## 第 9 步：先跑 baseline
 
 目标：
 
@@ -2026,11 +2051,19 @@ active_weeks >= 8
 
 ---
 
-## 第 3 个脚本：`03_build_attribute_graph.py`
+## 第 3 个脚本：`03_clean_articles.py`
 
 功能：
 
 * 选择核心属性字段；
+* 输出后续属性图使用的清洗商品表。
+
+---
+
+## 第 4 个脚本：`04_build_attribute_graph.py`
+
+功能：
+
 * 构造 `nodes_article.csv`；
 * 构造 `nodes_attribute.csv`；
 * 构造 `edges_article_attribute.csv`；
@@ -2038,7 +2071,7 @@ active_weeks >= 8
 
 ---
 
-## 第 4 个脚本：`04_compute_article_week_sales.py`
+## 第 5 个脚本：`05_compute_article_week_sales.py`
 
 功能：
 
@@ -2047,7 +2080,7 @@ active_weeks >= 8
 
 ---
 
-## 第 5 个脚本：`05_compute_attribute_week_heat.py`
+## 第 6 个脚本：`06_compute_attribute_week_heat.py`
 
 功能：
 
