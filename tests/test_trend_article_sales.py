@@ -9,10 +9,10 @@ import pytest
 from fashion_trend.trend.article_sales import (
     build_article_week_sales_frame,
     read_article_week_sales,
-    read_weekly_transactions,
     validate_article_week_sales,
 )
 from fashion_trend.foundation.io import write_csv_atomic
+from fashion_trend.transactions.weekly import read_weekly_transactions
 from fashion_trend.trend.schema import (
     ARTICLE_WEEK_SALES_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,

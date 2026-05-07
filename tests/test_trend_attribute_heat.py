@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from fashion_trend.catalog.graph import read_article_attribute_edges
 from fashion_trend.trend.attribute_heat import (
     build_attribute_week_heat_frame,
-    read_article_attribute_edges,
     validate_article_attribute_edges_for_heat,
     validate_attribute_week_heat,
 )

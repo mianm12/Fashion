@@ -3,10 +3,8 @@ from __future__ import annotations
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_parquet_atomic
 from fashion_trend.foundation.paths import PATH
-from fashion_trend.trend.attribute_heat import (
-    read_attribute_nodes,
-    read_attribute_week_heat,
-)
+from fashion_trend.catalog.graph import read_attribute_nodes
+from fashion_trend.trend.attribute_heat import read_attribute_week_heat
 from fashion_trend.trend.samples import (
     build_trend_model_samples_frame,
     read_attribute_hierarchy_edges,

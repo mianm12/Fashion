@@ -3,16 +3,18 @@ from __future__ import annotations
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic
 from fashion_trend.foundation.paths import PATH
+from fashion_trend.catalog.graph import (
+    read_article_attribute_edges,
+    read_attribute_nodes,
+)
 from fashion_trend.trend.article_sales import (
     read_article_week_sales,
     validate_article_week_sales,
 )
 from fashion_trend.trend.attribute_heat import (
     build_attribute_week_heat_frame,
-    read_article_attribute_edges,
-    read_attribute_nodes,
-    validate_article_attribute_edges_for_heat,
-    validate_attribute_nodes_for_heat,
+    validate_all_sales_articles_have_attribute_edges,
+    validate_attribute_edge_node_metadata_consistency,
     validate_attribute_week_heat,
 )
 
@@ -31,11 +33,17 @@ def compute_attribute_week_heat() -> dict[str, int]:
     article_attribute_edges = read_article_attribute_edges(
         PATH["graph_edges_article_attribute"]
     )
-    validate_article_attribute_edges_for_heat(article_attribute_edges)
 
     log.info(f"输入属性节点表: {PATH['graph_nodes_attribute']}", source=LOG_SOURCE)
     attribute_nodes = read_attribute_nodes(PATH["graph_nodes_attribute"])
-    validate_attribute_nodes_for_heat(attribute_nodes)
+    validate_all_sales_articles_have_attribute_edges(
+        article_week_sales,
+        article_attribute_edges,
+    )
+    validate_attribute_edge_node_metadata_consistency(
+        article_attribute_edges,
+        attribute_nodes,
+    )
 
     attribute_week_heat = build_attribute_week_heat_frame(
         article_week_sales,

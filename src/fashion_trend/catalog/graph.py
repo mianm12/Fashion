@@ -46,6 +46,32 @@ GRAPH_OUTPUT_FILENAMES: dict[str, str] = {
     "edges_article_attribute": "edges_article_attribute.csv",
     "edges_attribute_hierarchy": "edges_attribute_hierarchy.csv",
 }
+ARTICLE_ATTRIBUTE_EDGE_READER_COLUMNS: tuple[str, ...] = (
+    "article_id",
+    "attr_id",
+    "attr_type",
+    "attr_value",
+)
+ARTICLE_ATTRIBUTE_EDGE_READER_DTYPES: dict[str, str] = {
+    "article_id": "string",
+    "attr_id": "string",
+    "attr_type": "string",
+    "attr_value": "string",
+}
+ATTRIBUTE_NODE_READER_COLUMNS: tuple[str, ...] = (
+    "attr_id",
+    "attr_type",
+    "attr_value",
+    "article_count",
+    "is_core_attr",
+)
+ATTRIBUTE_NODE_READER_DTYPES: dict[str, str] = {
+    "attr_id": "string",
+    "attr_type": "string",
+    "attr_value": "string",
+    "article_count": "int64",
+    "is_core_attr": "int64",
+}
 
 
 def make_attr_id(attr_type: str, attr_value: str) -> str:
@@ -235,6 +261,66 @@ def read_clean_articles(clean_articles_path: Path) -> pd.DataFrame:
             "product_code": "string",
         },
     )
+
+
+def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataFrame:
+    if not article_attribute_edges_path.exists():
+        raise FileNotFoundError(f"商品-属性边表不存在: {article_attribute_edges_path}")
+
+    try:
+        header = pd.read_csv(article_attribute_edges_path, nrows=0)
+    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"无法读取商品-属性边表: {article_attribute_edges_path}"
+        ) from exc
+
+    missing_columns = sorted(
+        set(ARTICLE_ATTRIBUTE_EDGE_READER_COLUMNS) - set(header.columns)
+    )
+    if missing_columns:
+        raise ValueError(
+            "商品-属性边表缺少必要字段: "
+            + ", ".join(missing_columns)
+            + f"。文件: {article_attribute_edges_path}"
+        )
+
+    try:
+        return pd.read_csv(
+            article_attribute_edges_path,
+            usecols=list(ARTICLE_ATTRIBUTE_EDGE_READER_COLUMNS),
+            dtype=ARTICLE_ATTRIBUTE_EDGE_READER_DTYPES,
+        )
+    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"无法读取商品-属性边表: {article_attribute_edges_path}"
+        ) from exc
+
+
+def read_attribute_nodes(attribute_nodes_path: Path) -> pd.DataFrame:
+    if not attribute_nodes_path.exists():
+        raise FileNotFoundError(f"属性节点表不存在: {attribute_nodes_path}")
+
+    try:
+        header = pd.read_csv(attribute_nodes_path, nrows=0)
+    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        raise ValueError(f"无法读取属性节点表: {attribute_nodes_path}") from exc
+
+    missing_columns = sorted(set(ATTRIBUTE_NODE_READER_COLUMNS) - set(header.columns))
+    if missing_columns:
+        raise ValueError(
+            "属性节点表缺少必要字段: "
+            + ", ".join(missing_columns)
+            + f"。文件: {attribute_nodes_path}"
+        )
+
+    try:
+        return pd.read_csv(
+            attribute_nodes_path,
+            usecols=list(ATTRIBUTE_NODE_READER_COLUMNS),
+            dtype=ATTRIBUTE_NODE_READER_DTYPES,
+        )
+    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        raise ValueError(f"无法读取属性节点表: {attribute_nodes_path}") from exc
 
 
 def validate_graph_references(

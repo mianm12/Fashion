@@ -16,9 +16,7 @@ from fashion_trend.foundation.dataframe import (
 from fashion_trend.trend.article_sales import validate_article_week_sales
 from fashion_trend.trend.schema import (
     ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS,
-    ARTICLE_ATTRIBUTE_EDGE_HEAT_DTYPES,
     ATTRIBUTE_NODE_HEAT_COLUMNS,
-    ATTRIBUTE_NODE_HEAT_DTYPES,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_DTYPES,
 )
@@ -104,39 +102,6 @@ def read_attribute_week_heat(attribute_week_heat_path: Path) -> pd.DataFrame:
         raise ValueError(f"无法读取属性周热度表: {attribute_week_heat_path}") from exc
 
 
-def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataFrame:
-    if not article_attribute_edges_path.exists():
-        raise FileNotFoundError(f"商品-属性边表不存在: {article_attribute_edges_path}")
-
-    try:
-        header = pd.read_csv(article_attribute_edges_path, nrows=0)
-    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(
-            f"无法读取商品-属性边表: {article_attribute_edges_path}"
-        ) from exc
-
-    missing_columns = sorted(
-        set(ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS) - set(header.columns)
-    )
-    if missing_columns:
-        raise ValueError(
-            "商品-属性边表缺少必要字段: "
-            + ", ".join(missing_columns)
-            + f"。文件: {article_attribute_edges_path}"
-        )
-
-    try:
-        return pd.read_csv(
-            article_attribute_edges_path,
-            usecols=list(ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS),
-            dtype=ARTICLE_ATTRIBUTE_EDGE_HEAT_DTYPES,
-        )
-    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(
-            f"无法读取商品-属性边表: {article_attribute_edges_path}"
-        ) from exc
-
-
 def validate_attribute_nodes_for_heat(attribute_nodes: pd.DataFrame) -> None:
     validate_required_columns(
         attribute_nodes,
@@ -157,33 +122,6 @@ def validate_attribute_nodes_for_heat(attribute_nodes: pd.DataFrame) -> None:
     invalid_core_flags = sorted(set(attribute_nodes["is_core_attr"]) - {0, 1})
     if invalid_core_flags:
         raise ValueError("属性节点表存在非法 is_core_attr: " + str(invalid_core_flags))
-
-
-def read_attribute_nodes(attribute_nodes_path: Path) -> pd.DataFrame:
-    if not attribute_nodes_path.exists():
-        raise FileNotFoundError(f"属性节点表不存在: {attribute_nodes_path}")
-
-    try:
-        header = pd.read_csv(attribute_nodes_path, nrows=0)
-    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取属性节点表: {attribute_nodes_path}") from exc
-
-    missing_columns = sorted(set(ATTRIBUTE_NODE_HEAT_COLUMNS) - set(header.columns))
-    if missing_columns:
-        raise ValueError(
-            "属性节点表缺少必要字段: "
-            + ", ".join(missing_columns)
-            + f"。文件: {attribute_nodes_path}"
-        )
-
-    try:
-        return pd.read_csv(
-            attribute_nodes_path,
-            usecols=list(ATTRIBUTE_NODE_HEAT_COLUMNS),
-            dtype=ATTRIBUTE_NODE_HEAT_DTYPES,
-        )
-    except (OSError, ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        raise ValueError(f"无法读取属性节点表: {attribute_nodes_path}") from exc
 
 
 def validate_attribute_edge_node_metadata_consistency(
