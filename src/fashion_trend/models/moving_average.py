@@ -21,8 +21,7 @@ MOVING_AVERAGE_PARAMS: dict[str, object] = {
     "model_name": MOVING_AVERAGE_MODEL_NAME,
     "formula": "pred_target_growth = mean(growth_lag_1, growth_lag_2)",
     "derived_formula": (
-        "pred_share_t1 = exp(pred_target_growth) * "
-        "(share_t + epsilon) - epsilon"
+        "pred_share_t1 = exp(pred_target_growth) * " "(share_t + epsilon) - epsilon"
     ),
     "epsilon": 1e-6,
     "growth_lags": list(MOVING_AVERAGE_GROWTH_LAGS),
@@ -47,8 +46,7 @@ def predict_moving_average(split_samples: pd.DataFrame) -> pd.DataFrame:
     )
     if missing_columns:
         raise ValueError(
-            "moving_average 模型输入样本缺少必需列: "
-            + ", ".join(missing_columns)
+            "moving_average 模型输入样本缺少必需列: " + ", ".join(missing_columns)
         )
     validate_required_columns(
         split_samples.columns.tolist(),
@@ -127,7 +125,12 @@ def _copy_moving_average_params() -> dict[str, object]:
 
 
 def _validate_finite_predictions(predictions: pd.DataFrame) -> None:
-    numeric_columns = ["share_t", "pred_share_t1", "target_growth", "pred_target_growth"]
+    numeric_columns = [
+        "share_t",
+        "pred_share_t1",
+        "target_growth",
+        "pred_target_growth",
+    ]
     try:
         numeric_values = predictions.loc[:, numeric_columns].to_numpy(dtype=float)
     except (TypeError, ValueError) as exc:

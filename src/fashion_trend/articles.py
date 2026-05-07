@@ -57,7 +57,11 @@ LEVEL_BY_ATTRIBUTE: dict[str, str] = {
 
 HIERARCHY_RELATIONS: tuple[tuple[str, str, str], ...] = (
     ("product_group_name", "product_type_name", "product_group_contains_type"),
-    ("perceived_colour_master_name", "colour_group_name", "colour_master_contains_colour"),
+    (
+        "perceived_colour_master_name",
+        "colour_group_name",
+        "colour_master_contains_colour",
+    ),
     ("index_group_name", "index_name", "index_group_contains_index"),
     ("index_name", "section_name", "index_contains_section"),
     ("section_name", "department_name", "section_contains_department"),
@@ -110,7 +114,9 @@ def normalize_article_identifiers(articles: pd.DataFrame) -> pd.DataFrame:
     return normalized
 
 
-def build_clean_article_frames(raw_articles: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def build_clean_article_frames(
+    raw_articles: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     validate_required_columns(
         raw_articles.columns.tolist(),
         CLEAN_ARTICLE_COLUMNS,
@@ -199,9 +205,9 @@ def build_attribute_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
     attribute_nodes["attr_node_id"] = attribute_nodes["attr_id"]
-    attribute_nodes["is_core_attr"] = attribute_nodes["attr_type"].isin(
-        CORE_ATTRIBUTE_COLUMNS
-    ).astype("int8")
+    attribute_nodes["is_core_attr"] = (
+        attribute_nodes["attr_type"].isin(CORE_ATTRIBUTE_COLUMNS).astype("int8")
+    )
     attribute_nodes["level"] = attribute_nodes["attr_type"].map(LEVEL_BY_ATTRIBUTE)
     return attribute_nodes[
         [
@@ -235,7 +241,9 @@ def build_article_attribute_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
         edge_frame = edge_frame.rename(columns={attr_type: "attr_value"})
         edge_frame["article_id"] = edge_frame["article_id"].astype("string")
         edge_frame["attr_value"] = edge_frame["attr_value"].astype("string")
-        edge_frame["article_node_id"] = edge_frame["article_id"].map(make_article_node_id)
+        edge_frame["article_node_id"] = edge_frame["article_id"].map(
+            make_article_node_id
+        )
         edge_frame["attr_type"] = attr_type
         edge_frame["attr_id"] = edge_frame["attr_value"].map(
             lambda value: make_attr_id(attr_type, value)
@@ -357,7 +365,9 @@ def validate_graph_references(
     article_node_ids = set(nodes_article["article_node_id"])
     attr_ids = set(nodes_attribute["attr_id"])
 
-    missing_article_nodes = set(edges_article_attribute["article_node_id"]) - article_node_ids
+    missing_article_nodes = (
+        set(edges_article_attribute["article_node_id"]) - article_node_ids
+    )
     if missing_article_nodes:
         raise RuntimeError("商品-属性边引用了不存在的商品节点。")
 
@@ -371,7 +381,9 @@ def validate_graph_references(
         raise RuntimeError("属性层级边引用了不存在的属性节点。")
 
 
-def build_attribute_graph_frames(clean_articles: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def build_attribute_graph_frames(
+    clean_articles: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
     validate_required_columns(
         clean_articles.columns.tolist(),
         [ARTICLE_ID_COLUMN],
@@ -442,7 +454,9 @@ def publish_graph_frames(
 
     try:
         for graph_name, graph_frame in graph_frames.items():
-            temp_paths[graph_name] = write_csv_temp(graph_frame, output_paths[graph_name])
+            temp_paths[graph_name] = write_csv_temp(
+                graph_frame, output_paths[graph_name]
+            )
 
         for graph_name, output_path in output_paths.items():
             remove_file_if_exists(backup_paths[graph_name])
@@ -472,7 +486,9 @@ def build_attribute_graph_files(
     graph_dir.mkdir(parents=True, exist_ok=True)
 
     publish_graph_frames(graph_frames, graph_dir)
-    return {graph_name: len(graph_frame) for graph_name, graph_frame in graph_frames.items()}
+    return {
+        graph_name: len(graph_frame) for graph_name, graph_frame in graph_frames.items()
+    }
 
 
 def restore_mvp_output(
@@ -494,7 +510,9 @@ def clean_articles_file(
     mvp_articles, clean_articles = build_clean_article_frames(raw_articles)
 
     mvp_tmp_output_path = mvp_output_path.with_suffix(mvp_output_path.suffix + ".tmp")
-    clean_tmp_output_path = clean_output_path.with_suffix(clean_output_path.suffix + ".tmp")
+    clean_tmp_output_path = clean_output_path.with_suffix(
+        clean_output_path.suffix + ".tmp"
+    )
     mvp_backup_path = mvp_output_path.with_suffix(mvp_output_path.suffix + ".bak")
     mvp_had_previous_output = False
     mvp_final_replace_started = False

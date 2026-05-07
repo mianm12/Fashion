@@ -16,10 +16,14 @@ LOG_SOURCE = "trend-model-samples"
 
 
 def build_trend_model_samples() -> dict[str, int]:
-    log.info(f"输入属性周热度表: {PATH['trend_attribute_week_heat']}", source=LOG_SOURCE)
+    log.info(
+        f"输入属性周热度表: {PATH['trend_attribute_week_heat']}", source=LOG_SOURCE
+    )
     attribute_week_heat = read_attribute_week_heat(PATH["trend_attribute_week_heat"])
 
-    log.info(f"输入趋势标签表: {PATH['trend_attribute_week_target']}", source=LOG_SOURCE)
+    log.info(
+        f"输入趋势标签表: {PATH['trend_attribute_week_target']}", source=LOG_SOURCE
+    )
     attribute_week_target = read_attribute_week_target(
         PATH["trend_attribute_week_target"]
     )

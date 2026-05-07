@@ -13,7 +13,9 @@ LOG_SOURCE = "article-week-sales"
 
 
 def compute_article_week_sales() -> dict[str, int]:
-    log.info(f"输入周级交易表: {PATH['interim_transactions_weekly']}", source=LOG_SOURCE)
+    log.info(
+        f"输入周级交易表: {PATH['interim_transactions_weekly']}", source=LOG_SOURCE
+    )
     weekly_transactions = read_weekly_transactions(PATH["interim_transactions_weekly"])
     article_week_sales = build_article_week_sales_frame(weekly_transactions)
     validate_article_week_sales(article_week_sales)

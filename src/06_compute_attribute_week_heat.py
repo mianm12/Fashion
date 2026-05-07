@@ -5,11 +5,11 @@ from fashion_trend.config import PATH
 from fashion_trend.trend import (
     build_attribute_week_heat_frame,
     read_article_attribute_edges,
-    read_attribute_nodes,
     read_article_week_sales,
+    read_attribute_nodes,
     validate_article_attribute_edges_for_heat,
-    validate_attribute_nodes_for_heat,
     validate_article_week_sales,
+    validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
     write_trend_csv,
 )
