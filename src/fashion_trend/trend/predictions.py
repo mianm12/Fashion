@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 
 from fashion_trend.trend.schema import (
-    TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_PRED_SHARE_GROUP_COLUMNS,
+    TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SHARE_TOLERANCE,
     TREND_MODEL_SPLIT_VALUES,
 )

@@ -47,19 +47,13 @@ from fashion_trend.trend.schema import (
     ATTRIBUTE_WEEK_HEAT_DTYPES,
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_DTYPES,
-    TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_PRED_SHARE_GROUP_COLUMNS,
+    TREND_MODEL_PREDICTION_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
     TREND_MODEL_SHARE_TOLERANCE,
     TREND_MODEL_SPLIT_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,
     WEEKLY_TRANSACTION_COLUMNS,
-)
-from fashion_trend.trend.targets import (
-    build_attribute_week_target_frame,
-    read_attribute_week_target,
-    validate_attribute_week_target,
-    validate_attribute_week_target_matches_heat,
 )
 from fashion_trend.trend.splits import (
     build_trend_model_split_frames,
@@ -67,6 +61,12 @@ from fashion_trend.trend.splits import (
     read_trend_model_split,
     validate_trend_model_split_frame,
     validate_trend_model_split_frames,
+)
+from fashion_trend.trend.targets import (
+    build_attribute_week_target_frame,
+    read_attribute_week_target,
+    validate_attribute_week_target,
+    validate_attribute_week_target_matches_heat,
 )
 from fashion_trend.trend.validation import (
     validate_no_missing_values,
