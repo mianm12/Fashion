@@ -39,6 +39,28 @@ HISTORICAL_ROOT_IMPORTS = {
     for module_name in HISTORICAL_ROOT_MODULE_NAMES | HISTORICAL_ROOT_PACKAGES
 }
 
+RECOMMENDATION_PUBLIC_UPSTREAM_IMPORTS = {
+    "fashion_trend.transactions.contracts",
+    "fashion_trend.transactions.readers",
+    "fashion_trend.catalog.contracts",
+    "fashion_trend.catalog.readers",
+    "fashion_trend.trend.schema",
+    "fashion_trend.trend.predictions",
+    "fashion_trend.trend.readers",
+}
+
+REPORTS_PUBLIC_IMPORTS = {
+    "fashion_trend.transactions.contracts",
+    "fashion_trend.transactions.readers",
+    "fashion_trend.catalog.contracts",
+    "fashion_trend.catalog.readers",
+    "fashion_trend.trend.schema",
+    "fashion_trend.trend.predictions",
+    "fashion_trend.trend.readers",
+    "fashion_trend.recommendation.contracts",
+    "fashion_trend.recommendation.readers",
+}
+
 
 def iter_python_files(package_name: str) -> list[Path]:
     package_path = PACKAGE_ROOT / package_name
@@ -218,6 +240,73 @@ def assert_package_does_not_import(
     assert not offenders, "\n".join(offenders)
 
 
+def package_upstream_import_offenders(
+    paths: list[Path],
+    upstream_roots: set[str],
+    allowed_modules: set[str],
+) -> list[str]:
+    offenders: list[str] = []
+    for path in paths:
+        for module_name in sorted(imported_modules(path)):
+            matched_root = next(
+                (
+                    root
+                    for root in upstream_roots
+                    if module_name == root or module_name.startswith(root + ".")
+                ),
+                None,
+            )
+            if matched_root is None:
+                continue
+            is_allowed = any(
+                module_name == allowed or module_name.startswith(allowed + ".")
+                for allowed in allowed_modules
+            )
+            if not is_allowed:
+                try:
+                    display_path = path.relative_to(PACKAGE_ROOT.parents[0])
+                except ValueError:
+                    display_path = path
+                offenders.append(f"{display_path}: {module_name}")
+    return offenders
+
+
+def assert_package_imports_only_allowed_upstream(
+    package_name: str,
+    upstream_roots: set[str],
+    allowed_modules: set[str],
+) -> None:
+    offenders = package_upstream_import_offenders(
+        iter_python_files(package_name),
+        upstream_roots,
+        allowed_modules,
+    )
+    assert offenders == []
+
+
+def test_allowlist_rejects_recommendation_importing_catalog_graph(
+    tmp_path: Path,
+) -> None:
+    package_root = tmp_path / "src" / "fashion_trend"
+    module_path = package_root / "recommendation" / "ranker.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text(
+        "from fashion_trend.catalog.graph import read_attribute_nodes\n",
+        encoding="utf-8",
+    )
+
+    offenders = package_upstream_import_offenders(
+        [module_path],
+        {"fashion_trend.catalog"},
+        {"fashion_trend.catalog.readers"},
+    )
+
+    assert offenders == [
+        f"{module_path}: fashion_trend.catalog.graph",
+        f"{module_path}: fashion_trend.catalog.graph.read_attribute_nodes",
+    ]
+
+
 def forbidden_imports(*module_names: str) -> set[str]:
     return HISTORICAL_ROOT_IMPORTS | set(module_names)
 
@@ -277,27 +366,29 @@ def test_trend_depends_only_on_stable_input_domains() -> None:
     )
 
 
-def test_recommendation_does_not_depend_on_trend_model_internals() -> None:
-    assert_package_does_not_import(
+def test_recommendation_imports_only_public_upstream_surfaces() -> None:
+    assert_package_imports_only_allowed_upstream(
         "recommendation",
-        forbidden_imports(
-            "fashion_trend.trend.models",
-            "fashion_trend.trend.training",
-            "fashion_trend.trend.evaluation",
-        ),
+        {
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+        },
+        RECOMMENDATION_PUBLIC_UPSTREAM_IMPORTS,
     )
 
 
-def test_reports_does_not_depend_on_core_computation_domains() -> None:
-    assert_package_does_not_import(
+def test_reports_imports_only_public_read_only_surfaces() -> None:
+    assert_package_imports_only_allowed_upstream(
         "reports",
-        forbidden_imports(
+        {
             "fashion_trend.datasets",
             "fashion_trend.transactions",
             "fashion_trend.catalog",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
-        ),
+        },
+        REPORTS_PUBLIC_IMPORTS,
     )
 
 
