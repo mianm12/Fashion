@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from fashion_trend.catalog.readers import (
-    read_attribute_hierarchy_edges,
-    read_attribute_nodes,
-)
 from fashion_trend.catalog.paths import (
     GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH,
     GRAPH_NODES_ATTRIBUTE_PATH,
+)
+from fashion_trend.catalog.readers import (
+    read_attribute_hierarchy_edges,
+    read_attribute_nodes,
 )
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_parquet_atomic
@@ -33,9 +33,7 @@ def build_trend_model_samples() -> dict[str, int]:
     )
     attribute_week_heat = read_attribute_week_heat(TREND_ATTRIBUTE_WEEK_HEAT_PATH)
 
-    log.info(
-        f"输入趋势标签表: {TREND_ATTRIBUTE_WEEK_TARGET_PATH}", source=LOG_SOURCE
-    )
+    log.info(f"输入趋势标签表: {TREND_ATTRIBUTE_WEEK_TARGET_PATH}", source=LOG_SOURCE)
     attribute_week_target = read_attribute_week_target(TREND_ATTRIBUTE_WEEK_TARGET_PATH)
 
     log.info(f"输入属性节点表: {GRAPH_NODES_ATTRIBUTE_PATH}", source=LOG_SOURCE)

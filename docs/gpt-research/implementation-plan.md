@@ -1323,8 +1323,7 @@ hm-fashion-trend-rec/
 │   │   ├── trend/
 │   │   │   ├── article_week_sales.csv
 │   │   │   ├── attribute_week_heat.csv
-│   │   │   ├── attribute_week_target.csv
-│   │   │   └── attribute_trend_pred.csv
+│   │   │   └── attribute_week_target.csv
 │   │   │
 │   │   ├── features/
 │   │   │   ├── trend_model_samples.parquet

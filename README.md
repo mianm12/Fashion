@@ -460,7 +460,7 @@ uv run python src/09_split_trend_model_samples.py
 ### 9. last_week baseline
 
 `last_week` baseline 通过通用趋势模型训练入口运行，模型细节位于
-`src/fashion_trend/trend/models/last_week.py`。当前模型使用上一样本周的已观测属性占比增长
+`src/fashion_trend/trend/models/baselines/last_week.py`。当前模型使用上一样本周的已观测属性占比增长
 `growth_lag_1` 预测下一段增长：
 
 ```text
@@ -487,7 +487,7 @@ uv run python src/10_train_trend_model.py --model last_week
 ### 10. moving_average baseline
 
 `moving_average` baseline 复用通用趋势模型训练入口，模型细节位于
-`src/fashion_trend/trend/models/moving_average.py`。当前模型使用最近两段已观测属性占比增长的简单平均预测下一段增长：
+`src/fashion_trend/trend/models/baselines/moving_average.py`。当前模型使用最近两段已观测属性占比增长的简单平均预测下一段增长：
 
 ```text
 pred_target_growth = mean(growth_lag_1, growth_lag_2)

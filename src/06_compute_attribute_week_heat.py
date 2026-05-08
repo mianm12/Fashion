@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from fashion_trend.catalog.readers import (
-    read_article_attribute_edges,
-    read_attribute_nodes,
-)
 from fashion_trend.catalog.paths import (
     GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH,
     GRAPH_NODES_ATTRIBUTE_PATH,
+)
+from fashion_trend.catalog.readers import (
+    read_article_attribute_edges,
+    read_attribute_nodes,
 )
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic

@@ -4,11 +4,11 @@ import math
 
 import pytest
 
-from fashion_trend.trend.schema import ATTRIBUTE_WEEK_TARGET_COLUMNS
 from fashion_trend.trend.labels.targets import (
     build_attribute_week_target_frame,
     validate_attribute_week_target,
 )
+from fashion_trend.trend.schema import ATTRIBUTE_WEEK_TARGET_COLUMNS
 from tests.trend_samples import sample_attribute_week_heat
 
 

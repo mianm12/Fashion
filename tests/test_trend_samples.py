@@ -12,11 +12,11 @@ from fashion_trend.trend.features.samples import (
     build_attribute_graph_features_frame,
     build_trend_model_samples_frame,
 )
+from fashion_trend.trend.labels.targets import build_attribute_week_target_frame
 from fashion_trend.trend.schema import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
 )
-from fashion_trend.trend.labels.targets import build_attribute_week_target_frame
 from tests.trend_samples import (
     sample_attribute_hierarchy_edges,
     sample_attribute_nodes,
