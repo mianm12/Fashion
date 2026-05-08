@@ -1,14 +1,9 @@
 from __future__ import annotations
 
 import importlib
-import sys
 from pathlib import Path
 
-import pandas as pd
-import pytest
-
 from fashion_trend.trend.models.base import MODEL_TYPE_SUPERVISED
-
 
 LIGHTGBM_MODULE = "fashion_trend.trend.models.supervised.lightgbm"
 LIGHTGBM_SOURCE = Path("src/fashion_trend/trend/models/supervised/lightgbm.py")
