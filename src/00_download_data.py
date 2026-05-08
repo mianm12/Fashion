@@ -55,7 +55,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     """数据下载阶段入口，负责解析参数、执行下载并返回进程退出码。
 
-    稳定输出位置为 raw H&M 数据目录。
+    默认输出为 <data_dir>/<competition>，默认配置对应 raw H&M 数据目录。
 
     Args:
         argv (Sequence[str] | None, optional): 命令行参数序列；为 None 时使用
