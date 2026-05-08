@@ -24,13 +24,17 @@ from fashion_trend.trend.schema import (
 )
 
 LIGHTGBM_MODEL_NAME = "lightgbm"
+# 训练目标是下一周相对当前周的属性热度增长率。
 LIGHTGBM_TARGET_COLUMN = "target_growth"
+# 从预测增长率反推下一周份额时使用的平滑项，避免 share_t 为 0 时除零。
 LIGHTGBM_EPSILON = 1e-6
 LIGHTGBM_NUMERIC_FEATURES: tuple[str, ...] = (
+    # 当前周热度、份额、排名等观测量。
     "heat_t",
     "share_t",
     "log_heat_t",
     "rank_in_type_t",
+    # 过去 1-4 周的热度和份额 lag。
     "heat_lag_1",
     "heat_lag_2",
     "heat_lag_3",
@@ -39,26 +43,33 @@ LIGHTGBM_NUMERIC_FEATURES: tuple[str, ...] = (
     "share_lag_2",
     "share_lag_3",
     "share_lag_4",
+    # 过去增长率和加速度特征，用于刻画趋势方向与变化速度。
     "growth_lag_1",
     "growth_lag_2",
     "acc_lag_1",
+    # 四周滚动统计，提供短窗口平滑后的热度与份额状态。
     "heat_ma_4",
     "share_ma_4",
     "share_std_4",
     "share_max_4",
     "share_min_4",
+    # 属性节点静态强度和图结构特征。
     "article_count",
     "is_core_attr",
     "parent_count",
     "child_count",
     "degree",
+    # 历史活跃度特征，帮助区分长期热门和短期偶发属性。
     "history_total_heat_t",
     "history_active_weeks_t",
     "is_trend_eligible_t",
+    # 时间位置特征，保留周序和一年 52 周周期信息。
     "week_index",
     "week_mod_52",
 )
+# 当前只让 attr_type 走 LightGBM 原生 categorical feature。
 LIGHTGBM_CATEGORICAL_FEATURES: tuple[str, ...] = ("attr_type",)
+# 标识列、标签列和 split 列用于校验或输出，不进入模型特征矩阵。
 LIGHTGBM_EXCLUDED_COLUMNS: tuple[str, ...] = (
     "attr_id",
     "attr_value",
@@ -67,20 +78,33 @@ LIGHTGBM_EXCLUDED_COLUMNS: tuple[str, ...] = (
     "target_rank_in_type_t1",
     "split",
 )
+# 受控 objective 集合；后续处理重尾 target 时可切换到 L1 回归。
 LIGHTGBM_ALLOWED_OBJECTIVES: tuple[str, ...] = ("regression", "regression_l1")
 LIGHTGBM_PARAMS: dict[str, object] = {
+    # 默认平方误差回归，首版保守对齐常规 LGBMRegressor 语义。
     "objective": "regression",
+    # 最大 boosting 轮次；实际预测轮次会被 early stopping 截到 best_iteration_。
     "n_estimators": 300,
+    # 每棵树的学习率，和 n_estimators 共同控制拟合速度与容量。
     "learning_rate": 0.05,
+    # 单棵树的最大叶子数，控制非线性表达能力。
     "num_leaves": 31,
+    # 限制树深，避免属性周级样本上过深分裂。
     "max_depth": 6,
+    # 叶子节点最小样本数，降低小样本叶子的过拟合风险。
     "min_child_samples": 20,
+    # 行采样比例，用于降低单轮树对训练样本的依赖。
     "subsample": 0.8,
+    # 列采样比例，用于让不同树关注不同特征子集。
     "colsample_bytree": 0.8,
+    # 固定随机种子，保证训练和测试产物可复现。
     "random_state": 42,
+    # 关闭 LightGBM 训练日志，由上层 runner 控制命令输出。
     "verbosity": -1,
 }
+# valid 指标连续若干轮无提升就停止；预测和模型产物记录 best_iteration_。
 LIGHTGBM_EARLY_STOPPING: dict[str, int] = {"stopping_rounds": 30}
+# LightGBM trainer 读取样本时的最小输入契约。
 _LIGHTGBM_REQUIRED_COLUMNS: tuple[str, ...] = (
     "split",
     "week_id",
@@ -96,15 +120,30 @@ _LIGHTGBM_REQUIRED_COLUMNS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class LightGBMFeatureFrame:
+    """LightGBM 输入矩阵及其分类 levels。
+
+    `features` 是只包含模型特征列的 DataFrame；`attr_type_categories` 是从
+    train split 固化出的分类取值，valid/test 必须复用它以避免跨 split
+    category 编码漂移。
+    """
+
     features: pd.DataFrame
     attr_type_categories: tuple[str, ...]
 
 
 class LightGBMTrendTrainer:
+    """LightGBM 趋势主模型训练器。"""
+
     name = LIGHTGBM_MODEL_NAME
     model_type = MODEL_TYPE_SUPERVISED
 
     def train(self, context: TrendTrainContext) -> TrendTrainResult:
+        """训练模型并返回通用 runner 可写盘的标准结果。
+
+        train split 用于拟合，valid split 用于 early stopping；test split 不参与
+        拟合，只用于生成标准预测和 residual 诊断。
+        """
+
         split_frames = _copy_context_split_frames(context)
         train_prepared = prepare_lightgbm_feature_frame(split_frames["train"])
         valid_prepared = prepare_lightgbm_feature_frame(
@@ -176,6 +215,8 @@ class LightGBMTrendTrainer:
 def _copy_context_split_frames(
     context: TrendTrainContext,
 ) -> dict[str, pd.DataFrame]:
+    """复制并校验 split frames，防止 frame key 与行内 split 不一致造成泄漏。"""
+
     split_frames: dict[str, pd.DataFrame] = {}
     for split_name in context.split_order:
         if split_name not in context.split_frames:
@@ -205,6 +246,12 @@ def prepare_lightgbm_feature_frame(
     samples: pd.DataFrame,
     attr_type_categories: tuple[str, ...] | None = None,
 ) -> LightGBMFeatureFrame:
+    """构建 LightGBM 特征矩阵。
+
+    数值特征必须能解析为有限值；train split 负责固化 `attr_type` categories，
+    valid/test 复用这组 categories，出现未知 `attr_type` 时直接失败。
+    """
+
     if samples.empty:
         raise ValueError("lightgbm 模型输入 split 不能为空。")
     validate_required_columns(
@@ -239,7 +286,11 @@ def _fit_lightgbm_model(
     valid_features: pd.DataFrame,
     valid_target: pd.Series,
 ):
+    """拟合 LightGBM 模型，并把 native 依赖错误限制在 lightgbm 模型路径内。"""
+
     try:
+        # registry 会导入本模块；native lightgbm 必须延迟到 fit 阶段导入，
+        # 避免缺少 libomp 等运行时依赖时拖垮 baseline 命令。
         from lightgbm import LGBMRegressor, early_stopping, log_evaluation
     except (ImportError, OSError) as exc:
         raise ValueError(
@@ -265,6 +316,8 @@ def _fit_lightgbm_model(
 
 
 def _predict_with_model(model, features: pd.DataFrame) -> np.ndarray:
+    """使用 early stopping 选出的最佳轮次预测，而不是无条件使用全部树。"""
+
     predictions = model.predict(features, num_iteration=_read_best_iteration(model))
     predictions = np.asarray(predictions, dtype=float)
     if not np.isfinite(predictions).all():
@@ -355,6 +408,12 @@ def _to_json_safe_value(value):
 
 
 def _dump_model_text(booster) -> bytes:
+    """导出 LightGBM 官方文本模型。
+
+    文本中的多棵 `Tree=` 是最终 boosted-tree ensemble 的组成部分，不是逐轮
+    checkpoint；完整模型需要这些树共同参与预测。
+    """
+
     model_text = booster.model_to_string()
     return model_text.encode("utf-8")
 
@@ -381,6 +440,8 @@ def _read_attr_type(
     if attr_type_categories is None:
         categories = tuple(sorted(attr_values.unique()))
     else:
+        # valid/test 只能使用 train 已见过的类别，避免各 split 独立 astype
+        # 造成相同分类被编码成不同 levels。
         categories = tuple(attr_type_categories)
         unknown_values = sorted(set(attr_values.unique()) - set(categories))
         if unknown_values:
@@ -395,6 +456,8 @@ def _read_attr_type(
 def describe_target_distribution(
     split_frames: Mapping[str, pd.DataFrame],
 ) -> dict[str, dict[str, float | int]]:
+    """按 split 汇总 target 分布，用于解释重尾目标对回归训练的影响。"""
+
     return {
         split_name: _describe_target_series(split_frame[LIGHTGBM_TARGET_COLUMN])
         for split_name, split_frame in split_frames.items()
@@ -404,6 +467,8 @@ def describe_target_distribution(
 def describe_zero_share_rows(
     split_frames: Mapping[str, pd.DataFrame],
 ) -> dict[str, int]:
+    """统计 share_t 为 0 的样本数，用于解释份额反推和增长率极值风险。"""
+
     return {
         split_name: int(
             pd.to_numeric(split_frame["share_t"], errors="raise").eq(0).sum()
@@ -415,6 +480,8 @@ def describe_zero_share_rows(
 def describe_residual_distribution(
     prediction_frames: Mapping[str, pd.DataFrame],
 ) -> dict[str, dict[str, float | int]]:
+    """按 split 汇总残差分布，诊断 valid/test 上的误差形态。"""
+
     distribution: dict[str, dict[str, float | int]] = {}
     for split_name, predictions in prediction_frames.items():
         residual = pd.to_numeric(
@@ -428,6 +495,12 @@ def describe_residual_distribution(
 
 
 def build_feature_importance_frame(booster) -> pd.DataFrame:
+    """生成可解释产物中的特征重要性表。
+
+    `split_importance` 是特征被用于分裂的次数；`gain_importance` 是分裂带来的
+    总增益；`normalized_gain_importance` 是 gain 在所有特征中的占比。
+    """
+
     feature_names = list(booster.feature_name())
     split_importance = np.asarray(
         booster.feature_importance(importance_type="split"),
