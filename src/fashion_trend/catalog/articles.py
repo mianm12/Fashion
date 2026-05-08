@@ -170,7 +170,8 @@ def clean_articles_file(
 
     边界:
         MVP 产物和完整清洗产物一起发布；若完整清洗产物替换失败，
-        回滚逻辑会恢复已经替换过的 MVP 产物，避免上下游看到半发布状态。
+        回滚逻辑会尽量恢复已经替换过的 MVP 产物，降低半发布风险；
+        两个 CSV 的跨文件可见性不具备原子保证。
     """
     raw_articles = read_articles_csv(raw_articles_path)
     mvp_articles, clean_articles = build_clean_article_frames(raw_articles)

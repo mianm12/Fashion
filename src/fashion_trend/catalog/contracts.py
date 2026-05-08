@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# `edges_article_attribute.csv` 的稳定列契约。
+# 从 `edges_article_attribute.csv` 读取和下游消费的列契约。
 ARTICLE_ATTRIBUTE_EDGE_COLUMNS: tuple[str, ...] = (
     "article_id",
     "attr_id",
@@ -16,7 +16,7 @@ ARTICLE_ATTRIBUTE_EDGE_DTYPES: dict[str, str] = {
     "attr_value": "string",
 }
 
-# `nodes_attribute.csv` 的稳定列契约。
+# 从 `nodes_attribute.csv` 读取和下游消费的列契约。
 ATTRIBUTE_NODE_COLUMNS: tuple[str, ...] = (
     "attr_id",
     "attr_type",
@@ -34,7 +34,7 @@ ATTRIBUTE_NODE_DTYPES: dict[str, str] = {
     "is_core_attr": "int64",
 }
 
-# `edges_attribute_hierarchy.csv` 的稳定列契约。
+# `edges_attribute_hierarchy.csv` 当前完整产物列契约。
 ATTRIBUTE_HIERARCHY_EDGE_COLUMNS: tuple[str, ...] = (
     "parent_attr_id",
     "child_attr_id",

@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 
 from fashion_trend.foundation import logging as log
 
+# 原始 `transactions_train.csv` 生成周级交易表时必须存在的列。
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "t_dat",
     "customer_id",
@@ -17,6 +18,7 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
     "price",
     "sales_channel_id",
 )
+# 周级交易 Parquet 实际写出的列集合。
 OUTPUT_COLUMNS = (
     "t_dat",
     "week_id",
@@ -25,6 +27,7 @@ OUTPUT_COLUMNS = (
     "price",
     "sales_channel_id",
 )
+# pandas 分块读取原始交易 CSV 时使用的类型约束。
 TRANSACTION_DTYPES = {
     "t_dat": "string",
     "customer_id": "string",
@@ -225,7 +228,8 @@ def build_weekly_transactions(
 
     边界:
         先扫描全表日期范围和总行数，再用最早日期派生 `week_id`；
-        `week_id` 公式和目标路径由上游调用方传入，不在此处重写。
+        `week_id` 固定按距最早交易日期的天数做 7 天整除偏移派生，
+        目标路径由调用方传入。
     """
     columns = read_csv_columns(raw_transactions_path)
     validate_required_columns(columns)
