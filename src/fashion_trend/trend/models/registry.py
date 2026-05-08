@@ -9,6 +9,10 @@ from fashion_trend.trend.models.baselines.moving_average import (
     MOVING_AVERAGE_MODEL_NAME,
     MovingAverageTrainer,
 )
+from fashion_trend.trend.models.baselines.previous_growth import (
+    PREVIOUS_GROWTH_MODEL_NAME,
+    PreviousGrowthTrainer,
+)
 
 
 class UnknownTrendModelError(ValueError):
@@ -18,6 +22,7 @@ class UnknownTrendModelError(ValueError):
 TREND_MODEL_REGISTRY: dict[str, TrendModelTrainer] = {
     LAST_WEEK_MODEL_NAME: LastWeekTrainer(),
     MOVING_AVERAGE_MODEL_NAME: MovingAverageTrainer(),
+    PREVIOUS_GROWTH_MODEL_NAME: PreviousGrowthTrainer(),
 }
 
 

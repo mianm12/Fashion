@@ -29,6 +29,12 @@ from fashion_trend.trend.models.baselines.moving_average import (
     MovingAverageTrainer,
     predict_moving_average,
 )
+from fashion_trend.trend.models.baselines.previous_growth import (
+    PREVIOUS_GROWTH_MODEL_NAME,
+    PREVIOUS_GROWTH_PARAMS,
+    PreviousGrowthTrainer,
+    predict_previous_growth,
+)
 from fashion_trend.trend.models.registry import (
     UnknownTrendModelError,
     get_trend_model_trainer,
@@ -95,6 +101,7 @@ class TestTrendTraining:
         assert list_trend_model_names() == (
             LAST_WEEK_MODEL_NAME,
             MOVING_AVERAGE_MODEL_NAME,
+            PREVIOUS_GROWTH_MODEL_NAME,
         )
 
     def test_registry_returns_last_week_trainer(self) -> None:
@@ -117,6 +124,18 @@ class TestTrendTraining:
             "growth_lags": ["growth_lag_1", "growth_lag_2"],
         }
         assert MOVING_AVERAGE_GROWTH_LAGS == ("growth_lag_1", "growth_lag_2")
+
+    def test_previous_growth_params_are_stable(self) -> None:
+        assert PREVIOUS_GROWTH_PARAMS == {
+            "model_name": "previous_growth",
+            "formula": "pred_target_growth = growth_lag_1",
+            "derived_formula": (
+                "raw_pred_share_t1 = exp(pred_target_growth) * "
+                "(share_t + epsilon) - epsilon; "
+                "pred_share_t1 = group_normalize(max(raw_pred_share_t1, 0))"
+            ),
+            "epsilon": 1e-6,
+        }
 
     @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
     def test_predict_moving_average_rejects_non_finite_growth_lag(
@@ -161,6 +180,13 @@ class TestTrendTraining:
 
         assert isinstance(trainer, MovingAverageTrainer)
         assert trainer.name == MOVING_AVERAGE_MODEL_NAME
+        assert trainer.model_type == MODEL_TYPE_BASELINE
+
+    def test_registry_returns_previous_growth_trainer(self) -> None:
+        trainer = get_trend_model_trainer(PREVIOUS_GROWTH_MODEL_NAME)
+
+        assert isinstance(trainer, PreviousGrowthTrainer)
+        assert trainer.name == PREVIOUS_GROWTH_MODEL_NAME
         assert trainer.model_type == MODEL_TYPE_BASELINE
 
     def test_registry_rejects_unknown_model(self) -> None:
@@ -821,12 +847,51 @@ class TestTrendTraining:
         )
         _assert_pred_share_t1_distribution(predictions)
 
+    def test_predict_previous_growth_uses_growth_lag_1(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+
+        predictions = predict_previous_growth(samples)
+        ordered_samples = samples.sort_values(
+            ["week_id", "attr_type", "attr_id"],
+            ignore_index=True,
+        )
+
+        assert predictions.columns.tolist() == list(TREND_MODEL_PREDICTION_COLUMNS)
+        assert set(predictions["model_name"]) == {PREVIOUS_GROWTH_MODEL_NAME}
+        pd.testing.assert_series_equal(
+            predictions["pred_target_growth"],
+            ordered_samples["growth_lag_1"],
+            check_names=False,
+        )
+        expected_share = _expected_normalized_pred_share(
+            predictions,
+            float(PREVIOUS_GROWTH_PARAMS["epsilon"]),
+        )
+        pd.testing.assert_series_equal(
+            predictions["pred_share_t1"],
+            expected_share,
+            check_names=False,
+        )
+        _assert_pred_share_t1_distribution(predictions)
+
     def test_predict_moving_average_rejects_missing_growth_lag(self) -> None:
         samples = sample_trend_model_samples_for_split().assign(split="train")
         samples = samples.drop(columns=["growth_lag_2"])
 
         with pytest.raises(ValueError, match="growth_lag_2"):
             predict_moving_average(samples)
+
+    def test_predict_previous_growth_rejects_missing_growth_lag(self) -> None:
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+        samples = samples.drop(columns=["growth_lag_1"])
+
+        with pytest.raises(ValueError, match="growth_lag_1"):
+            predict_previous_growth(samples)
 
     def test_predict_moving_average_rejects_illegal_split(self) -> None:
         samples = sample_trend_model_samples_for_split().assign(split="holdout")
