@@ -67,6 +67,7 @@ outputs/models/lightgbm/
   feature_importance.csv
   model.txt
   runs/
+    index.jsonl
     <run_id>/
       predictions.csv
       params.json
@@ -81,6 +82,7 @@ LightGBM 评价产物目录：
 outputs/metrics/lightgbm/
   trend_metrics.json
   runs/
+    evaluations.jsonl
     <run_id>/
       trend_metrics.json
 ```
@@ -142,7 +144,7 @@ uv run python src/10_train_trend_model.py \
 uv run python src/10_train_trend_model.py --model lightgbm --promote-run depth6-lr005
 ```
 
-`--promote-run` 是训练入口的互斥模式。它不重新训练，只校验 `outputs/models/lightgbm/runs/<run_id>/` 下的模型产物完整性，要求对应 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json` 已存在，然后把该 run 的模型产物发布到稳定目录并生成 stable metadata。
+`--promote-run` 是训练入口的互斥模式。它不重新训练，只校验 `outputs/models/lightgbm/runs/<run_id>/` 下的模型产物完整性，要求对应 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json` 已存在，然后把该 run 的模型产物发布到稳定目录、生成 stable metadata，并同步发布 stable metrics。
 
 promotion 规则：
 
@@ -154,6 +156,7 @@ promotion 规则：
 - `--promote-run` 不能与 `--run-id`、`--params` 或 `--param` 组合。
 - `--run-id`、`--params`、`--param`、`--promote`、`--no-promote`、`--promote-run` 只允许 `--model lightgbm` 使用；baseline 传入这些参数必须直接失败，不能静默忽略。
 - 训练命令内的 `--promote` 只发布模型产物，不自动运行评价，也不发布 metrics。
+- `--promote-run` 发布已评估 run，必须同步发布模型产物和 stable metrics，避免 stable model 与 stable metrics 指向不同 run。
 - 正式主模型的推荐流程是先 `train --no-promote`，再 `eval --run-id`，确认 valid/test 摘要后通过 `--promote-run` 发布 stable。
 
 评价入口新增可选参数：
@@ -342,7 +345,28 @@ run 目录是事实来源，stable 目录是 promotion 结果。训练输出顺�
 
 run 写出失败时，不得更新 stable。stable 写出失败时，不得删除已经成功发布的 run。run metadata 发布后不再要求为了 promotion 结果回写；如果 index 更新也因磁盘或权限问题失败，CLI 仍返回失败，并在日志中输出 run 目录、stable 目录和 promotion 错误。本轮实现包含训练命令内 promotion 和 `--promote-run` 两种发布路径。
 
-`--promote-run <run_id>` 复用同一套 promotion 发布逻辑，但输入来自已有 run 目录。它必须先校验标准模型产物、run metadata、`params.json` 和对应 run metrics 都存在且路径安全，再发布 stable。发布失败时不得修改 run 目录；发布成功后稳定目录 metadata 指向 stable 路径，并记录来源 `run_id`。
+`--promote-run <run_id>` 复用同一套 promotion 发布逻辑，但输入来自已有 run 目录。它必须先校验标准模型产物、run metadata、`params.json`、对应 run metrics 和 run metrics payload 都存在且路径安全，再发布 stable。发布失败时不得修改 run 目录；发布成功后稳定目录 metadata 指向 stable 路径，并记录来源 `run_id`。
+
+`--promote-run` 还必须同步发布 stable metrics。发布方式是读取：
+
+```text
+outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json
+```
+
+然后生成 stable metrics payload，至少把 `prediction_path` 和 `output_path` 改为稳定路径：
+
+```text
+outputs/models/lightgbm/predictions.csv
+outputs/metrics/lightgbm/trend_metrics.json
+```
+
+`model_name` 和 `run_id` 保持不变。写出目标为：
+
+```text
+outputs/metrics/lightgbm/trend_metrics.json
+```
+
+模型产物、stable metadata 和 stable metrics 必须作为一次 promotion 操作处理：如果 stable metrics 写出失败，命令返回失败，stable model 与 stable metrics 不能被当成成功发布结果。
 
 ## 评价关联
 
@@ -431,6 +455,7 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 - `index.jsonl` 是一行一个 run 的 summary index，`promotion_status` 只能是 `not_requested`、`succeeded` 或 `failed`。
 - promotion 失败时保留 run，通过 `runs/index.jsonl` 更新失败状态；如果 index 也无法写入，则日志必须输出失败摘要，训练命令返回失败。
 - `--promote-run <run_id>` 不重新训练，要求 run 产物和 run metrics 都存在，发布成功后稳定目录 metadata 指向 stable 路径并记录来源 run。
+- `--promote-run <run_id>` 同步发布 stable metrics，把 run metrics payload 的 `prediction_path` 和 `output_path` 改为稳定路径，且保留 `run_id`。
 - 显式 run 评价读取 `runs/<run_id>/predictions.csv`，写 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json`。
 - run 评价写入 `evaluations.jsonl`，其中 `selection_metrics` 只来自 valid split，`report_metrics` 可包含 test 摘要。
 - `--promote` 不自动运行评价或发布 metrics。
