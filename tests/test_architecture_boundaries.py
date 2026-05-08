@@ -61,6 +61,15 @@ REPORTS_PUBLIC_IMPORTS = {
     "fashion_trend.recommendation.readers",
 }
 
+FOUNDATION_PATH_ALLOWED_EXPORTS = {
+    "PROJECT_ROOT",
+    "DATA_DIR",
+    "RAW_DIR",
+    "INTERIM_DIR",
+    "PROCESSED_DIR",
+    "OUTPUT_DIR",
+}
+
 
 def iter_python_files(package_name: str) -> list[Path]:
     package_path = PACKAGE_ROOT / package_name
@@ -314,6 +323,15 @@ def forbidden_imports(*module_names: str) -> set[str]:
 def test_foundation_has_no_business_domain_imports() -> None:
     forbidden = {f"fashion_trend.{name}" for name in BUSINESS_DOMAINS}
     assert_package_does_not_import("foundation", HISTORICAL_ROOT_IMPORTS | forbidden)
+
+
+def test_foundation_paths_exports_only_project_roots() -> None:
+    import fashion_trend.foundation.paths as paths
+
+    exported_names = {
+        name for name in vars(paths) if name.isupper() and not name.startswith("_")
+    }
+    assert exported_names == FOUNDATION_PATH_ALLOWED_EXPORTS
 
 
 def test_datasets_depends_only_on_foundation() -> None:
