@@ -72,6 +72,7 @@ FOUNDATION_PATH_ALLOWED_EXPORTS = {
 
 
 def iter_python_files(package_name: str) -> list[Path]:
+    """列出指定业务域包下参与架构边界检查的 Python 文件。"""
     package_path = PACKAGE_ROOT / package_name
     assert package_path.exists(), f"package missing: fashion_trend.{package_name}"
     return sorted(
@@ -80,6 +81,7 @@ def iter_python_files(package_name: str) -> list[Path]:
 
 
 def iter_architecture_python_files() -> list[Path]:
+    """列出生产包和测试包中参与静态导入检查的 Python 文件。"""
     return sorted(
         path
         for root in (PACKAGE_ROOT, TESTS_ROOT)
@@ -89,7 +91,12 @@ def iter_architecture_python_files() -> list[Path]:
 
 
 def imported_modules(path: Path) -> set[str]:
-    # These architecture checks intentionally cover static import statements only.
+    """解析文件中的静态 import 语句并返回完整模块候选集合。
+
+    该 helper 只覆盖 AST 中的 import/from import 语句；动态 import 不属于
+    架构边界测试目标。from import 会同时记录基础模块和别名展开后的模块名，
+    供后续白名单与前缀匹配使用。
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     modules: set[str] = set()
     for node in ast.walk(tree):
@@ -101,6 +108,11 @@ def imported_modules(path: Path) -> set[str]:
 
 
 def imported_from_modules(path: Path, node: ast.ImportFrom) -> set[str]:
+    """展开 from import 节点的基础模块和具名导入模块。
+
+    解析绝对导入和相对导入后，返回可用于架构白名单检查的模块集合；
+    星号导入只保留基础模块，避免生成无法静态定位的成员路径。
+    """
     base_module = import_from_base_module(path, node)
     modules: set[str] = set()
     if base_module:
@@ -113,6 +125,7 @@ def imported_from_modules(path: Path, node: ast.ImportFrom) -> set[str]:
 
 
 def import_from_base_module(path: Path, node: ast.ImportFrom) -> str:
+    """把 from import 节点解析为绝对基础模块名。"""
     if node.level == 0:
         return node.module or ""
     package_parts = package_parts_for_path(path)
@@ -123,6 +136,7 @@ def import_from_base_module(path: Path, node: ast.ImportFrom) -> str:
 
 
 def package_parts_for_path(path: Path) -> list[str]:
+    """根据文件路径推导所属 Python 包路径片段。"""
     package_root = package_root_for_path(path)
     relative_module = path.relative_to(package_root.parent).with_suffix("")
     parts = list(relative_module.parts)
@@ -132,6 +146,7 @@ def package_parts_for_path(path: Path) -> list[str]:
 
 
 def package_root_for_path(path: Path) -> Path:
+    """定位文件路径对应的 fashion_trend 包根目录。"""
     try:
         path.relative_to(PACKAGE_ROOT)
     except ValueError:
@@ -215,6 +230,11 @@ def test_trend_facade_import_offenders_detects_absolute_from_imports(tmp_path) -
 
 
 def trend_facade_import_offenders(paths: list[Path]) -> list[str]:
+    """找出仍从 trend facade 直接导入子模块的违规位置。
+
+    只检查 `from fashion_trend.trend import ...` 形式，按 AST 静态解析展开
+    导入别名，并把每个违规项格式化为路径加模块名，便于断言输出精确定位。
+    """
     trend_package = f"{PACKAGE_NAME}.trend"
     offenders: list[str] = []
     for path in paths:
@@ -239,6 +259,7 @@ def assert_package_does_not_import(
     package_name: str,
     forbidden_modules: set[str],
 ) -> None:
+    """断言业务域包没有导入给定的禁止模块前缀。"""
     offenders: list[str] = []
     for path in iter_python_files(package_name):
         for module_name in imported_modules(path):
@@ -254,6 +275,12 @@ def package_upstream_import_offenders(
     upstream_roots: set[str],
     allowed_modules: set[str],
 ) -> list[str]:
+    """找出跨上游业务域导入中未命中白名单的模块。
+
+    先用 `upstream_roots` 做根模块前缀匹配，筛出需要检查的上游导入；
+    再用 `allowed_modules` 做精确或子模块前缀白名单匹配，剩余项会保留
+    相对路径和模块名，供边界测试输出可读的违规列表。
+    """
     offenders: list[str] = []
     for path in paths:
         for module_name in sorted(imported_modules(path)):
@@ -285,6 +312,7 @@ def assert_package_imports_only_allowed_upstream(
     upstream_roots: set[str],
     allowed_modules: set[str],
 ) -> None:
+    """断言业务域包只导入白名单允许的上游公开接口。"""
     offenders = package_upstream_import_offenders(
         iter_python_files(package_name),
         upstream_roots,
@@ -358,6 +386,7 @@ def test_allowlist_rejects_core_computation_imports(tmp_path: Path) -> None:
 
 
 def forbidden_imports(*module_names: str) -> set[str]:
+    """合并历史根模块和当前测试额外禁止的模块前缀。"""
     return HISTORICAL_ROOT_IMPORTS | set(module_names)
 
 

@@ -15,6 +15,7 @@ from fashion_trend.catalog.articles import (
 
 
 def sample_raw_articles() -> pd.DataFrame:
+    """构造商品清洗阶段使用的原始 articles 输入样本。"""
     return pd.DataFrame(
         {
             "article_id": ["0108775015", "0108775044"],
@@ -144,6 +145,7 @@ class TestCleanArticleFile:
         clean_output_path = tmp_path / "articles_clean.csv"
         sample_raw_articles().to_csv(raw_path, index=False)
         mvp_output_path.write_text("previous mvp output\n", encoding="utf-8")
+        # 将第二个输出路径预建成目录，强制最终 replace 失败以覆盖回滚路径。
         clean_output_path.mkdir()
 
         with pytest.raises(OSError):

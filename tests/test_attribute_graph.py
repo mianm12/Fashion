@@ -18,6 +18,7 @@ from fashion_trend.catalog.graph.publishing import publish_graph_frames
 
 
 def sample_clean_articles() -> pd.DataFrame:
+    """构造属性图阶段使用的 clean articles 输入样本。"""
     return pd.DataFrame(
         {
             "article_id": ["0108775015", "0108775044", "0110065001"],
@@ -209,6 +210,7 @@ class TestAttributeGraphFile:
         nodes_attribute_path.write_text(old_nodes_attribute)
         edges_article_attribute_path.mkdir()
 
+        # 预置目录占用其中一个目标路径，强制发布中途失败并覆盖回滚路径。
         with pytest.raises(OSError):
             build_attribute_graph_files(
                 clean_articles_path=clean_articles_path,
@@ -253,6 +255,7 @@ class TestAttributeGraphFile:
                 raise OSError("simulated backup failure")
             return original_replace(self, target)
 
+        # 只让第二个备份动作失败，验证未发布文件和旧文件都能保持原状。
         monkeypatch.setattr(Path, "replace", fail_nodes_attribute_backup)
 
         with pytest.raises(OSError, match="simulated backup failure"):

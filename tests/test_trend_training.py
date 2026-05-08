@@ -52,6 +52,7 @@ def _expected_normalized_pred_share(
     predictions: pd.DataFrame,
     epsilon: float,
 ) -> pd.Series:
+    """按 baseline 预测公式计算分组归一化后的预期 share。"""
     raw_share = (
         predictions["pred_target_growth"].map(math.exp)
         * (predictions["share_t"] + epsilon)
@@ -69,6 +70,7 @@ def _expected_normalized_pred_share(
 
 
 def _assert_pred_share_t1_distribution(predictions: pd.DataFrame) -> None:
+    """断言预测 share 在每个 split/week/attr_type 分组内形成分布。"""
     assert predictions["pred_share_t1"].between(0.0, 1.0).all()
     share_totals = predictions.groupby(["split", "week_id", "attr_type"])[
         "pred_share_t1"
@@ -693,6 +695,7 @@ class TestTrendTraining:
                 "params_path": "outputs/models/last_week/params.json",
             }
 
+        # 手动替换训练 runner，避免 CLI 测试写入真实模型产物。
         try:
             train_model.run_trend_model_training = fake_run_trend_model_training
 
@@ -743,6 +746,7 @@ class TestTrendTraining:
                 "params_path": "outputs/models/moving_average/params.json",
             }
 
+        # 手动替换训练 runner，避免 CLI 测试写入真实模型产物。
         try:
             train_model.run_trend_model_training = fake_run_trend_model_training
 

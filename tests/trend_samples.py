@@ -13,6 +13,7 @@ from fashion_trend.trend.schema import (
 
 
 def sample_attribute_article_week_sales() -> pd.DataFrame:
+    """构造属性周热度阶段依赖的商品周销量样本。"""
     return pd.DataFrame(
         {
             "week_id": [0, 0, 1],
@@ -25,6 +26,7 @@ def sample_attribute_article_week_sales() -> pd.DataFrame:
 
 
 def sample_article_attribute_edges() -> pd.DataFrame:
+    """构造商品属性图到属性周热度阶段的边表样本。"""
     return pd.DataFrame(
         {
             "article_id": [
@@ -64,6 +66,7 @@ def sample_article_attribute_edges() -> pd.DataFrame:
 
 
 def sample_attribute_nodes() -> pd.DataFrame:
+    """构造属性图阶段输出的属性节点样本。"""
     return pd.DataFrame(
         {
             "attr_id": [
@@ -99,6 +102,7 @@ def sample_attribute_nodes() -> pd.DataFrame:
 
 
 def sample_attribute_week_heat() -> pd.DataFrame:
+    """构造属性周热度阶段的最小完整面板样本。"""
     return build_attribute_week_heat_frame(
         sample_attribute_article_week_sales(),
         sample_article_attribute_edges(),
@@ -107,6 +111,11 @@ def sample_attribute_week_heat() -> pd.DataFrame:
 
 
 def sample_long_attribute_week_heat() -> pd.DataFrame:
+    """构造覆盖多周趋势特征和标签窗口的属性周热度样本。
+
+    样本包含 6 个连续周、两个属性类型和零热度属性，用于验证
+    lag、moving average、target 对齐和完整 week_id x attr_id 面板契约。
+    """
     records: list[dict[str, object]] = []
     for week_id, black_heat, white_heat, blue_heat in [
         (0, 2, 1, 0),
@@ -166,6 +175,7 @@ def sample_long_attribute_week_heat() -> pd.DataFrame:
 
 
 def sample_attribute_hierarchy_edges() -> pd.DataFrame:
+    """构造趋势样本图特征阶段依赖的属性层级边样本。"""
     return pd.DataFrame(
         {
             "parent_attr_id": [
@@ -185,6 +195,11 @@ def sample_attribute_hierarchy_edges() -> pd.DataFrame:
 
 
 def sample_trend_model_samples_for_split() -> pd.DataFrame:
+    """构造覆盖 train/valid/test 时间切分的趋势模型样本。
+
+    样本包含 20 个连续 week_id 和两个颜色属性，用固定增长、滞后、
+    图特征和目标字段验证 split、训练 runner 和 baseline 预测契约。
+    """
     rows = []
     for week_id in range(4, 24):
         for attr_id, attr_type, attr_value in [
@@ -237,6 +252,11 @@ def sample_trend_model_samples_for_split() -> pd.DataFrame:
 
 
 def sample_trend_predictions_for_evaluation() -> pd.DataFrame:
+    """构造覆盖训练外评价切分和排序分组的趋势预测样本。
+
+    样本保留 train 行，并提供 valid/test 的多个 week_id、attr_type 和
+    rank 场景，用于验证趋势评价只聚合评价切分且按属性类型分组计算指标。
+    """
     rows: list[dict[str, object]] = []
     specs = [
         ("train", 8),

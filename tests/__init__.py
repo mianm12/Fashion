@@ -1,1 +1,1 @@
-"""Test package helpers."""
+"""测试包共享辅助入口。"""

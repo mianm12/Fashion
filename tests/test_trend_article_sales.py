@@ -21,6 +21,7 @@ from fashion_trend.trend.schema import (
 
 
 def sample_weekly_transactions() -> pd.DataFrame:
+    """构造商品周销量阶段依赖的周级交易输入样本。"""
     return pd.DataFrame(
         {
             "week_id": [0, 0, 0, 1],
@@ -32,6 +33,7 @@ def sample_weekly_transactions() -> pd.DataFrame:
 
 
 def sample_article_week_sales() -> pd.DataFrame:
+    """构造商品周销量阶段输出契约的最小样本。"""
     return pd.DataFrame(
         {
             "week_id": [0],

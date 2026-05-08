@@ -471,6 +471,7 @@ class TestTrendEvaluation:
                 "output_path": "outputs/metrics/last_week/trend_metrics.json",
             }
 
+        # 手动替换评价 runner，避免 CLI 测试读取或写入真实评价产物。
         try:
             eval_model.run_trend_model_evaluation = fake_run_trend_model_evaluation
             exit_code = eval_model.main(["--model", "last_week"])
