@@ -29,11 +29,13 @@ H&M transactions_train.csv
 | 趋势标签 | 已实现 | `attribute_week_target.csv` |
 | 趋势样本 | 已实现 | `trend_model_samples.parquet` |
 | 趋势样本时间切分 | 已实现 | `trend_model_samples_train.parquet`、`trend_model_samples_valid.parquet`、`trend_model_samples_test.parquet` |
-| Last Week baseline | 已实现 | `outputs/models/last_week/predictions.csv`、`params.json`、`metadata.json` |
-| Previous Growth baseline | 已实现 | `outputs/models/previous_growth/predictions.csv`、`params.json`、`metadata.json` |
-| Moving Average baseline | 已实现 | `outputs/models/moving_average/predictions.csv`、`params.json`、`metadata.json` |
-| 趋势评价 | 已实现 | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json` |
+| Last Week baseline | 已实现（运行命令后生成） | `outputs/models/last_week/predictions.csv`、`params.json`、`metadata.json` |
+| Previous Growth baseline | 已实现（运行命令后生成） | `outputs/models/previous_growth/predictions.csv`、`params.json`、`metadata.json` |
+| Moving Average baseline | 已实现（运行命令后生成） | `outputs/models/moving_average/predictions.csv`、`params.json`、`metadata.json` |
+| 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json` |
 | 推荐评价 | 尚未实现 | 后续推荐结果 |
+
+上表中 baseline 和趋势评价的产物是对应训练、评价命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
 
 ## 数据集
 
