@@ -1,0 +1,1 @@
+"""Baseline trend model implementations."""

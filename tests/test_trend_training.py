@@ -16,13 +16,13 @@ from fashion_trend.trend.models.base import (
     TrendTrainContext,
     TrendTrainResult,
 )
-from fashion_trend.trend.models.last_week import (
+from fashion_trend.trend.models.baselines.last_week import (
     LAST_WEEK_MODEL_NAME,
     LAST_WEEK_PARAMS,
     LastWeekTrainer,
     predict_last_week,
 )
-from fashion_trend.trend.models.moving_average import (
+from fashion_trend.trend.models.baselines.moving_average import (
     MOVING_AVERAGE_GROWTH_LAGS,
     MOVING_AVERAGE_MODEL_NAME,
     MOVING_AVERAGE_PARAMS,

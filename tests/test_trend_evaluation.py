@@ -22,7 +22,9 @@ from fashion_trend.trend.evaluation import (
     validate_trend_model_predictions_for_evaluation,
     write_trend_metrics,
 )
-from fashion_trend.trend.models.moving_average import MOVING_AVERAGE_MODEL_NAME
+from fashion_trend.trend.models.baselines.moving_average import (
+    MOVING_AVERAGE_MODEL_NAME,
+)
 from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
 from fashion_trend.trend.splits import build_trend_model_split_frames
 from fashion_trend.trend.training import run_trend_model_training
