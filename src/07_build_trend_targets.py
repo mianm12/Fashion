@@ -22,6 +22,17 @@ LOG_SOURCE = "trend-targets"
 
 
 def build_trend_targets() -> dict[str, int]:
+    """编排趋势标签构建流程。
+
+    流程:
+        1. 读取属性节点表并校验热度面板所需节点。
+        2. 读取、校验 attribute_week_heat.csv。
+        3. 构建、校验并写出 attribute_week_target.csv。
+        4. 返回输出行数、覆盖周数和属性节点数摘要。
+
+    Returns:
+        dict[str, int]: 趋势标签产物的行数、周数和属性数。
+    """
     log.info(f"输入属性节点表: {GRAPH_NODES_ATTRIBUTE_PATH}", source=LOG_SOURCE)
     log.info(f"输入属性周热度表: {TREND_ATTRIBUTE_WEEK_HEAT_PATH}", source=LOG_SOURCE)
     log.info(
@@ -53,6 +64,7 @@ def build_trend_targets() -> dict[str, int]:
 
 
 def main() -> int:
+    """趋势标签阶段入口，稳定写出 attribute_week_target.csv。"""
     try:
         stats = build_trend_targets()
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:

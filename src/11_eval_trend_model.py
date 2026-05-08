@@ -22,7 +22,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """运行趋势模型评价 CLI，并返回稳定退出码。"""
+    """趋势模型评价阶段入口，稳定写出 trend_metrics.json，参数用法错误返回 2，领域处理错误返回 1。"""
     try:
         args = parse_args(argv)
     except SystemExit as exc:

@@ -8,6 +8,7 @@ LOG_SOURCE = "attribute-graph"
 
 
 def main() -> int:
+    """属性图构建阶段入口，稳定写出 attribute graph CSV 文件。"""
     try:
         log.info(f"输入文件: {ARTICLES_CLEAN_PATH}", source=LOG_SOURCE)
         log.info(

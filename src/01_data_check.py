@@ -8,6 +8,7 @@ LOG_SOURCE = "data-check"
 
 
 def main() -> int:
+    """原始数据检查阶段入口，稳定输出原始 CSV 文件行数日志摘要。"""
     try:
         log.info(f"检查原始数据目录: {RAW_HM_DIR}", source=LOG_SOURCE)
         log.info(

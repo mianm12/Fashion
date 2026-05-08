@@ -26,6 +26,17 @@ LOG_SOURCE = "trend-model-samples"
 
 
 def build_trend_model_samples() -> dict[str, int]:
+    """编排趋势模型样本构建流程。
+
+    流程:
+        1. 读取属性周热度、趋势标签、属性节点和属性层级边表。
+        2. 构建趋势模型训练样本并校验训练契约。
+        3. 写出 trend_model_samples.parquet。
+        4. 返回输出行数、覆盖周数和属性节点数摘要。
+
+    Returns:
+        dict[str, int]: 趋势样本产物的行数、周数和属性数。
+    """
     log.info(f"输入属性周热度表: {TREND_ATTRIBUTE_WEEK_HEAT_PATH}", source=LOG_SOURCE)
     log.info(
         "业务阶段: 属性热度 + 趋势标签 + 属性图 -> trend_model_samples.parquet",
@@ -64,6 +75,7 @@ def build_trend_model_samples() -> dict[str, int]:
 
 
 def main() -> int:
+    """趋势样本构建阶段入口，稳定写出 trend_model_samples.parquet。"""
     try:
         stats = build_trend_model_samples()
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:

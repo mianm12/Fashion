@@ -53,7 +53,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """脚本入口函数，负责解析参数、执行下载并返回进程退出码。
+    """Kaggle 数据下载阶段入口，准备稳定的 raw H&M 数据目录并返回进程退出码。
 
     Args:
         argv (Sequence[str] | None, optional): 命令行参数序列；为 None 时使用

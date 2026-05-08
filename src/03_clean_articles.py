@@ -9,6 +9,7 @@ LOG_SOURCE = "clean-articles"
 
 
 def main() -> int:
+    """商品清洗阶段入口，稳定写出 articles_clean_mvp.csv 与 articles_clean.csv。"""
     try:
         log.info(f"输入文件: {RAW_ARTICLES_PATH}", source=LOG_SOURCE)
         log.info(

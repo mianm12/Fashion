@@ -23,6 +23,17 @@ LOG_SOURCE = "trend-model-split"
 
 
 def split_trend_model_samples() -> dict[str, object]:
+    """编排趋势样本时间切分流程。
+
+    流程:
+        1. 读取 trend_model_samples.parquet。
+        2. 按固定 valid/test 周数构建 train、valid、test 切分。
+        3. 校验切分覆盖关系并写出 split parquet。
+        4. 写出切分元数据并返回完整摘要。
+
+    Returns:
+        dict[str, object]: 切分行数、周范围、输出路径和参数摘要。
+    """
     input_path = TREND_MODEL_SAMPLES_PATH
     log.info(f"输入趋势样本表: {input_path}", source=LOG_SOURCE)
     log.info(
@@ -65,6 +76,7 @@ def split_trend_model_samples() -> dict[str, object]:
 
 
 def main() -> int:
+    """趋势样本切分阶段入口，稳定写出 train/valid/test parquet 和元数据 JSON。"""
     try:
         metadata = split_trend_model_samples()
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:

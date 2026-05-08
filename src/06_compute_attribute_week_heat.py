@@ -29,6 +29,17 @@ LOG_SOURCE = "attribute-week-heat"
 
 
 def compute_attribute_week_heat() -> dict[str, int]:
+    """编排属性周热度构建流程。
+
+    流程:
+        1. 读取并校验 article_week_sales.csv。
+        2. 读取商品-属性边表和属性节点表，并校验图谱一致性。
+        3. 构建、校验并写出 attribute_week_heat.csv。
+        4. 返回输出行数、周数、属性类型数和属性节点数摘要。
+
+    Returns:
+        dict[str, int]: 属性周热度产物的行数、周数、属性类型数和属性数。
+    """
     log.info(f"输入商品周销量表: {TREND_ARTICLE_WEEK_SALES_PATH}", source=LOG_SOURCE)
     log.info(
         "业务阶段: 属性图 + article_week_sales.csv -> attribute_week_heat.csv",
@@ -77,6 +88,7 @@ def compute_attribute_week_heat() -> dict[str, int]:
 
 
 def main() -> int:
+    """属性周热度阶段入口，稳定写出 attribute_week_heat.csv。"""
     try:
         stats = compute_attribute_week_heat()
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:

@@ -14,6 +14,16 @@ LOG_SOURCE = "article-week-sales"
 
 
 def compute_article_week_sales() -> dict[str, int]:
+    """编排商品周销量构建流程。
+
+    流程:
+        1. 读取 transactions_train_weekly.parquet。
+        2. 构建并校验商品-周粒度销量表。
+        3. 写出 article_week_sales.csv 并返回输出摘要。
+
+    Returns:
+        dict[str, int]: 输出行数、覆盖周数和覆盖商品数。
+    """
     log.info(f"输入周级交易表: {WEEKLY_TRANSACTIONS_PATH}", source=LOG_SOURCE)
     log.info(
         "业务阶段: transactions_train_weekly.parquet -> article_week_sales.csv",
@@ -32,6 +42,7 @@ def compute_article_week_sales() -> dict[str, int]:
 
 
 def main() -> int:
+    """商品周销量阶段入口，稳定写出 article_week_sales.csv。"""
     try:
         stats = compute_article_week_sales()
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
