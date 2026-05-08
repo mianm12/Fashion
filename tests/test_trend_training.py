@@ -308,16 +308,16 @@ class TestTrendTraining:
         )
         split_frames["train"].loc[split_frames["train"].index[0], "week_id"] = 4.5
         context = TrendTrainContext(
-            model_name=LAST_WEEK_MODEL_NAME,
+            model_name=PREVIOUS_GROWTH_MODEL_NAME,
             split_frames=split_frames,
             input_paths={
                 "train": Path("train.parquet"),
                 "valid": Path("valid.parquet"),
                 "test": Path("test.parquet"),
             },
-            output_dir=Path("outputs/models/last_week"),
+            output_dir=Path("outputs/models/previous_growth"),
         )
-        result = LastWeekTrainer().train(context)
+        result = PreviousGrowthTrainer().train(context)
 
         with pytest.raises(ValueError, match="week_id"):
             validate_trend_train_result(result, context)
@@ -366,17 +366,20 @@ class TestTrendTraining:
         )
         split_frames["train"].loc[split_frames["train"].index[0], "week_id"] = 4.5
         context = TrendTrainContext(
-            model_name=LAST_WEEK_MODEL_NAME,
+            model_name=PREVIOUS_GROWTH_MODEL_NAME,
             split_frames=split_frames,
             input_paths={
                 "train": Path("train.parquet"),
                 "valid": Path("valid.parquet"),
                 "test": Path("test.parquet"),
             },
-            output_dir=Path("outputs/models/last_week"),
+            output_dir=Path("outputs/models/previous_growth"),
         )
-        result = LastWeekTrainer().train(context)
-        paths = derive_trend_model_output_paths("last_week", Path("outputs/models"))
+        result = PreviousGrowthTrainer().train(context)
+        paths = derive_trend_model_output_paths(
+            "previous_growth",
+            Path("outputs/models"),
+        )
 
         with pytest.raises(ValueError, match="week_id"):
             build_trend_train_metadata(result, context, paths)
@@ -628,6 +631,44 @@ class TestTrendTraining:
         params = json.loads((output_dir / "params.json").read_text(encoding="utf-8"))
         assert params["growth_lags"] == ["growth_lag_1", "growth_lag_2"]
 
+    def test_run_trend_model_training_writes_previous_growth_outputs(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        input_paths = {
+            "train": tmp_path / "trend_model_samples_train.parquet",
+            "valid": tmp_path / "trend_model_samples_valid.parquet",
+            "test": tmp_path / "trend_model_samples_test.parquet",
+        }
+        for split_name, split_frame in split_frames.items():
+            write_parquet_atomic(split_frame, input_paths[split_name])
+
+        metadata = run_trend_model_training(
+            PREVIOUS_GROWTH_MODEL_NAME,
+            input_paths=input_paths,
+            output_root=tmp_path / "outputs" / "models",
+        )
+
+        output_dir = tmp_path / "outputs" / "models" / "previous_growth"
+        predictions_path = output_dir / "predictions.csv"
+        assert predictions_path.exists()
+        assert (output_dir / "params.json").exists()
+        assert (output_dir / "metadata.json").exists()
+        assert metadata["model_name"] == PREVIOUS_GROWTH_MODEL_NAME
+        assert metadata["model_type"] == MODEL_TYPE_BASELINE
+        assert metadata["rows"] == 40
+        assert metadata["extra_artifacts"] == []
+        params = json.loads((output_dir / "params.json").read_text(encoding="utf-8"))
+        assert params == PREVIOUS_GROWTH_PARAMS
+        predictions = pd.read_csv(predictions_path)
+        assert predictions.columns.tolist() == list(TREND_MODEL_PREDICTION_COLUMNS)
+        assert set(predictions["model_name"]) == {PREVIOUS_GROWTH_MODEL_NAME}
+
     def test_last_week_trainer_returns_train_result(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
@@ -678,6 +719,33 @@ class TestTrendTraining:
         assert result.model_name == MOVING_AVERAGE_MODEL_NAME
         assert result.model_type == MODEL_TYPE_BASELINE
         assert result.params == MOVING_AVERAGE_PARAMS
+        assert result.artifacts == ()
+        assert result.metadata == {}
+        assert len(result.predictions) == 40
+
+    def test_previous_growth_trainer_returns_train_result(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        context = TrendTrainContext(
+            model_name=PREVIOUS_GROWTH_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/previous_growth"),
+        )
+
+        result = PreviousGrowthTrainer().train(context)
+
+        assert isinstance(result, TrendTrainResult)
+        assert result.model_name == PREVIOUS_GROWTH_MODEL_NAME
+        assert result.model_type == MODEL_TYPE_BASELINE
+        assert result.params == PREVIOUS_GROWTH_PARAMS
         assert result.artifacts == ()
         assert result.metadata == {}
         assert len(result.predictions) == 40
@@ -793,6 +861,57 @@ class TestTrendTraining:
             train_model.run_trend_model_training = original_run_trend_model_training
 
         assert calls == [MOVING_AVERAGE_MODEL_NAME]
+
+    def test_train_trend_model_main_accepts_previous_growth(self) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+        calls: list[str] = []
+        original_run_trend_model_training = train_model.run_trend_model_training
+
+        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+            calls.append(model_name)
+            return {
+                "model_name": PREVIOUS_GROWTH_MODEL_NAME,
+                "model_type": MODEL_TYPE_BASELINE,
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": {
+                    "train": {
+                        "rows": 24,
+                        "weeks": 12,
+                        "attributes": 2,
+                        "week_min": 4,
+                        "week_max": 15,
+                    },
+                    "valid": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 16,
+                        "week_max": 19,
+                    },
+                    "test": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 20,
+                        "week_max": 23,
+                    },
+                },
+                "output_dir": "outputs/models/previous_growth",
+                "prediction_path": "outputs/models/previous_growth/predictions.csv",
+                "params_path": "outputs/models/previous_growth/params.json",
+            }
+
+        # 手动替换训练 runner，避免 CLI 测试写入真实模型产物。
+        try:
+            train_model.run_trend_model_training = fake_run_trend_model_training
+
+            assert train_model.main(["--model", PREVIOUS_GROWTH_MODEL_NAME]) == 0
+        finally:
+            train_model.run_trend_model_training = original_run_trend_model_training
+
+        assert calls == [PREVIOUS_GROWTH_MODEL_NAME]
 
     def test_predict_last_week_uses_current_share(self) -> None:
         split_frames = build_trend_model_split_frames(

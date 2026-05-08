@@ -25,6 +25,9 @@ from fashion_trend.trend.evaluation import (
 from fashion_trend.trend.models.baselines.moving_average import (
     MOVING_AVERAGE_MODEL_NAME,
 )
+from fashion_trend.trend.models.baselines.previous_growth import (
+    PREVIOUS_GROWTH_MODEL_NAME,
+)
 from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
 from fashion_trend.trend.splits import build_trend_model_split_frames
 from fashion_trend.trend.training import run_trend_model_training
@@ -373,6 +376,44 @@ class TestTrendEvaluation:
         metrics_path = metrics_root / "moving_average" / "trend_metrics.json"
         assert metrics_path.exists()
         assert payload["model_name"] == MOVING_AVERAGE_MODEL_NAME
+        assert payload["evaluated_splits"] == ["valid", "test"]
+        assert "valid" in payload["overall"]
+        assert "test" in payload["overall"]
+
+    def test_run_trend_model_evaluation_reads_previous_growth_predictions(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        input_paths = {
+            "train": tmp_path / "trend_model_samples_train.parquet",
+            "valid": tmp_path / "trend_model_samples_valid.parquet",
+            "test": tmp_path / "trend_model_samples_test.parquet",
+        }
+        for split_name, split_frame in split_frames.items():
+            write_parquet_atomic(split_frame, input_paths[split_name])
+
+        model_root = tmp_path / "outputs" / "models"
+        metrics_root = tmp_path / "outputs" / "metrics"
+        run_trend_model_training(
+            PREVIOUS_GROWTH_MODEL_NAME,
+            input_paths=input_paths,
+            output_root=model_root,
+        )
+
+        payload = run_trend_model_evaluation(
+            PREVIOUS_GROWTH_MODEL_NAME,
+            model_output_root=model_root,
+            metrics_output_root=metrics_root,
+        )
+
+        metrics_path = metrics_root / "previous_growth" / "trend_metrics.json"
+        assert metrics_path.exists()
+        assert payload["model_name"] == PREVIOUS_GROWTH_MODEL_NAME
         assert payload["evaluated_splits"] == ["valid", "test"]
         assert "valid" in payload["overall"]
         assert "test" in payload["overall"]
