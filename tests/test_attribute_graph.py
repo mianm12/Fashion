@@ -5,16 +5,16 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from fashion_trend.catalog.graph import (
-    ATTRIBUTE_COLUMNS,
+from fashion_trend.catalog.articles import ATTRIBUTE_COLUMNS
+from fashion_trend.catalog.graph import build_attribute_graph_files
+from fashion_trend.catalog.graph.builders import (
     build_article_attribute_edges,
     build_article_nodes,
-    build_attribute_graph_files,
     build_attribute_graph_frames,
     build_attribute_hierarchy_edges,
     build_attribute_nodes,
-    publish_graph_frames,
 )
+from fashion_trend.catalog.graph.publishing import publish_graph_frames
 
 
 def sample_clean_articles() -> pd.DataFrame:

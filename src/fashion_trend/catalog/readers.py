@@ -14,6 +14,19 @@ from fashion_trend.catalog.contracts import (
 )
 
 
+def read_clean_articles(clean_articles_path: Path) -> pd.DataFrame:
+    if not clean_articles_path.exists():
+        raise FileNotFoundError(f"商品 clean 文件不存在: {clean_articles_path}")
+
+    return pd.read_csv(
+        clean_articles_path,
+        dtype={
+            "article_id": "string",
+            "product_code": "string",
+        },
+    )
+
+
 def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataFrame:
     if not article_attribute_edges_path.exists():
         raise FileNotFoundError(f"商品-属性边表不存在: {article_attribute_edges_path}")
