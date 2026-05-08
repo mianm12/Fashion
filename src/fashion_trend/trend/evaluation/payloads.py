@@ -74,7 +74,13 @@ def validate_trend_model_predictions_for_evaluation(
     predictions: pd.DataFrame,
     model_name: str,
 ) -> None:
-    """在计算趋势评价指标前校验预测表。"""
+    """在计算趋势评价指标前校验标准预测表。
+
+    校验内容包括列契约、数值字段可解析且有限、`pred_share_t1` 分布、必填值、
+    week-attr-model 唯一性、合法 split、评价所需的 valid/test 切分、请求
+    model_name 一致性，以及 week_id 必须为整数。
+    """
+
     if predictions.columns.tolist() != list(TREND_MODEL_PREDICTION_COLUMNS):
         raise ValueError("趋势模型评价预测表列必须与契约完全一致。")
     validate_required_columns(
@@ -135,7 +141,13 @@ def build_trend_metrics_payload(
     output_path: Path,
     k_values: Sequence[int] = TREND_EVALUATION_K_VALUES,
 ) -> dict[str, object]:
-    """构建 trend_metrics.json 的内存结构，不写入文件。"""
+    """构建 trend_metrics.json 的内存载荷。
+
+    载荷记录模型名、预测输入路径、指标输出路径、评价切分、排名口径和聚合指标。
+    指标只聚合 valid/test；train 预测保留在模型输出中，但不进入趋势评价。
+    返回前会执行严格 JSON 校验，避免 `trend_metrics.json` 写出不可用载荷。
+    """
+
     _validate_k_values(k_values)
     validate_trend_model_predictions_for_evaluation(predictions, model_name)
     metrics = compute_trend_metrics(predictions, k_values)
@@ -165,6 +177,8 @@ def write_trend_metrics(payload: dict[str, object], output_path: Path) -> None:
 
 
 def _validate_integer_week_ids(week_ids: pd.Series, source_name: str) -> pd.Series:
+    """校验 week_id 可无损转换为整数周编号。"""
+
     try:
         numeric_week_ids = pd.to_numeric(week_ids, errors="raise")
     except (TypeError, ValueError) as exc:
@@ -175,4 +189,6 @@ def _validate_integer_week_ids(week_ids: pd.Series, source_name: str) -> pd.Seri
 
 
 def _validate_json_payload(payload: dict[str, object]) -> None:
+    """使用严格 JSON 规则校验趋势评价载荷。"""
+
     json.dumps(payload, ensure_ascii=False, allow_nan=False)

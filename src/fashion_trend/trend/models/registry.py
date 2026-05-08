@@ -12,7 +12,7 @@ from fashion_trend.trend.models.baselines.moving_average import (
 
 
 class UnknownTrendModelError(ValueError):
-    """Raised when a requested trend model is not registered."""
+    """请求的趋势模型未注册时抛出的错误。"""
 
 
 TREND_MODEL_REGISTRY: dict[str, TrendModelTrainer] = {
@@ -22,10 +22,14 @@ TREND_MODEL_REGISTRY: dict[str, TrendModelTrainer] = {
 
 
 def list_trend_model_names() -> tuple[str, ...]:
+    """返回当前注册表中可用的趋势模型名。"""
+
     return tuple(sorted(TREND_MODEL_REGISTRY))
 
 
 def get_trend_model_trainer(model_name: str) -> TrendModelTrainer:
+    """按模型名取得趋势模型训练器。"""
+
     try:
         return TREND_MODEL_REGISTRY[model_name]
     except KeyError as exc:

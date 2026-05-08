@@ -16,7 +16,13 @@ def run_trend_model_evaluation(
     model_output_root: Path = OUTPUT_MODELS_DIR,
     metrics_output_root: Path = OUTPUT_METRICS_DIR,
 ) -> dict[str, object]:
-    """运行单个趋势模型的评价，并写出 trend_metrics.json。"""
+    """运行单个趋势模型的评价，并写出 trend_metrics.json。
+
+    runner 先根据模型名推导 `predictions.csv` 输入路径和 `trend_metrics.json`
+    输出路径，再读取标准预测表、构建评价载荷并写出指标文件。评价指标只聚合
+    valid/test 切分；写出前由 payload 层执行严格 JSON 校验。
+    """
+
     output_paths = derive_trend_metric_output_paths(
         model_name,
         model_output_root=model_output_root,

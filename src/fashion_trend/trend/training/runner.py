@@ -24,6 +24,8 @@ from fashion_trend.trend.training.outputs import (
 
 
 def default_trend_model_input_paths() -> dict[str, Path]:
+    """返回趋势模型 train/valid/test 的默认输入样本路径。"""
+
     return {
         "train": TREND_MODEL_SAMPLES_TRAIN_PATH,
         "valid": TREND_MODEL_SAMPLES_VALID_PATH,
@@ -34,6 +36,8 @@ def default_trend_model_input_paths() -> dict[str, Path]:
 def read_trend_model_split_frames(
     input_paths: Mapping[str, Path],
 ) -> dict[str, pd.DataFrame]:
+    """按标准 split 顺序读取趋势模型训练、验证和测试样本。"""
+
     missing_splits = set(TREND_MODEL_SPLIT_VALUES) - set(input_paths)
     if missing_splits:
         raise ValueError(f"趋势模型输入路径缺少 split: {sorted(missing_splits)}")
@@ -48,6 +52,15 @@ def run_trend_model_training(
     input_paths: Mapping[str, Path] | None = None,
     output_root: Path = OUTPUT_MODELS_DIR,
 ) -> dict[str, object]:
+    """运行单个趋势模型的通用训练流程。
+
+    流程依次解析默认或调用方传入的 split 输入路径，读取 train/valid/test
+    样本，通过模型注册表查找训练器，并从模型名派生输出目录和标准文件路径。
+    runner 随后构建 `TrendTrainContext` 调用训练器，校验返回的
+    `TrendTrainResult`，生成 metadata 载荷，最后统一写出 predictions、params、
+    metadata 和训练器附加产物。
+    """
+
     trainer = get_trend_model_trainer(model_name)
     if input_paths is None:
         resolved_input_paths = default_trend_model_input_paths()

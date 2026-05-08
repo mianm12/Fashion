@@ -46,6 +46,18 @@ MOVING_AVERAGE_REQUIRED_COLUMNS: tuple[str, ...] = (
 
 
 def predict_moving_average(split_samples: pd.DataFrame) -> pd.DataFrame:
+    """生成 moving_average 基线预测表。
+
+    公式：`pred_target_growth = mean(growth_lag_1, growth_lag_2)`，即使用最近
+    两个增长率 lag 的均值预测下一周增长率。输入样本必须包含
+    `growth_lag_1`、`growth_lag_2`、当前份额 `share_t` 以及标准预测契约所需
+    的 split、属性和目标列。
+
+    返回值是按 `TREND_MODEL_PREDICTION_COLUMNS` 排列的预测表，其中
+    `pred_share_t1` 由预测增长率和当前份额推导并在同一 split-week-attr_type
+    分组内归一化。
+    """
+
     missing_columns = sorted(
         set(MOVING_AVERAGE_REQUIRED_COLUMNS) - set(split_samples.columns)
     )
@@ -92,6 +104,8 @@ def predict_moving_average(split_samples: pd.DataFrame) -> pd.DataFrame:
 
 
 class MovingAverageTrainer:
+    """moving_average 基线训练器，为通用 runner 产出标准 TrendTrainResult。"""
+
     name = MOVING_AVERAGE_MODEL_NAME
     model_type = MODEL_TYPE_BASELINE
 
@@ -111,6 +125,8 @@ class MovingAverageTrainer:
 
 
 def _read_growth_lags(split_samples: pd.DataFrame) -> pd.DataFrame:
+    """读取并校验 moving_average 所需的有限增长率 lag。"""
+
     try:
         growth_lags = split_samples.loc[:, list(MOVING_AVERAGE_GROWTH_LAGS)].apply(
             pd.to_numeric,
@@ -124,6 +140,8 @@ def _read_growth_lags(split_samples: pd.DataFrame) -> pd.DataFrame:
 
 
 def _copy_moving_average_params() -> dict[str, object]:
+    """复制包含可变列表参数的 moving_average 参数载荷。"""
+
     params = dict(MOVING_AVERAGE_PARAMS)
     params["growth_lags"] = list(MOVING_AVERAGE_GROWTH_LAGS)
     return params

@@ -43,6 +43,17 @@ LAST_WEEK_REQUIRED_COLUMNS: tuple[str, ...] = (
 
 
 def predict_last_week(split_samples: pd.DataFrame) -> pd.DataFrame:
+    """生成 last_week 基线预测表。
+
+    公式：`pred_target_growth = growth_lag_1`，即直接沿用上一周增长率作为
+    下一周增长率预测。输入样本必须包含 `growth_lag_1`、当前份额 `share_t`
+    以及标准预测契约所需的 split、属性和目标列。
+
+    返回值是按 `TREND_MODEL_PREDICTION_COLUMNS` 排列的预测表，其中
+    `pred_share_t1` 由预测增长率和当前份额推导并在同一 split-week-attr_type
+    分组内归一化。
+    """
+
     missing_columns = sorted(
         set(LAST_WEEK_REQUIRED_COLUMNS) - set(split_samples.columns)
     )
@@ -88,6 +99,8 @@ def predict_last_week(split_samples: pd.DataFrame) -> pd.DataFrame:
 
 
 class LastWeekTrainer:
+    """last_week 基线训练器，为通用 runner 产出标准 TrendTrainResult。"""
+
     name = LAST_WEEK_MODEL_NAME
     model_type = MODEL_TYPE_BASELINE
 

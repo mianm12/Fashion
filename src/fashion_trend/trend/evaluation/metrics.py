@@ -19,7 +19,13 @@ def compute_trend_group_metrics(
     group_predictions: pd.DataFrame,
     k_values: Sequence[int] = TREND_EVALUATION_K_VALUES,
 ) -> dict[str, object]:
-    """计算单个 split-week-attr_type 分组的趋势评价指标。"""
+    """计算单个 split-week-attr_type 分组的趋势评价指标。
+
+    单组指标同时覆盖增长率回归误差和 Top-K 排名质量。MAE、RMSE 和 Spearman
+    使用 `target_growth` 与 `pred_target_growth`，Precision/Recall/NDCG 使用同一
+    分组内的预测增长率排序，并在分组规模小于 K 时使用有效 K。
+    """
+
     if group_predictions.empty:
         raise ValueError("趋势评价分组不能为空。")
     _validate_k_values(k_values)
@@ -69,7 +75,13 @@ def compute_trend_metrics(
     predictions: pd.DataFrame,
     k_values: Sequence[int] = TREND_EVALUATION_K_VALUES,
 ) -> dict[str, object]:
-    """只对 valid/test 预测表聚合整体、属性类型和分组指标。"""
+    """聚合趋势模型预测表的整体、属性类型和分组指标。
+
+    评价只聚合 `valid` 和 `test` 两个切分；`train` 预测可以保留在模型输出
+    `predictions.csv` 中，但不会进入趋势评价结果。返回载荷包含按 split 汇总的
+    overall、by_attr_type 和 groups，供上层组装 `trend_metrics.json`。
+    """
+
     _validate_k_values(k_values)
     validate_required_columns(
         predictions,
@@ -135,6 +147,8 @@ def compute_trend_metrics(
 
 
 def _validate_k_values(k_values: Sequence[int]) -> None:
+    """校验评价 K 值是非空正整数序列。"""
+
     if not k_values:
         raise ValueError("趋势评价 K 值不能为空。")
     for k in k_values:
@@ -147,6 +161,8 @@ def _top_attr_ids(
     score_column: str,
     k: int,
 ) -> list[str]:
+    """按分数降序和 attr_id 升序提取热门 Top-K 属性。"""
+
     ranking_frame = pd.DataFrame(
         {
             "attr_id": group_predictions["attr_id"].astype(str),
@@ -165,6 +181,8 @@ def _top_attr_ids(
 
 
 def _spearman_or_none(target: pd.Series, prediction: pd.Series) -> float | None:
+    """计算 Spearman 相关系数，遇到常量排序时回退为 None。"""
+
     if target.nunique(dropna=False) <= 1 or prediction.nunique(dropna=False) <= 1:
         return None
 
@@ -182,6 +200,8 @@ def _spearman_or_none(target: pd.Series, prediction: pd.Series) -> float | None:
 
 
 def _ndcg_or_none(group_predictions: pd.DataFrame, k: int) -> float | None:
+    """计算 NDCG，遇到全零相关性或零理想增益时回退为 None。"""
+
     target = pd.to_numeric(
         group_predictions[TREND_EVALUATION_TARGET_COLUMN],
         errors="raise",
@@ -226,6 +246,8 @@ def _ndcg_or_none(group_predictions: pd.DataFrame, k: int) -> float | None:
 
 
 def _discounted_gain(relevance_values: Iterable[float]) -> float:
+    """按排名折扣累加相关性增益。"""
+
     gain = 0.0
     for index, relevance in enumerate(relevance_values):
         gain += float(relevance) / math.log2(index + 2)
@@ -233,6 +255,8 @@ def _discounted_gain(relevance_values: Iterable[float]) -> float:
 
 
 def _summarize_metric_records(metric_records: Sequence[object]) -> dict[str, object]:
+    """汇总多个分组指标记录，生成可写入 JSON 的平均指标。"""
+
     records = list(metric_records)
     summary: dict[str, object] = {
         "mae": _mean_or_none(record["mae"] for record in records),
@@ -255,6 +279,8 @@ def _summarize_metric_records(metric_records: Sequence[object]) -> dict[str, obj
 
 
 def _mean_or_none(values: Iterable[object]) -> float | None:
+    """计算忽略 None 的均值，没有有效数值时返回 None。"""
+
     numeric_values = [float(value) for value in values if value is not None]
     if not numeric_values:
         return None
@@ -262,6 +288,8 @@ def _mean_or_none(values: Iterable[object]) -> float | None:
 
 
 def _json_float(value: object) -> float:
+    """将指标值转换为 JSON 可写的有限浮点数。"""
+
     number = float(value)
     if not math.isfinite(number):
         raise ValueError("趋势评价指标存在非有限数值。")

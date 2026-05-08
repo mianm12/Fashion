@@ -47,6 +47,12 @@ def validate_trend_train_result(
     result: TrendTrainResult,
     context: TrendTrainContext,
 ) -> None:
+    """校验训练器返回的 TrendTrainResult 能进入标准输出流程。
+
+    校验范围包括请求模型名、已知模型类型、参数载荷类型、预测表契约、整数
+    week_id、预测表中的 model_name 一致性，以及附加产物路径安全。
+    """
+
     if result.model_name != context.model_name:
         raise ValueError(
             "趋势模型训练结果 model_name 与请求不一致: "
@@ -77,6 +83,13 @@ def build_trend_train_metadata(
     context: TrendTrainContext,
     output_paths: Mapping[str, Path],
 ) -> dict[str, object]:
+    """构建训练输出 metadata.json 的内存载荷。
+
+    metadata 记录输入路径、标准输出路径、整体行数和属性数，以及每个 split 的
+    行数、周数、属性数和周编号范围。训练器只能追加非核心字段，不能覆盖 runner
+    负责维护的核心 metadata 键。
+    """
+
     split_metadata: dict[str, dict[str, object]] = {}
     for split_name in context.split_order:
         split_predictions = result.predictions[
@@ -132,6 +145,14 @@ def write_trend_model_outputs(
     metadata: dict[str, object],
     output_paths: Mapping[str, Path],
 ) -> None:
+    """写出趋势模型标准产物和附加产物。
+
+    写入前先校验 params、metadata 和 artifact payload 是否可写，并构造包含
+    predictions、params、artifact 与 metadata 的输出项。实际发布采用暂存目录
+    加备份替换的两阶段流程：全部载荷先写到暂存目录，再逐个替换目标文件；若
+    替换过程中失败，则恢复已替换文件并清理暂存目录。
+    """
+
     _validate_output_payloads(result, metadata)
     output_dir = output_paths["output_dir"]
     output_items = _build_output_items(result, metadata, output_paths)
@@ -140,6 +161,7 @@ def write_trend_model_outputs(
     staging_dir = output_dir / f".tmp-trend-model-{uuid.uuid4().hex}"
     published_paths: list[tuple[Path, Path | None]] = []
     try:
+        # 先写入暂存目录，避免部分载荷写入失败时污染已有目标产物。
         for final_path, payload in output_items:
             staging_path = staging_dir / final_path.relative_to(output_dir)
             _write_output_payload(payload, staging_path)
@@ -156,6 +178,7 @@ def write_trend_model_outputs(
             published_paths.append((final_path, backup_path))
             staging_path.replace(final_path)
     except Exception:
+        # 替换阶段失败时，按已发布路径倒序恢复调用方可见的旧产物。
         _rollback_published_outputs(published_paths)
         raise
     else:
@@ -165,6 +188,8 @@ def write_trend_model_outputs(
 
 
 def _validate_artifacts(artifacts: tuple[TrendArtifact, ...]) -> None:
+    """校验附加产物使用安全的输出目录相对路径。"""
+
     for artifact in artifacts:
         raw_path_parts = artifact.relative_path.split("/")
         artifact_path = Path(artifact.relative_path)
@@ -178,6 +203,8 @@ def _validate_artifacts(artifacts: tuple[TrendArtifact, ...]) -> None:
 
 
 def _validate_integer_week_ids(week_ids: pd.Series, source_name: str) -> pd.Series:
+    """校验 week_id 可无损转换为整数周编号。"""
+
     try:
         numeric_week_ids = pd.to_numeric(week_ids, errors="raise")
     except (TypeError, ValueError) as exc:
@@ -191,6 +218,8 @@ def _validate_output_payloads(
     result: TrendTrainResult,
     metadata: dict[str, object],
 ) -> None:
+    """校验输出载荷的 JSON 可序列化能力和 artifact payload 类型。"""
+
     _validate_json_payload(result.params, "params")
     _validate_json_payload(metadata, "metadata")
     _validate_artifacts(result.artifacts)
@@ -206,6 +235,8 @@ def _validate_output_payloads(
 
 
 def _validate_json_payload(payload: dict[str, object], source_name: str) -> None:
+    """按当前训练产物 JSON 写出选项校验载荷可序列化。"""
+
     try:
         json.dumps(payload, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError) as exc:
@@ -217,6 +248,8 @@ def _build_output_items(
     metadata: dict[str, object],
     output_paths: Mapping[str, Path],
 ) -> list[tuple[Path, pd.DataFrame | dict[str, object] | bytes]]:
+    """构造待写入暂存目录并最终发布到目标路径的输出项。"""
+
     output_items: list[tuple[Path, pd.DataFrame | dict[str, object] | bytes]] = [
         (output_paths["predictions"], result.predictions),
         (output_paths["params"], result.params),
@@ -233,6 +266,8 @@ def _validate_output_destinations(
     output_items: list[tuple[Path, pd.DataFrame | dict[str, object] | bytes]],
     output_dir: Path,
 ) -> None:
+    """校验目标路径位于输出目录内，且没有重复路径或目录冲突。"""
+
     seen_paths: set[Path] = set()
     for final_path, _payload in output_items:
         try:
@@ -251,6 +286,8 @@ def _write_output_payload(
     payload: pd.DataFrame | dict[str, object] | bytes,
     output_path: Path,
 ) -> None:
+    """按载荷类型把单个输出项写入暂存路径。"""
+
     if isinstance(payload, pd.DataFrame):
         write_csv_atomic(payload, output_path)
         return
@@ -266,6 +303,8 @@ def _write_output_payload(
 def _rollback_published_outputs(
     published_paths: list[tuple[Path, Path | None]],
 ) -> None:
+    """发布失败时移除新产物，并用备份恢复已替换的旧产物。"""
+
     for final_path, backup_path in reversed(published_paths):
         if backup_path is None:
             remove_file_if_exists(final_path)
@@ -277,6 +316,8 @@ def _rollback_published_outputs(
 def _remove_backup_outputs(
     published_paths: list[tuple[Path, Path | None]],
 ) -> None:
+    """发布成功后清理目标文件替换过程中留下的备份产物。"""
+
     for _final_path, backup_path in published_paths:
         if backup_path is not None:
             remove_file_if_exists(backup_path)
