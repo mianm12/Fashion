@@ -26,7 +26,7 @@ outputs/metrics/moving_average/trend_metrics.json
 outputs/metrics/lightgbm/trend_metrics.json
 ```
 
-验收摘要至少说明 LightGBM 在 valid/test 上的 MAE、RMSE、NDCG@10 是否超过三类 baseline 中的最强结果。首版不要求 LightGBM 全面胜出；如果没有胜出，仍可视为训练闭环完成，但最终结果必须显式说明差距和可能原因，不能只报告“命令成功”。
+验收摘要至少说明 LightGBM 在 valid/test 上的 MAE、RMSE、Spearman、NDCG@10 是否超过三类 baseline 中的最强结果。首版不要求 LightGBM 全面胜出；如果没有胜出，仍可视为训练闭环完成，但最终结果必须显式说明差距和可能原因，不能只报告“命令成功”。
 
 ## 设计结论
 
@@ -47,6 +47,7 @@ src/fashion_trend/trend/models/supervised/lightgbm.py
 - `src/fashion_trend/trend/models/registry.py` 是唯一模型名到 trainer 的映射点。
 - baseline 位于 `trend/models/baselines/`，监督模型位于 `trend/models/supervised/`。
 - LightGBM 的模型细节不进入通用 runner。
+- LightGBM native 包不能在 registry 导入路径上加载，避免 baseline 命令被 LightGBM 运行时依赖影响。
 
 ## 文件组织
 
@@ -66,7 +67,7 @@ docs/gpt-research/implementation-plan.md
 
 | 文件 | 职责 |
 | --- | --- |
-| `lightgbm.py` | LightGBM trainer、特征清单、参数常量、训练和预测逻辑 |
+| `lightgbm.py` | LightGBM trainer、特征清单、参数常量、延迟导入 LightGBM native 包、训练和预测逻辑 |
 | `registry.py` | 注册 `lightgbm`，让统一训练入口可以发现主模型 |
 | `tests/test_trend_lightgbm.py` | 覆盖监督模型专属行为：特征选择、分类编码、训练参数、artifact 和错误路径 |
 | `tests/test_trend_training.py` | 只补通用训练 runner、registry 和 CLI 对 `lightgbm` 的接入点 |
@@ -75,6 +76,20 @@ docs/gpt-research/implementation-plan.md
 | `implementation-plan.md` | 将“后续计划”更新为已实现主模型入口和产物约定 |
 
 不新增 `12_train_lightgbm_trend_model.py`。顶层编号脚本继续作为业务流程索引，业务包中的 trainer 是计算事实来源。
+
+## 依赖导入边界
+
+`src/fashion_trend/trend/models/registry.py` 会导入并注册所有 trainer，因此 LightGBM 的 native runtime 不能出现在 registry 的常规导入路径上。
+
+硬约束：
+
+- `src/fashion_trend/trend/models/supervised/lightgbm.py` 顶层不得执行 `import lightgbm` 或 `from lightgbm ... import ...`。
+- 顶层只能导入标准库、`numpy`、`pandas`、项目内契约和纯 Python helper。
+- LightGBM native 包只允许在 `LightGBMTrendTrainer.train()` 调用链内部延迟导入，例如私有函数 `_fit_lightgbm_model()`。
+- 缺少 `lightgbm`、`libomp.dylib` 或其他 native runtime 时，只能让 `--model lightgbm` 失败；`--model last_week`、`--model previous_growth`、`--model moving_average` 不应受影响。
+- 延迟导入捕获 `ImportError` 和 `OSError`，包装成带 `lightgbm`、依赖名称和安装/运行时线索的 `ValueError`。
+
+测试需要覆盖 registry 和 baseline trainer 的导入不依赖 LightGBM native runtime。实现时不能用顶层导入换取代码简短。
 
 ## 模型语义
 
@@ -208,7 +223,7 @@ prepare_lightgbm_feature_frame(samples, attr_type_categories=None)
 
 真实 `target_growth` 存在重尾和大量 `share_t=0` 样本，默认 `regression` 不是唯一语义。实现中需要把 objective 作为受控参数常量记录在 `params.json`，并保留后续切换到 `regression_l1` 等 robust objective 的清晰位置；本轮不新增 CLI 参数做 objective 切换。
 
-训练产物必须记录目标分布和残差诊断：
+训练产物必须记录目标分布和残差诊断，结构固定为 `{split: {metric: value}}`：
 
 - `target_distribution`：按 train/valid/test 记录 count、min、max、mean、std、p01、p05、p50、p95、p99、`abs_gt_2`。
 - `zero_share_rows`：按 split 记录 `share_t == 0` 的行数。
@@ -315,6 +330,8 @@ gain_importance
 normalized_gain_importance
 ```
 
+`split_importance` 使用 LightGBM split 次数重要性，`gain_importance` 使用 gain 重要性。`normalized_gain_importance = gain_importance / total_gain`；当 `total_gain == 0` 时，所有 `normalized_gain_importance` 写为 `0.0`，禁止写出 NaN、inf 或触发除零错误。
+
 `model.txt` 使用 LightGBM booster 的文本格式，作为本轮可审查模型文件。artifact 路径必须是输出目录下的安全相对路径，继续由现有 artifact safety 逻辑校验。
 
 ## 评价设计
@@ -363,13 +380,29 @@ moving_average
 lightgbm
 ```
 
+如果任一 baseline 的 `trend_metrics.json` 不存在，验收前必须先补跑对应模型的训练和评价命令：
+
+```sh
+uv run python src/10_train_trend_model.py --model last_week
+uv run python src/11_eval_trend_model.py --model last_week
+uv run python src/10_train_trend_model.py --model previous_growth
+uv run python src/11_eval_trend_model.py --model previous_growth
+uv run python src/10_train_trend_model.py --model moving_average
+uv run python src/11_eval_trend_model.py --model moving_average
+```
+
+如果某个 baseline 预测文件存在但 metrics 缺失，可以只补跑对应评价命令；如果预测文件也缺失，必须先补跑训练。验收摘要不能依赖当前机器上偶然存在的 `outputs/`。
+
 摘要至少覆盖：
 
 - valid/test 的 MAE。
 - valid/test 的 RMSE。
+- valid/test 的 Spearman。
 - valid/test 的 NDCG@10。
 - 每个 split 上三类 baseline 的最强结果。
 - LightGBM 是否超过对应 split 和指标上的最强 baseline。
+
+指标方向固定为：MAE 和 RMSE 越低越好，Spearman 和 NDCG@10 越高越好。
 
 这一步不生成正式报告文件，也不把 baseline 对比表纳入标准产物；它是本轮实现验收的一部分，目的是判断主模型是否真的带来增益。如果 LightGBM 未超过最强 baseline，最终说明必须明确指出失败指标和可能原因，例如目标重尾、特征不足、参数保守或样本窗口过短。
 
@@ -381,6 +414,7 @@ LightGBM trainer 的错误处理遵循 debug-first 原则：
 - 数值列无法转换或包含非有限值时报告模型输入字段问题。
 - 分类列缺失时报告 `attr_type` 输入问题。
 - split 缺失或为空时报告具体 split。
+- LightGBM native 依赖缺失时，只让 `lightgbm` 模型训练失败，并报告延迟导入失败原因。
 - LightGBM 训练或预测失败时向上抛出可定位错误，不写部分成功产物。
 
 trainer 不吞掉异常，不返回假成功，不用默认常数预测掩盖训练失败。标准产物写出仍由通用 runner 的暂存目录和回滚逻辑负责。
@@ -392,6 +426,7 @@ trainer 不吞掉异常，不返回假成功，不用默认常数预测掩盖训
 新增 `tests/test_trend_lightgbm.py`，专门覆盖监督模型内部行为：
 
 - `lightgbm` 的模型名、模型类型、参数、特征清单稳定。
+- `supervised/lightgbm.py` 顶层不导入 LightGBM native 包，registry 和 baseline trainer 导入不依赖 native runtime。
 - `prepare_lightgbm_feature_frame()` 使用 train categories 固化 `attr_type` 编码。
 - valid/test 出现未知 `attr_type` 时失败。
 - 缺失特征、非有限数值、缺失 `attr_type`、空 split 都失败。
@@ -400,7 +435,9 @@ trainer 不吞掉异常，不返回假成功，不用默认常数预测掩盖训
 - `pred_target_growth` 是有限数值。
 - `pred_share_t1` 在 `split/week_id/attr_type` 内归一化。
 - metadata 包含 target 分布、零 share 行数和 valid/test 残差分布。
+- distribution metadata 结构固定为 `{split: {metric: value}}`。
 - `feature_importance.csv` 包含 `feature`、`split_importance`、`gain_importance`、`normalized_gain_importance`。
+- gain 总和为 0 时 `normalized_gain_importance` 全部为 `0.0`。
 - `model.txt` 作为 binary artifact 写入输出目录。
 
 现有测试文件只补通用接入点：
