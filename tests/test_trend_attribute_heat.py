@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from fashion_trend.catalog.readers import read_article_attribute_edges
-from fashion_trend.trend.attribute_heat import (
+from fashion_trend.trend.heat.attribute_heat import (
     build_attribute_week_heat_frame,
     validate_article_attribute_edges_for_heat,
     validate_attribute_week_heat,

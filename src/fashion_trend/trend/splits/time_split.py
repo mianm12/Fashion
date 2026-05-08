@@ -9,7 +9,7 @@ from fashion_trend.foundation.dataframe import (
     validate_required_columns,
     validate_unique_key,
 )
-from fashion_trend.trend.samples import validate_trend_model_samples
+from fashion_trend.trend.features.samples import validate_trend_model_samples
 from fashion_trend.trend.schema import (
     TREND_MODEL_SPLIT_COLUMNS,
     TREND_MODEL_SPLIT_VALUES,

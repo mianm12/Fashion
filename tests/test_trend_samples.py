@@ -6,9 +6,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import fashion_trend.trend.samples as samples_module
+import fashion_trend.trend.features.samples as samples_module
 from fashion_trend.catalog.readers import read_attribute_hierarchy_edges
-from fashion_trend.trend.samples import (
+from fashion_trend.trend.features.samples import (
     build_attribute_graph_features_frame,
     build_trend_model_samples_frame,
 )
@@ -16,7 +16,7 @@ from fashion_trend.trend.schema import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     TREND_MODEL_SAMPLE_COLUMNS,
 )
-from fashion_trend.trend.targets import build_attribute_week_target_frame
+from fashion_trend.trend.labels.targets import build_attribute_week_target_frame
 from tests.trend_samples import (
     sample_attribute_hierarchy_edges,
     sample_attribute_nodes,

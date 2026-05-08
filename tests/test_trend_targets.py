@@ -5,7 +5,7 @@ import math
 import pytest
 
 from fashion_trend.trend.schema import ATTRIBUTE_WEEK_TARGET_COLUMNS
-from fashion_trend.trend.targets import (
+from fashion_trend.trend.labels.targets import (
     build_attribute_week_target_frame,
     validate_attribute_week_target,
 )

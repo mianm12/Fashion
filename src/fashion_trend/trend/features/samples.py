@@ -10,12 +10,14 @@ from fashion_trend.foundation.dataframe import (
     validate_required_columns,
     validate_unique_key,
 )
-from fashion_trend.trend.attribute_heat import (
+from fashion_trend.trend.heat.attribute_heat import (
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
 )
+from fashion_trend.trend.labels.targets import (
+    validate_attribute_week_target_matches_heat,
+)
 from fashion_trend.trend.schema import TREND_MODEL_SAMPLE_COLUMNS
-from fashion_trend.trend.targets import validate_attribute_week_target_matches_heat
 
 
 def build_attribute_graph_features_frame(

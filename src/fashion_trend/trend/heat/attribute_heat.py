@@ -17,7 +17,7 @@ from fashion_trend.foundation.dataframe import (
     validate_required_columns,
     validate_unique_key,
 )
-from fashion_trend.trend.article_sales import validate_article_week_sales
+from fashion_trend.trend.heat.article_sales import validate_article_week_sales
 from fashion_trend.trend.schema import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_DTYPES,

@@ -10,17 +10,17 @@ from fashion_trend.catalog.paths import (
 )
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_parquet_atomic
-from fashion_trend.trend.attribute_heat import read_attribute_week_heat
+from fashion_trend.trend.features.samples import (
+    build_trend_model_samples_frame,
+    validate_trend_model_samples,
+)
+from fashion_trend.trend.heat.attribute_heat import read_attribute_week_heat
+from fashion_trend.trend.labels.targets import read_attribute_week_target
 from fashion_trend.trend.paths import (
     TREND_ATTRIBUTE_WEEK_HEAT_PATH,
     TREND_ATTRIBUTE_WEEK_TARGET_PATH,
     TREND_MODEL_SAMPLES_PATH,
 )
-from fashion_trend.trend.samples import (
-    build_trend_model_samples_frame,
-    validate_trend_model_samples,
-)
-from fashion_trend.trend.targets import read_attribute_week_target
 
 LOG_SOURCE = "trend-model-samples"
 

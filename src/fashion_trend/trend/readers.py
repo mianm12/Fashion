@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fashion_trend.trend.article_sales import read_article_week_sales
-from fashion_trend.trend.attribute_heat import read_attribute_week_heat
 from fashion_trend.trend.evaluation import read_trend_model_predictions
+from fashion_trend.trend.heat.article_sales import read_article_week_sales
+from fashion_trend.trend.heat.attribute_heat import read_attribute_week_heat
+from fashion_trend.trend.labels.targets import read_attribute_week_target
 from fashion_trend.trend.schema import TREND_METRICS_PAYLOAD_REQUIRED_KEYS
 from fashion_trend.trend.splits import read_trend_model_split
-from fashion_trend.trend.targets import read_attribute_week_target
 
 
 def read_trend_metrics(metrics_path: Path) -> dict[str, object]:

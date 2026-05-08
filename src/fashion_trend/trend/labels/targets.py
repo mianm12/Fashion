@@ -12,7 +12,7 @@ from fashion_trend.foundation.dataframe import (
     validate_required_columns,
     validate_unique_key,
 )
-from fashion_trend.trend.attribute_heat import validate_attribute_week_heat
+from fashion_trend.trend.heat.attribute_heat import validate_attribute_week_heat
 from fashion_trend.trend.schema import (
     ATTRIBUTE_WEEK_TARGET_COLUMNS,
     ATTRIBUTE_WEEK_TARGET_DTYPES,

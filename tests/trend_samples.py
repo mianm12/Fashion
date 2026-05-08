@@ -4,7 +4,7 @@ import math
 
 import pandas as pd
 
-from fashion_trend.trend.attribute_heat import build_attribute_week_heat_frame
+from fashion_trend.trend.heat.attribute_heat import build_attribute_week_heat_frame
 from fashion_trend.trend.schema import (
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     TREND_MODEL_PREDICTION_COLUMNS,

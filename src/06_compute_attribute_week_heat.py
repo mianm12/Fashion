@@ -10,11 +10,11 @@ from fashion_trend.catalog.paths import (
 )
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic
-from fashion_trend.trend.article_sales import (
+from fashion_trend.trend.heat.article_sales import (
     read_article_week_sales,
     validate_article_week_sales,
 )
-from fashion_trend.trend.attribute_heat import (
+from fashion_trend.trend.heat.attribute_heat import (
     build_attribute_week_heat_frame,
     validate_all_sales_articles_have_attribute_edges,
     validate_attribute_edge_node_metadata_consistency,

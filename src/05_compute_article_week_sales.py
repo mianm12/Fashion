@@ -4,7 +4,7 @@ from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic
 from fashion_trend.transactions.paths import WEEKLY_TRANSACTIONS_PATH
 from fashion_trend.transactions.readers import read_weekly_transactions
-from fashion_trend.trend.article_sales import (
+from fashion_trend.trend.heat.article_sales import (
     build_article_week_sales_frame,
     validate_article_week_sales,
 )

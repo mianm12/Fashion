@@ -6,10 +6,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import fashion_trend.trend.article_sales as article_sales_module
+import fashion_trend.trend.heat.article_sales as article_sales_module
 from fashion_trend.foundation.io import write_csv_atomic
 from fashion_trend.transactions.readers import read_weekly_transactions
-from fashion_trend.trend.article_sales import (
+from fashion_trend.trend.heat.article_sales import (
     build_article_week_sales_frame,
     read_article_week_sales,
     validate_article_week_sales,

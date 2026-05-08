@@ -4,18 +4,18 @@ from fashion_trend.catalog.paths import GRAPH_NODES_ATTRIBUTE_PATH
 from fashion_trend.catalog.readers import read_attribute_nodes
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic
-from fashion_trend.trend.attribute_heat import (
+from fashion_trend.trend.heat.attribute_heat import (
     read_attribute_week_heat,
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
 )
+from fashion_trend.trend.labels.targets import (
+    build_attribute_week_target_frame,
+    validate_attribute_week_target,
+)
 from fashion_trend.trend.paths import (
     TREND_ATTRIBUTE_WEEK_HEAT_PATH,
     TREND_ATTRIBUTE_WEEK_TARGET_PATH,
-)
-from fashion_trend.trend.targets import (
-    build_attribute_week_target_frame,
-    validate_attribute_week_target,
 )
 
 LOG_SOURCE = "trend-targets"
