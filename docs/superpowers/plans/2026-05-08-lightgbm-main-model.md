@@ -45,6 +45,7 @@
 from __future__ import annotations
 
 import importlib
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -583,7 +584,7 @@ class _FakeBooster:
 运行：
 
 ```sh
-uv run pytest tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_describe_target_distribution_returns_split_metric_mapping tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_build_feature_importance_frame_normalizes_gain -q
+uv run pytest tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_describe_target_distribution_returns_split_metric_mapping tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_describe_residual_distribution_returns_valid_test_only tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_build_feature_importance_frame_normalizes_gain -q
 ```
 
 预期：测试失败，因为诊断和特征重要性辅助函数尚不存在。
@@ -597,7 +598,7 @@ def describe_target_distribution(
     split_frames: dict[str, pd.DataFrame],
 ) -> dict[str, dict[str, float | int]]:
     return {
-        split_name: _describe_numeric_series(split_frame[LIGHTGBM_TARGET_COLUMN])
+        split_name: _describe_target_series(split_frame[LIGHTGBM_TARGET_COLUMN])
         for split_name, split_frame in split_frames.items()
     }
 
@@ -620,7 +621,7 @@ def describe_residual_distribution(
             pd.to_numeric(predictions["target_growth"], errors="raise")
             - pd.to_numeric(predictions["pred_target_growth"], errors="raise")
         )
-        summary = _describe_numeric_series(residual)
+        summary = _describe_residual_series(residual)
         summary["mae"] = float(residual.abs().mean())
         summary["rmse"] = float(np.sqrt(np.square(residual).mean()))
         distribution[split_name] = summary
@@ -674,8 +675,18 @@ def _describe_numeric_series(series: pd.Series) -> dict[str, float | int]:
         "p50": float(numeric.quantile(0.50)),
         "p95": float(numeric.quantile(0.95)),
         "p99": float(numeric.quantile(0.99)),
-        "abs_gt_2": int(numeric.abs().gt(2).sum()),
     }
+
+
+def _describe_target_series(series: pd.Series) -> dict[str, float | int]:
+    summary = _describe_numeric_series(series)
+    numeric = pd.to_numeric(series, errors="raise")
+    summary["abs_gt_2"] = int(numeric.abs().gt(2).sum())
+    return summary
+
+
+def _describe_residual_series(series: pd.Series) -> dict[str, float | int]:
+    return _describe_numeric_series(series)
 ```
 
 - [ ] **步骤 4：运行聚焦测试，确认辅助函数通过**
@@ -754,6 +765,60 @@ git commit -m "feat(trend): 补充 LightGBM 诊断工具"
             "model.txt",
         ]
 
+    def test_trainer_rejects_split_frame_with_mismatched_split_value(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from fashion_trend.trend.models.base import TrendTrainContext
+        from fashion_trend.trend.splits import build_trend_model_split_frames
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        split_frames["valid"] = split_frames["valid"].assign(split="train")
+
+        with pytest.raises(ValueError, match="split.*valid|不一致"):
+            lightgbm_model.LightGBMTrendTrainer().train(
+                TrendTrainContext(
+                    model_name="lightgbm",
+                    split_frames=split_frames,
+                    input_paths={
+                        "train": Path("train.parquet"),
+                        "valid": Path("valid.parquet"),
+                        "test": Path("test.parquet"),
+                    },
+                    output_dir=Path("outputs/models/lightgbm"),
+                )
+            )
+
+    def test_trainer_rejects_split_frame_missing_split_column(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from fashion_trend.trend.models.base import TrendTrainContext
+        from fashion_trend.trend.splits import build_trend_model_split_frames
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        split_frames["valid"] = split_frames["valid"].drop(columns=["split"])
+
+        with pytest.raises(ValueError, match="lightgbm.*split.*缺少|缺少.*split"):
+            lightgbm_model.LightGBMTrendTrainer().train(
+                TrendTrainContext(
+                    model_name="lightgbm",
+                    split_frames=split_frames,
+                    input_paths={
+                        "train": Path("train.parquet"),
+                        "valid": Path("valid.parquet"),
+                        "test": Path("test.parquet"),
+                    },
+                    output_dir=Path("outputs/models/lightgbm"),
+                )
+            )
+
     def test_fit_lightgbm_model_wraps_native_import_errors(self, monkeypatch) -> None:
         lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
 
@@ -799,7 +864,7 @@ class _FakeLightGBMModel:
 运行：
 
 ```sh
-uv run pytest tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_trainer_returns_standard_train_result tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_fit_lightgbm_model_wraps_native_import_errors -q
+uv run pytest tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_trainer_returns_standard_train_result tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_trainer_rejects_split_frame_with_mismatched_split_value tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_trainer_rejects_split_frame_missing_split_column tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_fit_lightgbm_model_wraps_native_import_errors -q
 ```
 
 预期：测试失败，因为 `LightGBMTrendTrainer.train()` 和 `_fit_lightgbm_model()` 尚未实现。
@@ -915,10 +980,22 @@ def _copy_context_split_frames(
         if split_name not in context.split_frames:
             raise ValueError(f"lightgbm 模型输入缺少 split: {split_name}")
         split_frame = context.split_frames[split_name].copy()
+        validate_required_columns(
+            split_frame,
+            ("split",),
+            source_name=f"lightgbm 模型输入 split {split_name}",
+        )
         if split_frame.empty:
             raise ValueError(f"lightgbm 模型输入 split 不能为空: {split_name}")
-        if not set(split_frame["split"]).issubset(set(TREND_MODEL_SPLIT_VALUES)):
+        split_values = set(split_frame["split"].astype(str))
+        if not split_values.issubset(set(TREND_MODEL_SPLIT_VALUES)):
             raise ValueError(f"lightgbm 模型输入 split 存在非法值: {split_name}")
+        if split_values != {split_name}:
+            values = ", ".join(sorted(split_values))
+            raise ValueError(
+                "lightgbm 模型输入 split 与 frame key 不一致: "
+                f"key={split_name}, values={values}"
+            )
         split_frames[split_name] = split_frame
     return split_frames
 
@@ -1056,6 +1133,7 @@ git commit -m "feat(trend): 实现 LightGBM 主模型训练器"
 
 **文件：**
 - 修改：`src/fashion_trend/trend/models/registry.py`
+- 修改：`tests/test_trend_lightgbm.py`
 - 修改：`tests/test_trend_training.py`
 
 - [ ] **步骤 1：增加 registry 和 runner 测试**
@@ -1129,12 +1207,55 @@ def test_train_trend_model_main_accepts_lightgbm(self) -> None:
     assert calls == [LIGHTGBM_MODEL_NAME]
 ```
 
+在 `tests/test_trend_lightgbm.py` 的 `TestLightGBMTrendModel` 中追加运行时导入隔离测试：
+
+```python
+    def test_native_lightgbm_import_is_deferred_until_fit(self, monkeypatch) -> None:
+        import builtins
+
+        for module_name in (
+            LIGHTGBM_MODULE,
+            "fashion_trend.trend.models.registry",
+        ):
+            sys.modules.pop(module_name, None)
+
+        original_import = builtins.__import__
+        blocked_imports: list[str] = []
+
+        def block_lightgbm(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "lightgbm" or name.startswith("lightgbm."):
+                blocked_imports.append(name)
+                raise ImportError("blocked lightgbm import")
+            return original_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", block_lightgbm)
+
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        registry = importlib.import_module("fashion_trend.trend.models.registry")
+
+        assert "lightgbm" in registry.list_trend_model_names()
+        assert registry.get_trend_model_trainer("last_week").name == "last_week"
+        assert registry.get_trend_model_trainer("previous_growth").name == "previous_growth"
+        assert registry.get_trend_model_trainer("moving_average").name == "moving_average"
+        assert blocked_imports == []
+
+        with pytest.raises(ValueError, match="lightgbm|native runtime|原生运行时"):
+            lightgbm_model._fit_lightgbm_model(
+                _sample_lightgbm_samples("train").loc[:, ["growth_lag_1"]],
+                _sample_lightgbm_samples("train")["target_growth"],
+                _sample_lightgbm_samples("valid").loc[:, ["growth_lag_1"]],
+                _sample_lightgbm_samples("valid")["target_growth"],
+            )
+
+        assert blocked_imports == ["lightgbm"]
+```
+
 - [ ] **步骤 2：运行聚焦测试，确认 registry 测试按预期失败**
 
 运行：
 
 ```sh
-uv run pytest tests/test_trend_training.py::TestTrendTraining::test_registry_lists_registered_models tests/test_trend_training.py::TestTrendTraining::test_registry_returns_lightgbm_trainer -q
+uv run pytest tests/test_trend_training.py::TestTrendTraining::test_registry_lists_registered_models tests/test_trend_training.py::TestTrendTraining::test_registry_returns_lightgbm_trainer tests/test_trend_lightgbm.py::TestLightGBMTrendModel::test_native_lightgbm_import_is_deferred_until_fit -q
 ```
 
 预期：测试失败，因为 `lightgbm` 尚未注册。
@@ -1169,12 +1290,12 @@ TREND_MODEL_REGISTRY: dict[str, TrendModelTrainer] = {
 uv run pytest tests/test_trend_lightgbm.py tests/test_trend_training.py -q
 ```
 
-预期：测试通过。导入 registry 不应导入原生 `lightgbm`。
+预期：测试通过。运行时导入隔离测试应证明导入 `supervised.lightgbm`、导入 registry、列出模型和获取 baseline trainer 都不会导入原生 `lightgbm`；只有调用 `_fit_lightgbm_model()` 才会触发并包装为可定位的 `ValueError`。
 
 - [ ] **步骤 5：如已获授权，提交 registry 接入**
 
 ```sh
-git add src/fashion_trend/trend/models/registry.py tests/test_trend_training.py
+git add src/fashion_trend/trend/models/registry.py tests/test_trend_lightgbm.py tests/test_trend_training.py
 git commit -m "feat(trend): 注册 LightGBM 主模型"
 ```
 
@@ -1326,9 +1447,10 @@ uv run python src/11_eval_trend_model.py --model lightgbm
 
 - [ ] **步骤 2：增加 README LightGBM 小节**
 
-在现有 baseline 小节附近增加：
+在现有 baseline 小节附近增加以下小节，并把当前 README 中已有的
+`### 12. 趋势评价` 整体顺延为 `### 13. 趋势评价`。顺延时同步检查模型列表、命令块、metrics 路径和阶段表，确保 README 中不会出现两个 `### 12` 小节。
 
-```markdown
+````markdown
 ### 12. LightGBM 主模型
 
 `lightgbm` 主模型复用通用趋势模型训练入口，模型细节位于
@@ -1356,13 +1478,13 @@ outputs/models/lightgbm/model.txt
 uv run python src/10_train_trend_model.py --model lightgbm
 uv run python src/11_eval_trend_model.py --model lightgbm
 ```
-```
+````
 
 - [ ] **步骤 3：更新实施计划中的 LightGBM 小节**
 
 在 `docs/gpt-research/implementation-plan.md` 中，把说明 `lightgbm` 尚未注册的文字替换为：
 
-```markdown
+````markdown
 当前实现中，`lightgbm` 已注册到统一趋势模型训练入口：
 
 ```sh
@@ -1385,7 +1507,7 @@ outputs/models/lightgbm/model.txt
 ```text
 outputs/metrics/lightgbm/trend_metrics.json
 ```
-```
+````
 
 - [ ] **步骤 4：运行文档 grep 检查**
 
@@ -1393,9 +1515,12 @@ outputs/metrics/lightgbm/trend_metrics.json
 
 ```sh
 rg -n "lightgbm|LightGBM|尚未注册|后续实现注册后|12_train_lightgbm" README.md docs/gpt-research/implementation-plan.md
+rg -n "^### 12\\.|^### 13\\." README.md
 ```
 
-预期：相关引用应说明 `lightgbm` 已通过 `10_train_trend_model.py --model lightgbm` 实现；不应再出现需要单独 LightGBM 编号脚本的描述。
+预期：
+- 相关引用应说明 `lightgbm` 已通过 `10_train_trend_model.py --model lightgbm` 实现；不应再出现需要单独 LightGBM 编号脚本的描述。
+- README 只有 `### 12. LightGBM 主模型` 和 `### 13. 趋势评价`，没有重复的 `### 12`。
 
 - [ ] **步骤 5：如已获授权，提交文档同步**
 
@@ -1460,20 +1585,20 @@ outputs/metrics/lightgbm/trend_metrics.json
 
 如果缺少 LightGBM 原生运行时依赖，预期行为是只有 `lightgbm` 训练命令失败，并给出清晰的 `lightgbm` / 原生运行时错误；baseline 训练命令仍必须可用。
 
-- [ ] **步骤 4：确保 baseline metrics 存在**
+- [ ] **步骤 4：重新生成 baseline predictions 和 metrics**
 
 运行：
 
 ```sh
-test -f outputs/metrics/last_week/trend_metrics.json || uv run python src/10_train_trend_model.py --model last_week
-test -f outputs/metrics/last_week/trend_metrics.json || uv run python src/11_eval_trend_model.py --model last_week
-test -f outputs/metrics/previous_growth/trend_metrics.json || uv run python src/10_train_trend_model.py --model previous_growth
-test -f outputs/metrics/previous_growth/trend_metrics.json || uv run python src/11_eval_trend_model.py --model previous_growth
-test -f outputs/metrics/moving_average/trend_metrics.json || uv run python src/10_train_trend_model.py --model moving_average
-test -f outputs/metrics/moving_average/trend_metrics.json || uv run python src/11_eval_trend_model.py --model moving_average
+uv run python src/10_train_trend_model.py --model last_week
+uv run python src/11_eval_trend_model.py --model last_week
+uv run python src/10_train_trend_model.py --model previous_growth
+uv run python src/11_eval_trend_model.py --model previous_growth
+uv run python src/10_train_trend_model.py --model moving_average
+uv run python src/11_eval_trend_model.py --model moving_average
 ```
 
-预期：该步骤后，三个 baseline metrics 文件都存在。
+预期：三个 baseline 的 `predictions.csv` 和 `trend_metrics.json` 都在本轮重新生成，避免拿旧代码、旧预测或旧样本的结果与 LightGBM 比较。
 
 - [ ] **步骤 5：生成 baseline 对比摘要**
 
@@ -1492,37 +1617,58 @@ for model in models:
         raise SystemExit(f"missing metrics: {path}")
     metrics[model] = json.loads(path.read_text(encoding="utf-8"))["overall"]
 
+
+def format_metric(value):
+    if value is None:
+        return "not_available"
+    return f"{float(value):.6f}"
+
+
+def find_best_baseline(values, reverse=False):
+    comparable = {
+        model: value
+        for model, value in values.items()
+        if model != "lightgbm" and value is not None
+    }
+    if not comparable:
+        return None, None
+    best_model = (
+        max(comparable, key=comparable.get)
+        if reverse
+        else min(comparable, key=comparable.get)
+    )
+    return best_model, comparable[best_model]
+
+
+def print_comparison(metric, values, reverse=False):
+    best_model, best_value = find_best_baseline(values, reverse=reverse)
+    lightgbm_value = values["lightgbm"]
+    if best_value is None or lightgbm_value is None:
+        better = "not_available"
+        baseline_text = "not_available"
+    else:
+        better = lightgbm_value > best_value if reverse else lightgbm_value < best_value
+        baseline_text = f"{best_model}:{format_metric(best_value)}"
+    print(
+        f"{metric}: lightgbm={format_metric(lightgbm_value)}, "
+        f"best_baseline={baseline_text}, "
+        f"lightgbm_better={better}"
+    )
+
+
 for split in ("valid", "test"):
     print(f"[{split}]")
     for metric in ("mae", "rmse", "spearman"):
         values = {model: metrics[model][split][metric] for model in models}
-        reverse = metric == "spearman"
-        baseline_values = {k: v for k, v in values.items() if k != "lightgbm"}
-        best_baseline = max(baseline_values, key=baseline_values.get) if reverse else min(baseline_values, key=baseline_values.get)
-        lightgbm_value = values["lightgbm"]
-        baseline_value = baseline_values[best_baseline]
-        better = lightgbm_value > baseline_value if reverse else lightgbm_value < baseline_value
-        print(
-            f"{metric}: lightgbm={lightgbm_value:.6f}, "
-            f"best_baseline={best_baseline}:{baseline_value:.6f}, "
-            f"lightgbm_better={better}"
-        )
+        print_comparison(metric, values, reverse=(metric == "spearman"))
     ndcg_values = {
         model: metrics[model][split]["ndcg_at_k"]["10"] for model in models
     }
-    baseline_ndcg = {k: v for k, v in ndcg_values.items() if k != "lightgbm"}
-    best_ndcg_model = max(baseline_ndcg, key=baseline_ndcg.get)
-    lightgbm_ndcg = ndcg_values["lightgbm"]
-    best_ndcg = baseline_ndcg[best_ndcg_model]
-    print(
-        f"ndcg@10: lightgbm={lightgbm_ndcg:.6f}, "
-        f"best_baseline={best_ndcg_model}:{best_ndcg:.6f}, "
-        f"lightgbm_better={lightgbm_ndcg > best_ndcg}"
-    )
+    print_comparison("ndcg@10", ndcg_values, reverse=True)
 PY
 ```
 
-预期：打印 valid/test 的 MAE、RMSE、Spearman 和 NDCG@10 对比。最终实现结果中需要包含这段输出摘要。
+预期：打印 valid/test 的 MAE、RMSE、Spearman 和 NDCG@10 对比。若某个指标为 `None`，输出 `not_available`，不应因格式化或 best-baseline 比较失败。最终实现结果中需要包含这段输出摘要。
 
 - [ ] **步骤 6：检查源码 diff 和被忽略的生成产物**
 
