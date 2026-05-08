@@ -235,7 +235,7 @@ def _validate_output_payloads(
 
 
 def _validate_json_payload(payload: dict[str, object], source_name: str) -> None:
-    """按当前训练产物 JSON 写出选项校验载荷可序列化。"""
+    """按训练产物写出选项执行严格的 JSON 可序列化校验。"""
 
     try:
         json.dumps(payload, ensure_ascii=False, sort_keys=True)
