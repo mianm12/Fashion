@@ -915,7 +915,16 @@ class TestTrendTraining:
 
     @pytest.mark.parametrize(
         "case",
-        ["negative", "above_one", "bad_total", "all_zero", "non_finite"],
+        [
+            "negative",
+            "above_one",
+            "bad_total",
+            "all_zero",
+            "inf",
+            "nan",
+            "negative_inf",
+            "non_numeric",
+        ],
     )
     def test_predict_last_week_rejects_invalid_share_t(self, case: str) -> None:
         samples = sample_trend_model_samples_for_split().assign(split="train")
@@ -932,8 +941,15 @@ class TestTrendTraining:
             samples.loc[black_mask, "share_t"] = 0.80
         elif case == "all_zero":
             samples.loc[group_mask, "share_t"] = 0.0
-        elif case == "non_finite":
+        elif case == "inf":
             samples.loc[black_mask, "share_t"] = float("inf")
+        elif case == "nan":
+            samples.loc[black_mask, "share_t"] = float("nan")
+        elif case == "negative_inf":
+            samples.loc[black_mask, "share_t"] = float("-inf")
+        elif case == "non_numeric":
+            samples["share_t"] = samples["share_t"].astype(object)
+            samples.loc[black_mask, "share_t"] = "bad-share"
         else:
             raise AssertionError(f"未知测试场景: {case}")
 
