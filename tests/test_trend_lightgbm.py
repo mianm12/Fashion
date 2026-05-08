@@ -300,6 +300,129 @@ class TestLightGBMTrendModel:
 
         assert importance["normalized_gain_importance"].tolist() == [0.0, 0.0]
 
+    def test_trainer_returns_standard_train_result(self, monkeypatch) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from fashion_trend.trend.models.base import TrendTrainContext, TrendTrainResult
+        from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
+        from fashion_trend.trend.splits import build_trend_model_split_frames
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+
+        def fake_fit(train_features, train_target, valid_features, valid_target):
+            return _FakeLightGBMModel(train_features.columns.tolist())
+
+        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+
+        result = lightgbm_model.LightGBMTrendTrainer().train(
+            TrendTrainContext(
+                model_name="lightgbm",
+                split_frames=split_frames,
+                input_paths={
+                    "train": Path("train.parquet"),
+                    "valid": Path("valid.parquet"),
+                    "test": Path("test.parquet"),
+                },
+                output_dir=Path("outputs/models/lightgbm"),
+            )
+        )
+
+        assert isinstance(result, TrendTrainResult)
+        assert result.model_name == "lightgbm"
+        assert result.model_type == MODEL_TYPE_SUPERVISED
+        assert result.predictions.columns.tolist() == list(
+            TREND_MODEL_PREDICTION_COLUMNS
+        )
+        assert set(result.predictions["model_name"]) == {"lightgbm"}
+        assert result.params["objective"] == "regression"
+        assert result.params["best_iteration"] == 7
+        assert result.metadata["attr_type_categories"] == ["colour_group_name"]
+        assert set(result.metadata["target_distribution"]) == {"train", "valid", "test"}
+        assert set(result.metadata["residual_distribution"]) == {"valid", "test"}
+        assert [artifact.relative_path for artifact in result.artifacts] == [
+            "feature_importance.csv",
+            "model.txt",
+        ]
+
+    def test_trainer_rejects_split_frame_with_mismatched_split_value(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from fashion_trend.trend.models.base import TrendTrainContext
+        from fashion_trend.trend.splits import build_trend_model_split_frames
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        split_frames["valid"] = split_frames["valid"].assign(split="train")
+
+        with pytest.raises(ValueError, match="split.*valid|不一致"):
+            lightgbm_model.LightGBMTrendTrainer().train(
+                TrendTrainContext(
+                    model_name="lightgbm",
+                    split_frames=split_frames,
+                    input_paths={
+                        "train": Path("train.parquet"),
+                        "valid": Path("valid.parquet"),
+                        "test": Path("test.parquet"),
+                    },
+                    output_dir=Path("outputs/models/lightgbm"),
+                )
+            )
+
+    def test_trainer_rejects_split_frame_missing_split_column(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from fashion_trend.trend.models.base import TrendTrainContext
+        from fashion_trend.trend.splits import build_trend_model_split_frames
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        split_frames["valid"] = split_frames["valid"].drop(columns=["split"])
+
+        with pytest.raises(ValueError, match="lightgbm.*split.*缺少|缺少.*split"):
+            lightgbm_model.LightGBMTrendTrainer().train(
+                TrendTrainContext(
+                    model_name="lightgbm",
+                    split_frames=split_frames,
+                    input_paths={
+                        "train": Path("train.parquet"),
+                        "valid": Path("valid.parquet"),
+                        "test": Path("test.parquet"),
+                    },
+                    output_dir=Path("outputs/models/lightgbm"),
+                )
+            )
+
+    def test_fit_lightgbm_model_wraps_native_import_errors(self, monkeypatch) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+
+        def broken_import(name, *args, **kwargs):
+            if name == "lightgbm":
+                raise OSError("libomp.dylib not found")
+            return original_import(name, *args, **kwargs)
+
+        import builtins
+
+        original_import = builtins.__import__
+        monkeypatch.setattr(builtins, "__import__", broken_import)
+
+        with pytest.raises(ValueError, match="lightgbm|libomp"):
+            lightgbm_model._fit_lightgbm_model(
+                _sample_lightgbm_samples("train").loc[:, ["growth_lag_1"]],
+                _sample_lightgbm_samples("train")["target_growth"],
+                _sample_lightgbm_samples("valid").loc[:, ["growth_lag_1"]],
+                _sample_lightgbm_samples("valid")["target_growth"],
+            )
+
 
 def _sample_lightgbm_samples(split: str):
     from tests.trend_samples import sample_trend_model_samples_for_split
@@ -332,3 +455,18 @@ class _FakeBooster:
 
     def model_to_string(self) -> str:
         return "fake lightgbm model"
+
+
+class _FakeLightGBMModel:
+    best_iteration_ = 7
+    best_score_ = {"valid_0": {"l2": 0.12}}
+
+    def __init__(self, feature_names: list[str]) -> None:
+        self.booster_ = _FakeBooster(
+            feature_names=feature_names,
+            split_importance=[1 for _ in feature_names],
+            gain_importance=[float(index + 1) for index, _ in enumerate(feature_names)],
+        )
+
+    def predict(self, features, num_iteration=None):
+        return features["growth_lag_1"].astype(float).to_numpy()
