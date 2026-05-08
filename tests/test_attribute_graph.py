@@ -18,7 +18,6 @@ from fashion_trend.catalog.graph.publishing import publish_graph_frames
 
 
 def sample_clean_articles() -> pd.DataFrame:
-    """构造属性图阶段使用的 clean articles 输入样本。"""
     return pd.DataFrame(
         {
             "article_id": ["0108775015", "0108775044", "0110065001"],

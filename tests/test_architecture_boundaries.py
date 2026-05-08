@@ -72,7 +72,6 @@ FOUNDATION_PATH_ALLOWED_EXPORTS = {
 
 
 def iter_python_files(package_name: str) -> list[Path]:
-    """列出指定业务域包下参与架构边界检查的 Python 文件。"""
     package_path = PACKAGE_ROOT / package_name
     assert package_path.exists(), f"package missing: fashion_trend.{package_name}"
     return sorted(
@@ -81,7 +80,6 @@ def iter_python_files(package_name: str) -> list[Path]:
 
 
 def iter_architecture_python_files() -> list[Path]:
-    """列出生产包和测试包中参与静态导入检查的 Python 文件。"""
     return sorted(
         path
         for root in (PACKAGE_ROOT, TESTS_ROOT)
@@ -259,7 +257,6 @@ def assert_package_does_not_import(
     package_name: str,
     forbidden_modules: set[str],
 ) -> None:
-    """断言业务域包没有导入给定的禁止模块前缀。"""
     offenders: list[str] = []
     for path in iter_python_files(package_name):
         for module_name in imported_modules(path):
@@ -312,7 +309,6 @@ def assert_package_imports_only_allowed_upstream(
     upstream_roots: set[str],
     allowed_modules: set[str],
 ) -> None:
-    """断言业务域包只导入白名单允许的上游公开接口。"""
     offenders = package_upstream_import_offenders(
         iter_python_files(package_name),
         upstream_roots,
@@ -386,7 +382,6 @@ def test_allowlist_rejects_core_computation_imports(tmp_path: Path) -> None:
 
 
 def forbidden_imports(*module_names: str) -> set[str]:
-    """合并历史根模块和当前测试额外禁止的模块前缀。"""
     return HISTORICAL_ROOT_IMPORTS | set(module_names)
 
 
