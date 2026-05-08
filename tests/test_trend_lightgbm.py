@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -92,6 +93,49 @@ class TestLightGBMTrendModel:
 
         assert trainer.name == "lightgbm"
         assert trainer.model_type == MODEL_TYPE_SUPERVISED
+
+    def test_native_lightgbm_import_is_deferred_until_fit(self, monkeypatch) -> None:
+        import builtins
+
+        for module_name in (
+            LIGHTGBM_MODULE,
+            "fashion_trend.trend.models.registry",
+        ):
+            sys.modules.pop(module_name, None)
+
+        original_import = builtins.__import__
+        blocked_imports: list[str] = []
+
+        def block_lightgbm(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "lightgbm" or name.startswith("lightgbm."):
+                blocked_imports.append(name)
+                raise ImportError("blocked lightgbm import")
+            return original_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", block_lightgbm)
+
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        registry = importlib.import_module("fashion_trend.trend.models.registry")
+
+        assert "lightgbm" in registry.list_trend_model_names()
+        assert registry.get_trend_model_trainer("last_week").name == "last_week"
+        assert registry.get_trend_model_trainer("previous_growth").name == (
+            "previous_growth"
+        )
+        assert registry.get_trend_model_trainer("moving_average").name == (
+            "moving_average"
+        )
+        assert blocked_imports == []
+
+        with pytest.raises(ValueError, match="lightgbm|native runtime|原生运行时"):
+            lightgbm_model._fit_lightgbm_model(
+                _sample_lightgbm_samples("train").loc[:, ["growth_lag_1"]],
+                _sample_lightgbm_samples("train")["target_growth"],
+                _sample_lightgbm_samples("valid").loc[:, ["growth_lag_1"]],
+                _sample_lightgbm_samples("valid")["target_growth"],
+            )
+
+        assert blocked_imports == ["lightgbm"]
 
     def test_prepare_feature_frame_uses_train_categories(self) -> None:
         lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)

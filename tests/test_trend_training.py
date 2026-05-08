@@ -12,6 +12,7 @@ import pytest
 from fashion_trend.foundation.io import write_parquet_atomic
 from fashion_trend.trend.models.base import (
     MODEL_TYPE_BASELINE,
+    MODEL_TYPE_SUPERVISED,
     TrendArtifact,
     TrendTrainContext,
     TrendTrainResult,
@@ -39,6 +40,10 @@ from fashion_trend.trend.models.registry import (
     UnknownTrendModelError,
     get_trend_model_trainer,
     list_trend_model_names,
+)
+from fashion_trend.trend.models.supervised.lightgbm import (
+    LIGHTGBM_MODEL_NAME,
+    LightGBMTrendTrainer,
 )
 from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
 from fashion_trend.trend.predictions import validate_trend_model_predictions
@@ -112,6 +117,7 @@ class TestTrendTraining:
     def test_registry_lists_registered_models(self) -> None:
         assert list_trend_model_names() == (
             LAST_WEEK_MODEL_NAME,
+            LIGHTGBM_MODEL_NAME,
             MOVING_AVERAGE_MODEL_NAME,
             PREVIOUS_GROWTH_MODEL_NAME,
         )
@@ -193,6 +199,13 @@ class TestTrendTraining:
         assert isinstance(trainer, MovingAverageTrainer)
         assert trainer.name == MOVING_AVERAGE_MODEL_NAME
         assert trainer.model_type == MODEL_TYPE_BASELINE
+
+    def test_registry_returns_lightgbm_trainer(self) -> None:
+        trainer = get_trend_model_trainer(LIGHTGBM_MODEL_NAME)
+
+        assert isinstance(trainer, LightGBMTrendTrainer)
+        assert trainer.name == LIGHTGBM_MODEL_NAME
+        assert trainer.model_type == MODEL_TYPE_SUPERVISED
 
     def test_registry_returns_previous_growth_trainer(self) -> None:
         trainer = get_trend_model_trainer(PREVIOUS_GROWTH_MODEL_NAME)
@@ -861,6 +874,57 @@ class TestTrendTraining:
             train_model.run_trend_model_training = original_run_trend_model_training
 
         assert calls == [MOVING_AVERAGE_MODEL_NAME]
+
+    def test_train_trend_model_main_accepts_lightgbm(self) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+        calls: list[str] = []
+        original_run_trend_model_training = train_model.run_trend_model_training
+
+        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+            calls.append(model_name)
+            return {
+                "model_name": LIGHTGBM_MODEL_NAME,
+                "model_type": MODEL_TYPE_SUPERVISED,
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": {
+                    "train": {
+                        "rows": 24,
+                        "weeks": 12,
+                        "attributes": 2,
+                        "week_min": 4,
+                        "week_max": 15,
+                    },
+                    "valid": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 16,
+                        "week_max": 19,
+                    },
+                    "test": {
+                        "rows": 8,
+                        "weeks": 4,
+                        "attributes": 2,
+                        "week_min": 20,
+                        "week_max": 23,
+                    },
+                },
+                "output_dir": "outputs/models/lightgbm",
+                "prediction_path": "outputs/models/lightgbm/predictions.csv",
+                "params_path": "outputs/models/lightgbm/params.json",
+            }
+
+        # 手动替换训练 runner，避免 CLI 测试写入真实模型产物。
+        try:
+            train_model.run_trend_model_training = fake_run_trend_model_training
+
+            assert train_model.main(["--model", LIGHTGBM_MODEL_NAME]) == 0
+        finally:
+            train_model.run_trend_model_training = original_run_trend_model_training
+
+        assert calls == [LIGHTGBM_MODEL_NAME]
 
     def test_train_trend_model_main_accepts_previous_growth(self) -> None:
         train_model = importlib.import_module("10_train_trend_model")

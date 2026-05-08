@@ -13,6 +13,10 @@ from fashion_trend.trend.models.baselines.previous_growth import (
     PREVIOUS_GROWTH_MODEL_NAME,
     PreviousGrowthTrainer,
 )
+from fashion_trend.trend.models.supervised.lightgbm import (
+    LIGHTGBM_MODEL_NAME,
+    LightGBMTrendTrainer,
+)
 
 
 class UnknownTrendModelError(ValueError):
@@ -21,6 +25,7 @@ class UnknownTrendModelError(ValueError):
 
 TREND_MODEL_REGISTRY: dict[str, TrendModelTrainer] = {
     LAST_WEEK_MODEL_NAME: LastWeekTrainer(),
+    LIGHTGBM_MODEL_NAME: LightGBMTrendTrainer(),
     MOVING_AVERAGE_MODEL_NAME: MovingAverageTrainer(),
     PREVIOUS_GROWTH_MODEL_NAME: PreviousGrowthTrainer(),
 }
