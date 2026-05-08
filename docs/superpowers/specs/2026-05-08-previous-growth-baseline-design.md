@@ -96,11 +96,11 @@ epsilon = 1e-6
 `last_week` 改为真正的 Last Week Heat baseline，核心预测是下一周属性份额等于当前周份额：
 
 ```text
-pred_share_t1 = group_normalize(max(share_t, 0))
+pred_share_t1 = group_normalize(share_t)
 pred_target_growth = log((pred_share_t1 + epsilon) / (share_t + epsilon))
 ```
 
-当输入 `share_t` 在 `split/week_id/attr_type` 内已经是合法分布时，`pred_share_t1` 等于 `share_t`。保留轻量归一化可以抵抗真实数据中的微小浮点误差，并继续满足标准预测契约。
+`last_week` 不应把明显异常的 `share_t` 静默修正成可用预测。允许的输入边界是：单行 `share_t` 必须是有限数值，并且只能在 `TREND_MODEL_SHARE_TOLERANCE` 容差内轻微低于 0 或高于 1；同一 `split/week_id/attr_type` 内的 `share_t` 总和必须在容差内接近 1。实现可以把容差内的微小负数夹到 0，并重新归一化以抵抗浮点误差；超出容差的负数、明显大于 1、组内总和远离 1 或全零组都必须失败。
 
 `pred_target_growth` 由预测份额反推，目的是让趋势评价继续统一使用：
 
@@ -154,6 +154,7 @@ trainer 需要校验：
 - 必需列存在。
 - `split` 只包含 `train`、`valid`、`test`。
 - 参与公式的数值字段可以转换为有限数值。
+- `last_week` 的 `share_t` 必须在容差内形成合法分布，不能用 clip 掩盖异常输入。
 - 输出预测表满足 `TREND_MODEL_PREDICTION_COLUMNS` 和 `validate_trend_model_predictions()`。
 
 如果输入不满足契约，抛出带模型名的 `ValueError`，不使用静默 fallback。
@@ -244,6 +245,7 @@ target_growth vs pred_target_growth
 - `last_week` 参数更新为 Last Week Heat 语义。
 - `predict_last_week()` 的 `pred_share_t1` 等于按分组归一化后的 `share_t`。
 - `predict_last_week()` 的 `pred_target_growth` 按 `pred_share_t1` 和 `share_t` 反推。
+- `predict_last_week()` 对明显负数、明显大于 1、组内总和远离 1、全零组和非有限 `share_t` 失败。
 - 缺少必需列、非法 split、非有限数值时失败。
 - `run_trend_model_training("previous_growth")` 能写出标准三件套。
 - `run_trend_model_training("last_week")` 写出的 `last_week` 产物使用新语义。
@@ -274,6 +276,9 @@ uv run python src/11_eval_trend_model.py --model moving_average
 - `last_week` 的 `params.json` 不再写旧 `growth_lag_1` 公式。
 - `previous_growth` 的 `params.json` 明确记录旧增长率基线公式。
 - 三个预测表的 `pred_share_t1` 在 `split/week_id/attr_type` 内归一化。
+- `previous_growth` 的真实 `pred_target_growth` 与对应 split 样本的 `growth_lag_1` 一致。
+- `last_week` 的真实 `pred_share_t1` 与对应预测表内 `share_t` 的分组归一化结果一致。
+- `last_week` 的真实 `pred_target_growth` 与 `log((pred_share_t1 + epsilon) / (share_t + epsilon))` 一致。
 
 ## 风险和迁移说明
 
@@ -291,4 +296,4 @@ outputs/models/previous_growth/
 
 README 和实施计划必须同步明确这一点，避免后续实验表述继续混用 `last_week` 与 Previous Growth。
 
-另一个风险是 `share_t` 的浮点归一化误差。`last_week` 应在同一 `split/week_id/attr_type` 内对非负 `share_t` 做轻量归一化，再写入 `pred_share_t1`，同时继续让通用预测校验负责最终分布检查。
+另一个风险是 `share_t` 的浮点归一化误差。`last_week` 只允许容差内的轻微漂移，并在同一 `split/week_id/attr_type` 内重新归一化后写入 `pred_share_t1`；如果输入已经明显不是合法 share 分布，必须失败，而不是用 clip 生成看似合法的预测。
