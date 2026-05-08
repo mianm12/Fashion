@@ -15,7 +15,18 @@ uv run python src/10_train_trend_model.py --model lightgbm
 uv run python src/11_eval_trend_model.py --model lightgbm
 ```
 
-本轮不新增编号脚本，不扩展上游趋势样本特征，不实现推荐模块，不生成 baseline 对比报告，也不做复杂超参数搜索。LightGBM 必须遵守现有 `TrendTrainResult`、`predictions.csv`、`metadata.json`、`params.json` 和趋势评价 JSON 契约。
+本轮不新增编号脚本，不扩展上游趋势样本特征，不实现推荐模块，不生成持久化 baseline 对比报告，也不做复杂超参数搜索。LightGBM 必须遵守现有 `TrendTrainResult`、`predictions.csv`、`metadata.json`、`params.json` 和趋势评价 JSON 契约。
+
+实现验收时必须读取四个模型的趋势评价结果：
+
+```text
+outputs/metrics/last_week/trend_metrics.json
+outputs/metrics/previous_growth/trend_metrics.json
+outputs/metrics/moving_average/trend_metrics.json
+outputs/metrics/lightgbm/trend_metrics.json
+```
+
+验收摘要至少说明 LightGBM 在 valid/test 上的 MAE、RMSE、NDCG@10 是否超过三类 baseline 中的最强结果。首版不要求 LightGBM 全面胜出；如果没有胜出，仍可视为训练闭环完成，但最终结果必须显式说明差距和可能原因，不能只报告“命令成功”。
 
 ## 设计结论
 
@@ -44,6 +55,7 @@ src/fashion_trend/trend/models/supervised/lightgbm.py
 ```text
 src/fashion_trend/trend/models/supervised/lightgbm.py
 src/fashion_trend/trend/models/registry.py
+tests/test_trend_lightgbm.py
 tests/test_trend_training.py
 tests/test_trend_evaluation.py
 README.md
@@ -56,7 +68,8 @@ docs/gpt-research/implementation-plan.md
 | --- | --- |
 | `lightgbm.py` | LightGBM trainer、特征清单、参数常量、训练和预测逻辑 |
 | `registry.py` | 注册 `lightgbm`，让统一训练入口可以发现主模型 |
-| `tests/test_trend_training.py` | 覆盖模型注册、训练结果、artifact、输入校验和 CLI 行为 |
+| `tests/test_trend_lightgbm.py` | 覆盖监督模型专属行为：特征选择、分类编码、训练参数、artifact 和错误路径 |
+| `tests/test_trend_training.py` | 只补通用训练 runner、registry 和 CLI 对 `lightgbm` 的接入点 |
 | `tests/test_trend_evaluation.py` | 确认 `lightgbm` 预测表复用标准评价 runner |
 | `README.md` | 同步 LightGBM 运行命令、产物路径和当前阶段状态 |
 | `implementation-plan.md` | 将“后续计划”更新为已实现主模型入口和产物约定 |
@@ -150,7 +163,23 @@ target_rank_in_type_t1
 split
 ```
 
-`attr_id` 和 `attr_value` 第一版不作为分类特征，避免高基数属性标识让小样本测试和后续泛化解释变得不稳定。`attr_type` 在训练前转换为 pandas `category`，并作为 LightGBM categorical feature 传入。
+`attr_id` 和 `attr_value` 第一版不作为分类特征，避免高基数属性标识让小样本测试和后续泛化解释变得不稳定。`attr_type` 必须使用稳定的跨 split 分类编码，不能让 train、valid、test 各自独立推断 category levels。
+
+实现中新增模型内部辅助函数：
+
+```text
+prepare_lightgbm_feature_frame(samples, attr_type_categories=None)
+```
+
+该函数负责：
+
+- 校验并转换数值特征。
+- 将 `attr_type` 转换为 pandas `category`。
+- train split 调用时从 train 样本固化 `attr_type_categories`。
+- valid/test 调用时复用 train 的 `attr_type_categories`。
+- valid/test 如果出现 train 中不存在的 `attr_type`，直接抛出 `ValueError`。
+
+这样可以避免 LightGBM 在不同 split 上看到不一致的分类编码，也让缺失分类、未知分类和空 split 都能被单独测试。
 
 ## 训练策略
 
@@ -160,7 +189,7 @@ split
 - valid split 用于 early stopping 和训练摘要记录。
 - test split 不参与拟合和 early stopping，只通过统一评价入口进入最终指标。
 
-第一版参数采用实施计划中的稳妥默认值，并固定随机种子：
+第一版参数采用实施计划中的稳妥默认值，并固定随机种子。默认 objective 仍为平方误差回归：
 
 ```json
 {
@@ -176,6 +205,16 @@ split
   "verbosity": -1
 }
 ```
+
+真实 `target_growth` 存在重尾和大量 `share_t=0` 样本，默认 `regression` 不是唯一语义。实现中需要把 objective 作为受控参数常量记录在 `params.json`，并保留后续切换到 `regression_l1` 等 robust objective 的清晰位置；本轮不新增 CLI 参数做 objective 切换。
+
+训练产物必须记录目标分布和残差诊断：
+
+- `target_distribution`：按 train/valid/test 记录 count、min、max、mean、std、p01、p05、p50、p95、p99、`abs_gt_2`。
+- `zero_share_rows`：按 split 记录 `share_t == 0` 的行数。
+- `residual_distribution`：按 valid/test 记录 `target_growth - pred_target_growth` 的 count、min、max、mean、std、p01、p05、p50、p95、p99、mae、rmse。
+
+这些诊断写入 LightGBM trainer 追加的 metadata 字段，用于解释平方误差回归在重尾目标上的表现；不能只保存 `best_iteration`。
 
 early stopping 使用 valid split，第一版固定：
 
@@ -252,20 +291,28 @@ lightgbm
 - `lightgbm_params`
 - `early_stopping`
 - `best_iteration`
+- `objective`
+- `allowed_objectives`
 
 `metadata.json` 的 runner 核心字段仍由通用训练 runner 生成。LightGBM trainer 只能追加非核心摘要字段，例如：
 
 - `target_column`
 - `numeric_features`
 - `categorical_features`
+- `attr_type_categories`
 - `best_iteration`
 - `best_score`
+- `target_distribution`
+- `zero_share_rows`
+- `residual_distribution`
 
 `feature_importance.csv` 至少包含：
 
 ```text
 feature
-importance
+split_importance
+gain_importance
+normalized_gain_importance
 ```
 
 `model.txt` 使用 LightGBM booster 的文本格式，作为本轮可审查模型文件。artifact 路径必须是输出目录下的安全相对路径，继续由现有 artifact safety 逻辑校验。
@@ -305,6 +352,27 @@ target_growth vs pred_target_growth
 
 `pred_share_t1` 不参与当前趋势评价指标，但必须通过预测契约校验，因为后续推荐阶段会消费该字段。
 
+## 验收对比
+
+LightGBM 训练和评价完成后，验收步骤必须读取以下四个模型的 `trend_metrics.json`：
+
+```text
+last_week
+previous_growth
+moving_average
+lightgbm
+```
+
+摘要至少覆盖：
+
+- valid/test 的 MAE。
+- valid/test 的 RMSE。
+- valid/test 的 NDCG@10。
+- 每个 split 上三类 baseline 的最强结果。
+- LightGBM 是否超过对应 split 和指标上的最强 baseline。
+
+这一步不生成正式报告文件，也不把 baseline 对比表纳入标准产物；它是本轮实现验收的一部分，目的是判断主模型是否真的带来增益。如果 LightGBM 未超过最强 baseline，最终说明必须明确指出失败指标和可能原因，例如目标重尾、特征不足、参数保守或样本窗口过短。
+
 ## 错误处理
 
 LightGBM trainer 的错误处理遵循 debug-first 原则：
@@ -321,23 +389,29 @@ trainer 不吞掉异常，不返回假成功，不用默认常数预测掩盖训
 
 测试重点覆盖主模型接入点和监督模型专属行为：
 
-- registry 能列出并返回 `LightGBMTrendTrainer`。
+新增 `tests/test_trend_lightgbm.py`，专门覆盖监督模型内部行为：
+
 - `lightgbm` 的模型名、模型类型、参数、特征清单稳定。
+- `prepare_lightgbm_feature_frame()` 使用 train categories 固化 `attr_type` 编码。
+- valid/test 出现未知 `attr_type` 时失败。
+- 缺失特征、非有限数值、缺失 `attr_type`、空 split 都失败。
 - trainer 在小样本上返回标准 `TrendTrainResult`。
 - `predictions.csv` 满足 `TREND_MODEL_PREDICTION_COLUMNS`。
 - `pred_target_growth` 是有限数值。
 - `pred_share_t1` 在 `split/week_id/attr_type` 内归一化。
-- `run_trend_model_training("lightgbm")` 写出标准三件套和两个 artifact。
-- `feature_importance.csv` 包含所有训练特征的可审查重要性。
+- metadata 包含 target 分布、零 share 行数和 valid/test 残差分布。
+- `feature_importance.csv` 包含 `feature`、`split_importance`、`gain_importance`、`normalized_gain_importance`。
 - `model.txt` 作为 binary artifact 写入输出目录。
-- 缺失特征、非有限数值、缺失 `attr_type`、空 split 都失败。
-- CLI 接受 `--model lightgbm` 并走通用 runner。
-- `run_trend_model_evaluation("lightgbm")` 能读取预测并写出 `trend_metrics.json`。
+
+现有测试文件只补通用接入点：
+
+- `tests/test_trend_training.py` 覆盖 registry 能列出并返回 `LightGBMTrendTrainer`，`run_trend_model_training("lightgbm")` 写出标准三件套和两个 artifact，CLI 接受 `--model lightgbm` 并走通用 runner。
+- `tests/test_trend_evaluation.py` 覆盖 `run_trend_model_evaluation("lightgbm")` 能读取预测并写出 `trend_metrics.json`。
 
 实现完成后的验证命令：
 
 ```sh
-uv run pytest tests/test_trend_training.py tests/test_trend_evaluation.py
+uv run pytest tests/test_trend_lightgbm.py tests/test_trend_training.py tests/test_trend_evaluation.py
 uv run pytest
 uv run python src/10_train_trend_model.py --model lightgbm
 uv run python src/11_eval_trend_model.py --model lightgbm
@@ -355,6 +429,6 @@ uv run isort --check-only src tests
 - 不新增上游趋势样本字段。
 - 不把 `attr_id` 或 `attr_value` 作为第一版分类特征。
 - 不做网格搜索、贝叶斯调参或多实验管理。
-- 不生成 baseline 对比汇总表或报告。
+- 不生成持久化 baseline 对比汇总表或正式报告。
 - 不实现推荐重排序或推荐评价。
 - 不提交 `outputs/` 下生成的数据和模型产物。
