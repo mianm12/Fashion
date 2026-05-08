@@ -1649,7 +1649,7 @@ Moving Average
 
 ---
 
-## LightGBM 主模型训练
+## 第 10 步：训练 LightGBM 主模型
 
 目标：
 
@@ -1657,13 +1657,7 @@ Moving Average
 训练主线趋势预测模型。
 ```
 
-当前实现入口：
-
-```text
-src/10_train_trend_model.py --model lightgbm
-```
-
-当前实现中，`lightgbm` 已注册到统一趋势模型训练入口：
+`lightgbm` 已注册到统一趋势模型训练和评价入口：
 
 ```sh
 src/10_train_trend_model.py --model lightgbm
@@ -1688,7 +1682,7 @@ outputs/metrics/lightgbm/trend_metrics.json
 
 ---
 
-## 第 10 步：趋势预测评价
+## 第 11 步：趋势预测评价
 
 目标：
 
@@ -2035,12 +2029,13 @@ active_weeks >= 8
 
 ---
 
-# 22. 我下一步应该先写哪些代码
+# 22. 历史开发顺序与当前下一步
 
-你现在不要先写模型。
-应该先把数据流跑通。
+本节保留基础脚本的历史开发顺序，用来说明数据流如何从原始数据推进到趋势训练样本。
+当前实现状态已经推进到 `00` 到 `11` 号入口：基础数据流、三类 baseline、
+LightGBM 主模型和趋势评价均已落地。
 
-按这个顺序写：
+当前下一步应进入推荐模块：用户画像、候选召回、重排序和推荐评价。基础脚本的历史顺序如下：
 
 ## 第 1 个脚本：`01_data_check.py`
 
