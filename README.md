@@ -56,10 +56,11 @@ H&M transactions_train.csv
 src/00_download_data.py
 ```
 
-默认路径和下载配置集中在 `src/fashion_trend/foundation/paths.py`：
+默认下载配置位于 `src/fashion_trend/datasets/paths.py`，路径根目录位于
+`src/fashion_trend/foundation/paths.py`：
 
-- `DEFAULT_COMPETITION`：`h-and-m-personalized-fashion-recommendations`
-- `RAW_DIR`：项目根目录下的 `data/raw`
+- `datasets.paths.DEFAULT_COMPETITION`：`h-and-m-personalized-fashion-recommendations`
+- `foundation.paths.RAW_DIR`：项目根目录下的 `data/raw`
 
 默认会下载 `h-and-m-personalized-fashion-recommendations`，并保存到项目根目录下的：
 
@@ -434,7 +435,7 @@ data/processed/features/trend_model_samples.parquet
 
 ### 8. trend_model_samples_train/valid/test.parquet
 
-基于 `trend_model_samples.parquet` 按时间顺序切分训练、验证和测试样本。默认最后 8 个样本周为 test，之前 8 个样本周为 valid，更早样本周为 train。切分配置集中在 `src/fashion_trend/foundation/paths.py`：
+基于 `trend_model_samples.parquet` 按时间顺序切分训练、验证和测试样本。默认最后 8 个样本周为 test，之前 8 个样本周为 valid，更早样本周为 train。切分配置位于 `src/fashion_trend/trend/paths.py`：
 
 ```text
 TREND_SPLIT_VALID_WEEKS = 8
@@ -566,6 +567,8 @@ NDCG@5/10/20
 
 项目内部代码按业务域组织在 `src/fashion_trend/` 下：
 
+默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。
+
 - `foundation/`：路径、日志、原子写入、通用校验和 artifact 安全。
 - `datasets/`：原始数据下载、解压和基础检查。
 - `transactions/`：周级交易表和交易窗口。
@@ -576,7 +579,7 @@ NDCG@5/10/20
 
 当前已实现的 `src/00_*.py` 到 `src/11_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
 
-趋势共享实现位于 `src/fashion_trend/trend/` 子包。`article_sales.py`、`attribute_heat.py`、`targets.py`、`samples.py`、`splits.py`、`training.py`、`evaluation.py` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/` 存放各趋势模型实现；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
+趋势共享实现位于 `src/fashion_trend/trend/` 子包。`heat/`、`labels/`、`features/`、`splits/`、`training/`、`evaluation/` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/baselines/` 存放当前 baseline，`trend/models/supervised/` 预留后续监督模型；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 
 ## 验证
 

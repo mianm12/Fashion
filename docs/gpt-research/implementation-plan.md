@@ -1328,13 +1328,16 @@ hm-fashion-trend-rec/
 │   │   │
 │   │   ├── features/
 │   │   │   ├── trend_model_samples.parquet
-│   │   │   └── recommendation_features.parquet
+│   │   │   ├── trend_model_samples_train.parquet
+│   │   │   ├── trend_model_samples_valid.parquet
+│   │   │   └── trend_model_samples_test.parquet
 │   │   │
 │   │   └── recommend/
-│   │       ├── user_profile.csv
+│   │       ├── features/
+│   │       ├── user_profile.parquet
 │   │       ├── candidate_items.parquet
 │   │       ├── recommendation_result.csv
-│   │       └── recommendation_eval.csv
+│   │       └── recommendation_metrics.json
 │
 ├── outputs/
 │   ├── models/
@@ -1347,19 +1350,16 @@ hm-fashion-trend-rec/
 │       └── <model>/
 │           └── trend_metrics.json
 │
-├── reports/
-│   ├── figures/
-│   │   ├── attribute_graph_schema.png
-│   │   ├── trend_curve_examples.png
-│   │   ├── feature_importance.png
-│   │   └── recommendation_case.png
-│   │
-│   ├── tables/
-│   │   ├── rec_eval_results.csv
-│   │   └── ablation_results.csv
-│   │
-│   └── logs/
-│       └── experiment_log.md
+│   └── reports/
+│       ├── figures/
+│       │   ├── attribute_graph_schema.png
+│       │   ├── trend_curve_examples.png
+│       │   ├── feature_importance.png
+│       │   └── recommendation_case.png
+│       ├── tables/
+│       │   ├── rec_eval_results.csv
+│       │   └── ablation_results.csv
+│       └── case_studies/
 │
 ├── src/
 │   ├── fashion_trend/
@@ -1373,9 +1373,15 @@ hm-fashion-trend-rec/
 │   │   ├── transactions/
 │   │   ├── catalog/
 │   │   ├── trend/
-│   │   │   ├── training.py
-│   │   │   ├── evaluation.py
+│   │   │   ├── heat/
+│   │   │   ├── labels/
+│   │   │   ├── features/
+│   │   │   ├── splits/
+│   │   │   ├── training/
+│   │   │   ├── evaluation/
 │   │   │   └── models/
+│   │   │       ├── baselines/
+│   │   │       └── supervised/
 │   │   ├── recommendation/
 │   │   └── reports/
 │   │
@@ -1404,7 +1410,7 @@ hm-fashion-trend-rec/
 └── README.md
 ```
 
-当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/11_*.py`。后续推荐、报告和更多模型入口继续按编号脚本约定新增；内部计算事实按业务域进入 `src/fashion_trend/`：商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training.py`，趋势评价在 `src/fashion_trend/trend/evaluation.py`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`。
+当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/11_*.py`。后续推荐、报告和更多模型入口继续按编号脚本约定新增；内部计算事实按业务域进入 `src/fashion_trend/`。默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training/`，趋势评价在 `src/fashion_trend/trend/evaluation/`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`。
 
 ---
 
@@ -1421,13 +1427,13 @@ hm-fashion-trend-rec/
 | 趋势标签        | `07_build_trend_targets.py`         | `attribute_week_target.csv`                                                                                |
 | 趋势样本        | `08_build_trend_model_samples.py`   | `trend_model_samples.parquet`                                                                              |
 | baseline 训练 | `10_train_trend_model.py --model <model>` | `outputs/models/<model>/predictions.csv`, `params.json`, `metadata.json`                                   |
-| LightGBM 训练 | 后续待新增                           | `lgbm_trend_model.pkl`, `attribute_trend_pred.csv`                                                         |
+| LightGBM 训练 | `10_train_trend_model.py --model lightgbm` | `outputs/models/lightgbm/predictions.csv`, `params.json`, `metadata.json`                                  |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
-| 用户画像        | `12_build_user_profile.py`          | `user_profile.csv`                                                                                         |
+| 用户画像        | `12_build_user_profile.py`          | `user_profile.parquet`                                                                                     |
 | 候选召回        | `13_build_recommend_candidates.py`  | `candidate_items.parquet`                                                                                  |
 | 推荐重排序       | `14_rerank_recommendations.py`      | `recommendation_result.csv`                                                                                |
-| 推荐评价        | `15_eval_recommendations.py`        | `recommendation_eval.csv`                                                                                  |
-| 图表生成        | `16_make_figures.py`                | 趋势曲线、特征重要性、推荐案例图                                                                                           |
+| 推荐评价        | `15_eval_recommendations.py`        | `recommendation_metrics.json`                                                                              |
+| 报告导出        | `16_make_reports.py`                | figures、tables、case studies                                                                              |
 
 ---
 
@@ -1654,15 +1660,15 @@ Moving Average
 写：
 
 ```text
-后续待新增
+src/10_train_trend_model.py --model lightgbm
 ```
 
 输出：
 
 ```text
-lgbm_trend_model.pkl
-attribute_trend_pred.csv
-feature_importance.csv
+outputs/models/lightgbm/predictions.csv
+outputs/models/lightgbm/metadata.json
+outputs/models/lightgbm/params.json
 ```
 
 ---
@@ -1716,7 +1722,7 @@ NDCG@10
 输出：
 
 ```text
-user_profile.csv
+data/processed/recommend/user_profile.parquet
 ```
 
 ---
@@ -1746,7 +1752,7 @@ user_profile.csv
 输出：
 
 ```text
-candidate_items.parquet
+data/processed/recommend/candidate_items.parquet
 ```
 
 ---
@@ -1768,7 +1774,7 @@ candidate_items.parquet
 输出：
 
 ```text
-recommendation_result.csv
+outputs/recommendation/recommendation_result.csv
 ```
 
 格式：
@@ -1796,7 +1802,7 @@ recommendation_result.csv
 输出：
 
 ```text
-recommendation_eval.csv
+outputs/recommendation/recommendation_metrics.json
 ```
 
 指标：
@@ -1811,7 +1817,7 @@ Coverage
 
 ---
 
-## 后续计划第 15 步：生成论文图表
+## 后续计划第 15 步：生成论文图表和报告素材
 
 目标：
 
@@ -1822,16 +1828,15 @@ Coverage
 写：
 
 ```text
-16_make_figures.py
+16_make_reports.py
 ```
 
 输出：
 
 ```text
-attribute_graph_schema.png
-trend_curve_examples.png
-feature_importance.png
-recommendation_case.png
+outputs/reports/figures/
+outputs/reports/tables/
+outputs/reports/case_studies/
 ```
 
 ---

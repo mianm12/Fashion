@@ -316,6 +316,47 @@ def test_allowlist_rejects_recommendation_importing_catalog_graph(
     ]
 
 
+def test_allowlist_rejects_core_computation_imports(tmp_path: Path) -> None:
+    package_root = tmp_path / "src" / "fashion_trend"
+    module_path = package_root / "reports" / "summary.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text(
+        "\n".join(
+            [
+                "from fashion_trend.transactions.weekly import build_weekly_transactions",
+                "from fashion_trend.catalog.graph.builders import build_attribute_nodes",
+                "from fashion_trend.trend.features.samples import build_trend_model_samples_frame",
+                "from fashion_trend.trend.training import run_trend_model_training",
+                "from fashion_trend.trend.evaluation import run_trend_model_evaluation",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    offenders = package_upstream_import_offenders(
+        [module_path],
+        {
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+        },
+        REPORTS_PUBLIC_IMPORTS,
+    )
+
+    assert offenders == [
+        f"{module_path}: fashion_trend.catalog.graph.builders",
+        f"{module_path}: fashion_trend.catalog.graph.builders.build_attribute_nodes",
+        f"{module_path}: fashion_trend.transactions.weekly",
+        f"{module_path}: fashion_trend.transactions.weekly.build_weekly_transactions",
+        f"{module_path}: fashion_trend.trend.evaluation",
+        f"{module_path}: fashion_trend.trend.evaluation.run_trend_model_evaluation",
+        f"{module_path}: fashion_trend.trend.features.samples",
+        f"{module_path}: fashion_trend.trend.features.samples.build_trend_model_samples_frame",
+        f"{module_path}: fashion_trend.trend.training",
+        f"{module_path}: fashion_trend.trend.training.run_trend_model_training",
+    ]
+
+
 def forbidden_imports(*module_names: str) -> set[str]:
     return HISTORICAL_ROOT_IMPORTS | set(module_names)
 
