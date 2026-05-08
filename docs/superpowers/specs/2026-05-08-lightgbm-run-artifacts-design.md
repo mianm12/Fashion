@@ -51,7 +51,7 @@ uv run python src/11_eval_trend_model.py --model lightgbm --run-id depth6-lr005
 
 会让训练和评价都绑定到同一个 run 目录。带 `--run-id`、`--params` 或 `--param` 的训练默认不发布到稳定目录；只有显式 `--promote` 才会更新 `outputs/models/lightgbm/`。也可以对无参数训练传 `--no-promote`，只保留 run 目录。
 
-`run_id` 必须通过安全路径片段校验，不能为空，不能是 `.`、`..`，不能包含 `/`，也不能逃逸模型输出根目录。自动生成格式固定为 `YYYYMMDD-HHMMSS-<8hex>`，时间使用本地时区；如果自动生成的目录已存在，则重新生成随机后缀，最多重试 10 次。
+`run_id` 必须通过安全路径片段校验，不能为空，不能是 `.`、`..`，不能包含 `/`，也不能逃逸模型输出根目录。`run_id` 还必须拒绝 run 根目录下的保留文件名，首批保留名称为 `index.jsonl` 和 `evaluations.jsonl`，避免 run 目录与索引文件路径冲突。自动生成格式固定为 `YYYYMMDD-HHMMSS-<8hex>`，时间使用本地时区；如果自动生成的目录已存在，则重新生成随机后缀，最多重试 10 次。
 
 如果用户手动指定的 `run_id` 已存在，训练默认失败，避免覆盖历史实验。稳定目录仍然允许被最新训练更新。
 
@@ -438,6 +438,7 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 
 - `derive_trend_model_output_paths("lightgbm", run_id="abc")` 派生到 `outputs/models/lightgbm/runs/abc/`。
 - 非安全 `run_id` 被拒绝，例如空字符串、`.`、`../x`、`nested/x`。
+- 保留名称 `run_id` 被拒绝，例如 `index.jsonl`、`evaluations.jsonl`。
 - 自动 `run_id` 格式为 `YYYYMMDD-HHMMSS-<8hex>`，使用本地时区；自动生成冲突时最多重试 10 次。
 - 手动指定的 `run_id` 已存在时直接失败。
 - 无参数 LightGBM 训练默认 promote；带 `--run-id`、`--params` 或 `--param` 的实验训练默认不 promote。
