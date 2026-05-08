@@ -9,9 +9,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from fashion_trend.foundation import logging as log
-from fashion_trend.foundation.dataframe import (
-    validate_required_columns as validate_dataframe_required_columns,
-)
 
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "t_dat",
@@ -28,12 +25,6 @@ OUTPUT_COLUMNS = (
     "price",
     "sales_channel_id",
 )
-WEEKLY_TRANSACTION_READER_COLUMNS: tuple[str, ...] = (
-    "week_id",
-    "article_id",
-    "customer_id",
-    "price",
-)
 TRANSACTION_DTYPES = {
     "t_dat": "string",
     "customer_id": "string",
@@ -43,30 +34,6 @@ TRANSACTION_DTYPES = {
 }
 DEFAULT_CHUNKSIZE = 1_000_000
 LOG_SOURCE = "weekly-transactions"
-
-
-def read_weekly_transactions(weekly_transactions_path: Path) -> pd.DataFrame:
-    if not weekly_transactions_path.exists():
-        raise FileNotFoundError(f"周级交易表不存在: {weekly_transactions_path}")
-
-    try:
-        parquet_file = pq.ParquetFile(weekly_transactions_path)
-    except (OSError, ValueError, pa.ArrowException) as exc:
-        raise ValueError(f"无法读取周级交易表: {weekly_transactions_path}") from exc
-
-    validate_dataframe_required_columns(
-        pd.DataFrame(columns=parquet_file.schema_arrow.names),
-        WEEKLY_TRANSACTION_READER_COLUMNS,
-        source_name="周级交易表",
-    )
-
-    try:
-        return pd.read_parquet(
-            weekly_transactions_path,
-            columns=list(WEEKLY_TRANSACTION_READER_COLUMNS),
-        )
-    except (OSError, ValueError, pa.ArrowException) as exc:
-        raise ValueError(f"无法读取周级交易表: {weekly_transactions_path}") from exc
 
 
 def read_csv_columns(csv_path: Path) -> list[str]:

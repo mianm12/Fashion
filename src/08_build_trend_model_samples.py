@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fashion_trend.catalog.graph import (
+from fashion_trend.catalog.readers import (
     read_attribute_hierarchy_edges,
     read_attribute_nodes,
 )

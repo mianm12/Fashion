@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import fashion_trend.trend.samples as samples_module
-from fashion_trend.catalog.graph import read_attribute_hierarchy_edges
+from fashion_trend.catalog.readers import read_attribute_hierarchy_edges
 from fashion_trend.trend.samples import (
     build_attribute_graph_features_frame,
     build_trend_model_samples_frame,

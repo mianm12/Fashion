@@ -1,25 +1,11 @@
 from __future__ import annotations
 
-WEEKLY_TRANSACTION_COLUMNS: tuple[str, ...] = (
-    "week_id",
-    "article_id",
-    "customer_id",
-    "price",
-)
-
 ARTICLE_WEEK_SALES_COLUMNS: tuple[str, ...] = (
     "week_id",
     "article_id",
     "sales_cnt",
     "sales_user_cnt",
     "sales_amount",
-)
-
-ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS: tuple[str, ...] = (
-    "article_id",
-    "attr_id",
-    "attr_type",
-    "attr_value",
 )
 
 ATTRIBUTE_WEEK_HEAT_COLUMNS: tuple[str, ...] = (
@@ -47,15 +33,6 @@ ATTRIBUTE_WEEK_TARGET_COLUMNS: tuple[str, ...] = (
     "target_log_heat_t1",
     "target_growth",
     "target_rank_in_type_t1",
-)
-
-ATTRIBUTE_HIERARCHY_EDGE_COLUMNS: tuple[str, ...] = (
-    "parent_attr_id",
-    "child_attr_id",
-    "parent_attr_type",
-    "child_attr_type",
-    "relation_type",
-    "edge_weight",
 )
 
 TREND_MODEL_SAMPLE_COLUMNS: tuple[str, ...] = (
@@ -126,6 +103,17 @@ TREND_MODEL_SPLIT_COLUMNS: tuple[str, ...] = (
     *TREND_MODEL_SAMPLE_COLUMNS,
 )
 
+TREND_METRICS_PAYLOAD_REQUIRED_KEYS: tuple[str, ...] = (
+    "model_name",
+    "prediction_path",
+    "output_path",
+    "evaluated_splits",
+    "ranking",
+    "overall",
+    "by_attr_type",
+    "groups",
+)
+
 ARTICLE_WEEK_SALES_DTYPES: dict[str, str] = {
     "week_id": "int64",
     "article_id": "string",
@@ -159,36 +147,4 @@ ATTRIBUTE_WEEK_TARGET_DTYPES: dict[str, str] = {
     "target_log_heat_t1": "float64",
     "target_growth": "float64",
     "target_rank_in_type_t1": "int64",
-}
-
-ATTRIBUTE_HIERARCHY_EDGE_DTYPES: dict[str, str] = {
-    "parent_attr_id": "string",
-    "child_attr_id": "string",
-    "parent_attr_type": "string",
-    "child_attr_type": "string",
-    "relation_type": "string",
-    "edge_weight": "int64",
-}
-
-ARTICLE_ATTRIBUTE_EDGE_HEAT_DTYPES: dict[str, str] = {
-    "article_id": "string",
-    "attr_id": "string",
-    "attr_type": "string",
-    "attr_value": "string",
-}
-
-ATTRIBUTE_NODE_HEAT_COLUMNS: tuple[str, ...] = (
-    "attr_id",
-    "attr_type",
-    "attr_value",
-    "article_count",
-    "is_core_attr",
-)
-
-ATTRIBUTE_NODE_HEAT_DTYPES: dict[str, str] = {
-    "attr_id": "string",
-    "attr_type": "string",
-    "attr_value": "string",
-    "article_count": "int64",
-    "is_core_attr": "int64",
 }

@@ -6,6 +6,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from fashion_trend.catalog.contracts import (
+    ARTICLE_ATTRIBUTE_EDGE_COLUMNS,
+    ATTRIBUTE_NODE_COLUMNS,
+)
 from fashion_trend.foundation.dataframe import (
     validate_no_missing_values,
     validate_non_negative_values,
@@ -15,8 +19,6 @@ from fashion_trend.foundation.dataframe import (
 )
 from fashion_trend.trend.article_sales import validate_article_week_sales
 from fashion_trend.trend.schema import (
-    ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS,
-    ATTRIBUTE_NODE_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_COLUMNS,
     ATTRIBUTE_WEEK_HEAT_DTYPES,
 )
@@ -27,12 +29,12 @@ def validate_article_attribute_edges_for_heat(
 ) -> None:
     validate_required_columns(
         article_attribute_edges,
-        ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS,
+        ARTICLE_ATTRIBUTE_EDGE_COLUMNS,
         source_name="商品-属性边表",
     )
     validate_no_missing_values(
         article_attribute_edges,
-        ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS,
+        ARTICLE_ATTRIBUTE_EDGE_COLUMNS,
         source_name="商品-属性边表",
     )
     validate_unique_key(
@@ -105,12 +107,12 @@ def read_attribute_week_heat(attribute_week_heat_path: Path) -> pd.DataFrame:
 def validate_attribute_nodes_for_heat(attribute_nodes: pd.DataFrame) -> None:
     validate_required_columns(
         attribute_nodes,
-        ATTRIBUTE_NODE_HEAT_COLUMNS,
+        ATTRIBUTE_NODE_COLUMNS,
         source_name="属性节点表",
     )
     validate_no_missing_values(
         attribute_nodes,
-        ATTRIBUTE_NODE_HEAT_COLUMNS,
+        ATTRIBUTE_NODE_COLUMNS,
         source_name="属性节点表",
     )
     validate_unique_key(attribute_nodes, ["attr_id"], source_name="属性节点表")
@@ -189,7 +191,7 @@ def build_attribute_week_heat_frame(
     normalized_sales["article_id"] = normalized_sales["article_id"].astype("string")
 
     normalized_edges = article_attribute_edges.loc[
-        :, list(ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS)
+        :, list(ARTICLE_ATTRIBUTE_EDGE_COLUMNS)
     ].copy()
     normalized_edges["article_id"] = normalized_edges["article_id"].astype("string")
     normalized_edges["attr_id"] = normalized_edges["attr_id"].astype("string")

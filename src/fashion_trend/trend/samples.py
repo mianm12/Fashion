@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from fashion_trend.catalog.contracts import ATTRIBUTE_HIERARCHY_EDGE_COLUMNS
 from fashion_trend.foundation.dataframe import (
     validate_no_missing_values,
     validate_positive_values,
@@ -13,10 +14,7 @@ from fashion_trend.trend.attribute_heat import (
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
 )
-from fashion_trend.trend.schema import (
-    ATTRIBUTE_HIERARCHY_EDGE_COLUMNS,
-    TREND_MODEL_SAMPLE_COLUMNS,
-)
+from fashion_trend.trend.schema import TREND_MODEL_SAMPLE_COLUMNS
 from fashion_trend.trend.targets import validate_attribute_week_target_matches_heat
 
 
