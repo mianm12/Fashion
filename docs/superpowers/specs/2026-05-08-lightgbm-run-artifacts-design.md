@@ -143,6 +143,8 @@ promotion 规则：
 - `--no-promote` 强制只保留 run 目录。
 - `--promote` 和 `--no-promote` 不能同时出现。
 - `--run-id`、`--params`、`--param`、`--promote`、`--no-promote` 只允许 `--model lightgbm` 使用；baseline 传入这些参数必须直接失败，不能静默忽略。
+- 训练命令内的 `--promote` 只发布模型产物，不自动运行评价，也不发布 metrics。
+- 正式主模型的推荐流程是先 `train --no-promote`，再 `eval --run-id`，确认 valid/test 摘要后由后续显式 promote 能力发布 stable；本轮没有独立 promote 命令，因此手动 `--promote` 只适合已经明确接受的单次训练。
 
 评价入口新增可选参数：
 
@@ -188,7 +190,7 @@ outputs/metrics/lightgbm/runs/depth6-lr005/trend_metrics.json
 
 ## 参数合并规则
 
-LightGBM 参数不再只能通过修改源码中的常量调整。内置默认参数仍保留，保证不传任何配置时行为稳定。
+LightGBM 参数不再只能通过修改源码中的常量调整。内置默认参数仍作为默认配置层保留，保证不传任何配置时仍有稳定入口。
 
 合并顺序固定为：
 
@@ -259,7 +261,7 @@ verbosity
 | `verbosity` | 整数 |
 | `early_stopping.stopping_rounds` | 正整数 |
 
-当前内置默认参数需要补入 `subsample_freq: 1`，否则 `subsample: 0.8` 在 LightGBM sklearn API 下不会启用逐轮行采样。
+当前内置默认参数需要有意补入 `subsample_freq: 1`，否则 `subsample: 0.8` 在 LightGBM sklearn API 下不会启用逐轮行采样。这是本轮对 LightGBM 首版默认参数的修正，不属于“完全保持旧结果”。默认训练结果以本轮重新跑出的结果为准，验收必须重新运行 LightGBM 训练、评价和三类 baseline 对比，确认新的默认结果与文档摘要一致。
 
 最终训练参数写入 `params.json`。参数来源写入 `metadata.json`，包括内置默认、参数文件路径和 CLI 覆盖键值。
 
@@ -274,7 +276,6 @@ verbosity
   "run_dir": "outputs/models/lightgbm/runs/20260508-153012-a1b2c3",
   "stable_output_dir": "outputs/models/lightgbm",
   "promotion_requested": true,
-  "promoted_to_stable": true,
   "prediction_path": "outputs/models/lightgbm/runs/20260508-153012-a1b2c3/predictions.csv",
   "params_path": "outputs/models/lightgbm/runs/20260508-153012-a1b2c3/params.json",
   "param_source": {
@@ -293,7 +294,7 @@ verbosity
 - run metadata：写入 `outputs/models/lightgbm/runs/<run_id>/metadata.json`，路径字段指向 run 目录。
 - stable metadata：只在 promotion 成功时写入 `outputs/models/lightgbm/metadata.json`，路径字段指向稳定目录。
 
-两份 metadata 共享 `run_id`、模型参数、参数来源、诊断字段、`best_iteration`、`best_score`、特征清单和 artifact 摘要；路径字段必须分别按所在目录生成，不能简单复制。现有 `build_trend_train_metadata()` 的 `output_dir`、`prediction_path`、`params_path` 等核心字段仍由 runner 根据目标目录生成，训练器不能覆盖。
+两份 metadata 共享 `run_id`、模型参数、参数来源、诊断字段、`best_iteration`、`best_score`、特征清单和 artifact 摘要；路径字段必须分别按所在目录生成，不能简单复制。现有 `build_trend_train_metadata()` 的 `output_dir`、`prediction_path`、`params_path` 等核心字段仍由 runner 根据目标目录生成，训练器不能覆盖。run metadata 只记录 promotion 请求上下文，例如 `promotion_requested`，不承诺记录最终 promotion 状态。
 
 稳定目录的 `metadata.json` 记录同一个 `run_id`。这样稳定目录始终是可被现有命令消费的当前主结果，而 run 目录保留不可覆盖的历史实验证据。
 
@@ -303,7 +304,7 @@ verbosity
 outputs/models/lightgbm/runs/index.jsonl
 ```
 
-每行包含 `run_id`、时间、参数摘要、产物路径和是否发布到稳定目录。后续系统调参可以直接读取该索引汇总结果；如果索引缺失，也可以扫描 `runs/*/metadata.json` 恢复。
+每行包含 `run_id`、事件时间、事件类型、参数摘要、产物路径和 promotion 结果。后续系统调参可以直接读取该索引汇总结果；如果索引缺失，也可以扫描 `runs/*/metadata.json` 和稳定目录 metadata 恢复主要状态。
 
 ## Promotion 事务边界
 
@@ -312,10 +313,10 @@ run 目录是事实来源，stable 目录是 promotion 结果。训练输出顺�
 1. 在内存中完成训练、预测、参数、metadata 和 artifact 载荷构造。
 2. 先写入并发布 `outputs/models/lightgbm/runs/<run_id>/`。
 3. run 发布成功后，按 promotion 规则决定是否更新 `outputs/models/lightgbm/`。
-4. promotion 成功时，stable metadata 指向稳定目录，run metadata 标记 `promoted_to_stable=true`。
-5. promotion 失败时，run 目录保留为事实来源，run metadata 标记 `promoted_to_stable=false` 并记录 promotion 错误摘要；CLI 返回失败，不能把失败的 stable 更新伪装成成功训练。
+4. promotion 成功时，stable metadata 指向稳定目录，并向 `runs/index.jsonl` 追加 `promotion_succeeded` 事件。
+5. promotion 失败时，run 目录保留为事实来源，并尽力向 `runs/index.jsonl` 追加 `promotion_failed` 事件和错误摘要；CLI 返回失败，不能把失败的 stable 更新伪装成成功训练。
 
-run 写出失败时，不得更新 stable。stable 写出失败时，不得删除已经成功发布的 run。后续可以单独设计显式 promote 命令，把已经成功的 run 发布为 stable；本轮实现只要求训练命令内的 promotion 行为。
+run 写出失败时，不得更新 stable。stable 写出失败时，不得删除已经成功发布的 run。run metadata 发布后不再要求为了 promotion 结果回写；如果 index 事件也因磁盘或权限问题写入失败，CLI 仍返回失败，并在日志中输出 run 目录、stable 目录和 promotion 错误。后续可以单独设计显式 promote 命令，把已经成功的 run 发布为 stable；本轮实现只要求训练命令内的 promotion 行为。
 
 ## 评价关联
 
@@ -340,7 +341,27 @@ run 写出失败时，不得更新 stable。stable 写出失败时，不得删�
 outputs/metrics/lightgbm/runs/evaluations.jsonl
 ```
 
-每行包含 `run_id`、metrics 路径、valid 指标摘要、test 指标摘要和评价时间。该索引用于后续汇总，不替代单个 run 的 `trend_metrics.json`。
+每行包含 `run_id`、metrics 路径、评价时间，以及拆分后的指标摘要：
+
+```json
+{
+  "run_id": "depth6-lr005",
+  "metrics_path": "outputs/metrics/lightgbm/runs/depth6-lr005/trend_metrics.json",
+  "selection_metrics": {
+    "split": "valid",
+    "ndcg_at_10": 0.42,
+    "spearman": 0.31,
+    "mae": 0.12,
+    "rmse": 0.18
+  },
+  "report_metrics": {
+    "valid": {},
+    "test": {}
+  }
+}
+```
+
+`selection_metrics` 只允许来自 valid split，后续自动排序只能读取这个对象。`report_metrics` 可以包含 valid/test 摘要，只用于最终报告和人工回溯。该索引用于后续汇总，不替代单个 run 的 `trend_metrics.json`。
 
 ## 调参选择与 Test 防泄漏
 
@@ -351,7 +372,7 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 3. MAE 和 RMSE 作为 guardrail，不能比最强 baseline 明显退化。
 4. test 只用于最终选中 run 的一次性报告，不参与候选筛选、top-N 排序或稳定性复跑选择。
 
-本轮不实现 tuning runner，但文档和 metadata 必须把这个边界写清楚。`evaluations.jsonl` 可以保存 test 摘要用于最终报告回溯；任何自动排序字段都必须来自 valid split。
+本轮不实现 tuning runner，但文档和 metadata 必须把这个边界写清楚。`evaluations.jsonl` 可以在 `report_metrics` 保存 test 摘要用于最终报告回溯；任何自动排序字段都必须来自 `selection_metrics`。
 
 ## 实现边界
 
@@ -371,18 +392,19 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 - 无参数 LightGBM 训练默认 promote；带 `--run-id`、`--params` 或 `--param` 的实验训练默认不 promote。
 - `--promote` 和 `--no-promote` 互斥。
 - baseline 传入 run、参数或 promote 相关参数时直接失败。
-- LightGBM 不传参数时仍使用当前默认参数。
+- LightGBM 不传参数时使用内置默认配置；本轮会有意新增 `subsample_freq: 1`，默认结果需要重新验收。
 - `--params` JSON 和 `--param` 覆盖按“内置默认 < 文件 < CLI”合并。
 - `--params` 只接受固定 shape：`lightgbm_params` 和 `early_stopping`。
 - `--param early_stopping.stopping_rounds=50` 能覆盖 early stopping。
 - 未允许参数、非法 `objective`、非法 `early_stopping`、非法类型或非法范围会失败并给出可定位错误。
 - 训练成功后先写 run 目录；promotion 成功时再写稳定目录。
 - run metadata 和 stable metadata 分别按各自输出目录生成路径字段，并记录同一 `run_id`。
-- promotion 失败时保留 run，标记 `promoted_to_stable=false`，训练命令返回失败。
+- promotion 失败时保留 run，通过 `runs/index.jsonl` 记录失败事件；如果 index 也无法写入，则日志必须输出失败摘要，训练命令返回失败。
 - 显式 run 评价读取 `runs/<run_id>/predictions.csv`，写 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json`。
-- run 评价写入 `evaluations.jsonl`，自动排序字段只来自 valid split。
+- run 评价写入 `evaluations.jsonl`，其中 `selection_metrics` 只来自 valid split，`report_metrics` 可包含 test 摘要。
+- `--promote` 不自动运行评价或发布 metrics。
 - 默认评价仍读取稳定目录，现有 baseline 的评价测试不受影响。
-- README 和实施计划同步说明 run 目录、参数配置和评价命令。
+- README 和实施计划同步说明 run 目录、参数配置、promotion 风险、评价命令和重新验收要求。
 
 计划验证命令：
 
