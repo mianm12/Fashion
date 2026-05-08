@@ -1423,7 +1423,7 @@ hm-fashion-trend-rec/
 | 趋势标签        | `07_build_trend_targets.py`         | `attribute_week_target.csv`                                                                                |
 | 趋势样本        | `08_build_trend_model_samples.py`   | `trend_model_samples.parquet`                                                                              |
 | baseline 训练 | `10_train_trend_model.py --model <model>` | `outputs/models/<model>/predictions.csv`, `params.json`, `metadata.json`                                   |
-| LightGBM 训练 | 后续计划：注册实现后复用 `10_train_trend_model.py --model lightgbm` | `outputs/models/lightgbm/predictions.csv`, `params.json`, `metadata.json`                                  |
+| LightGBM 训练 | 已注册实现：复用 `10_train_trend_model.py --model lightgbm` | `outputs/models/lightgbm/predictions.csv`, `params.json`, `metadata.json`, `feature_importance.csv`, `model.txt` |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
 | 用户画像        | `12_build_user_profile.py`          | `user_profile.parquet`                                                                                     |
 | 候选召回        | `13_build_recommend_candidates.py`  | `candidate_items.parquet`                                                                                  |
@@ -1649,7 +1649,7 @@ Moving Average
 
 ---
 
-## 后续计划：训练 LightGBM 主模型
+## LightGBM 主模型训练
 
 目标：
 
@@ -1657,21 +1657,33 @@ Moving Average
 训练主线趋势预测模型。
 ```
 
-计划入口：
+当前实现入口：
 
 ```text
 src/10_train_trend_model.py --model lightgbm
 ```
 
-当前 `lightgbm` 尚未注册实现，所以上述命令不是当前可运行步骤；后续实现注册后，仍复用
-通用训练入口并写出标准模型产物。
+当前实现中，`lightgbm` 已注册到统一趋势模型训练入口：
 
-计划输出：
+```sh
+src/10_train_trend_model.py --model lightgbm
+src/11_eval_trend_model.py --model lightgbm
+```
+
+标准模型产物位于：
 
 ```text
 outputs/models/lightgbm/predictions.csv
 outputs/models/lightgbm/metadata.json
 outputs/models/lightgbm/params.json
+outputs/models/lightgbm/feature_importance.csv
+outputs/models/lightgbm/model.txt
+```
+
+趋势评价产物位于：
+
+```text
+outputs/metrics/lightgbm/trend_metrics.json
 ```
 
 ---
@@ -1681,7 +1693,7 @@ outputs/models/lightgbm/params.json
 目标：
 
 ```text
-当前比较三类 baseline；LightGBM 实现后纳入同一评价入口。
+当前比较三类 baseline 和 LightGBM 主模型，均复用同一趋势评价入口。
 ```
 
 当前实现入口：
@@ -2114,7 +2126,7 @@ $$
 * 加入属性静态特征；
 * 加入父属性热度特征。
 
-完成趋势样本构建并执行时间切分后，主任务数据集就已经成型，可以开始训练三类 baseline；LightGBM 入口后续待新增。
+完成趋势样本构建并执行时间切分后，主任务数据集就已经成型，可以开始训练三类 baseline 和已注册的 LightGBM 主模型。
 
 [1]: https://huggingface.co/datasets/davanstrien/datasets_with_metadata_and_summaries/viewer "davanstrien/datasets_with_metadata_and_summaries · Datasets at Hugging Face"
 [2]: https://awinml.github.io/h-m-personalized-product-recommendations/ "H&M Personalized Product Recommendations"

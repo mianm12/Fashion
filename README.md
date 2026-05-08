@@ -16,7 +16,7 @@ H&M transactions_train.csv
     -> 趋势感知 Top-N 推荐
 ```
 
-现阶段已经完成到三类趋势 baseline 闭环：
+现阶段已经完成到三类趋势 baseline、LightGBM 主模型和趋势评价闭环：
 
 | 阶段 | 状态 | 主要产物 |
 | :--- | :--- | :--- |
@@ -32,7 +32,8 @@ H&M transactions_train.csv
 | Last Week baseline | 已实现（运行命令后生成） | `outputs/models/last_week/predictions.csv`、`params.json`、`metadata.json` |
 | Previous Growth baseline | 已实现（运行命令后生成） | `outputs/models/previous_growth/predictions.csv`、`params.json`、`metadata.json` |
 | Moving Average baseline | 已实现（运行命令后生成） | `outputs/models/moving_average/predictions.csv`、`params.json`、`metadata.json` |
-| 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json` |
+| LightGBM 主模型 | 已实现（运行命令后生成） | `outputs/models/lightgbm/predictions.csv`、`params.json`、`metadata.json`、`feature_importance.csv`、`model.txt` |
+| 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json`、`outputs/metrics/lightgbm/trend_metrics.json` |
 | 推荐评价 | 尚未实现 | 后续推荐结果 |
 
 上表中 baseline 和趋势评价的产物是对应训练、评价命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
@@ -165,9 +166,11 @@ uv run python src/09_split_trend_model_samples.py
 uv run python src/10_train_trend_model.py --model last_week
 uv run python src/10_train_trend_model.py --model previous_growth
 uv run python src/10_train_trend_model.py --model moving_average
+uv run python src/10_train_trend_model.py --model lightgbm
 uv run python src/11_eval_trend_model.py --model last_week
 uv run python src/11_eval_trend_model.py --model previous_growth
 uv run python src/11_eval_trend_model.py --model moving_average
+uv run python src/11_eval_trend_model.py --model lightgbm
 ```
 
 ### 1. transactions_train.csv
@@ -539,7 +542,35 @@ outputs/models/moving_average/metadata.json
 uv run python src/10_train_trend_model.py --model moving_average
 ```
 
-### 12. 趋势评价
+### 12. LightGBM 主模型
+
+`lightgbm` 主模型复用通用趋势模型训练入口，模型细节位于
+`src/fashion_trend/trend/models/supervised/lightgbm.py`。第一版使用现有
+`trend_model_samples` 中的数值特征和 `attr_type` 分类特征，预测目标为：
+
+```text
+target_growth
+```
+
+模型使用 train split 拟合，valid split 做 early stopping，test split 只进入统一趋势评价。
+标准预测产物和可解释产物写入：
+
+```sh
+outputs/models/lightgbm/predictions.csv
+outputs/models/lightgbm/params.json
+outputs/models/lightgbm/metadata.json
+outputs/models/lightgbm/feature_importance.csv
+outputs/models/lightgbm/model.txt
+```
+
+运行命令：
+
+```sh
+uv run python src/10_train_trend_model.py --model lightgbm
+uv run python src/11_eval_trend_model.py --model lightgbm
+```
+
+### 13. 趋势评价
 
 趋势评价通过独立入口运行，读取已经生成的趋势模型预测表：
 
@@ -547,6 +578,7 @@ uv run python src/10_train_trend_model.py --model moving_average
 outputs/models/last_week/predictions.csv
 outputs/models/previous_growth/predictions.csv
 outputs/models/moving_average/predictions.csv
+outputs/models/lightgbm/predictions.csv
 ```
 
 评价结果按模型写入：
@@ -555,6 +587,7 @@ outputs/models/moving_average/predictions.csv
 outputs/metrics/last_week/trend_metrics.json
 outputs/metrics/previous_growth/trend_metrics.json
 outputs/metrics/moving_average/trend_metrics.json
+outputs/metrics/lightgbm/trend_metrics.json
 ```
 
 运行命令：
@@ -563,6 +596,7 @@ outputs/metrics/moving_average/trend_metrics.json
 uv run python src/11_eval_trend_model.py --model last_week
 uv run python src/11_eval_trend_model.py --model previous_growth
 uv run python src/11_eval_trend_model.py --model moving_average
+uv run python src/11_eval_trend_model.py --model lightgbm
 ```
 
 第一版趋势评价只评价 `valid` 和 `test` split，不把 `train` 作为正式指标。排序目标与训练目标保持一致：
@@ -586,12 +620,12 @@ NDCG@5/10/20
 
 ## 后续阶段
 
-趋势模型训练与评价框架已经落地到 `last_week`、`previous_growth` 与 `moving_average`
-三类必须 baseline，README 继续按计划记录后续边界：
+趋势模型训练与评价框架已经落地到 `last_week`、`previous_growth`、`moving_average`
+三类必须 baseline 和 `lightgbm` 主模型，README 继续按计划记录后续边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
-| 趋势模型扩展 | 更多模型文件和趋势预测结果 | 后续优先考虑 LightGBM；EWMA 可作为可选增强 baseline |
+| 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现；后续可考虑更多监督模型、调参或 EWMA 等增强 baseline |
 | 推荐模块 | Top-12 推荐列表和评价结果 | 将趋势分映射回商品，结合近期热门、用户历史属性偏好和 Item-CF 候选做轻量重排序 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
@@ -612,7 +646,7 @@ NDCG@5/10/20
 
 当前已实现的 `src/00_*.py` 到 `src/11_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
 
-趋势共享实现位于 `src/fashion_trend/trend/` 子包。`heat/`、`labels/`、`features/`、`splits/`、`training/`、`evaluation/` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/baselines/` 存放当前 baseline，`trend/models/supervised/` 预留后续监督模型；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
+趋势共享实现位于 `src/fashion_trend/trend/` 子包。`heat/`、`labels/`、`features/`、`splits/`、`training/`、`evaluation/` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/baselines/` 存放当前 baseline，`trend/models/supervised/` 存放 LightGBM 等监督模型；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 
 ## 验证
 
