@@ -1,1152 +1,1577 @@
-# 业务域驱动代码架构实施计划
+# 业务域驱动代码架构 Implementation Plan
 
-> **给 agentic workers：** 必须使用子技能：执行本计划时使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，逐任务推进。步骤使用 checkbox（`- [ ]`）语法用于跟踪。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**目标：** 将项目内部组织方式从脚本编号驱动迁移为业务域驱动，同时保持编号 CLI 命令和既有产物契约稳定。
+**Goal:** 在第一轮业务域迁移已完成的基础上，冻结目标态依赖边界，迁出业务路径 ownership，建立跨领域只读 public surface，并继续拆分 `catalog` 与 `trend` 内部大模块。
 
-**架构：** 编号脚本继续作为可读的业务流程索引。业务包成为计算事实来源。`foundation` 是唯一共享基础层，并且必须保持无业务语义。
+**Architecture:** 编号 CLI 继续作为 `read -> build -> validate -> write` 的可读流程索引，业务计算事实留在 `src/fashion_trend/<domain>/`。`foundation` 只保留无业务语义基础能力；`recommendation` 和 `reports` 只能消费上游 public read-only allowlist。
 
-**技术栈：** Python 3.10-3.12、pandas、numpy、pyarrow、pytest、isort、setuptools 从 `src` 发现包。
+**Tech Stack:** Python 3.10-3.12、pandas、numpy、pyarrow、pytest、uv、setuptools `src` layout。
 
 ---
 
-## 范围检查
+## Scope Check
 
-本计划只实施架构迁移，不新增 LightGBM，不实现推荐重排序，不实现报告生成逻辑，也不修改现有算法。计划会建立 `recommendation` 和 `reports` 的包边界，以便后续约束依赖方向，但不会在本轮实现它们的业务功能。
+本计划替换旧的第一轮迁移计划。当前基线已经具备：
 
-迁移拆成多个可独立提交的阶段：
+- `foundation/`、`datasets/`、`transactions/`、`catalog/`、`trend/`、`recommendation/`、`reports/` 包。
+- 历史根包模块 `articles.py`、`config.py`、`data_loader.py`、`evaluation.py`、`log.py`、`training.py` 和根包 `models/` 已移除。
+- 编号 CLI 已直接导入业务域模块。
 
-1. 添加架构边界测试和业务包骨架。
-2. 提取 `foundation`。
-3. 迁移 `datasets`、`transactions` 和 `catalog`。
-4. 收敛确定性 `trend` 流水线。
-5. 将趋势模型、训练和评价移动到 `trend` 域内。
-6. 刷新编号 CLI，使其成为业务流程索引。
-7. 同步文档并执行完整验证。
+本计划不新增 LightGBM，不实现推荐算法，不改变现有算法公式，不改变既有产物路径或 schema。每个任务只做结构、边界、路径 ownership 或文档同步；涉及真实产物的任务必须用现有 CLI 或测试证明产物契约未漂移。
 
-## 目标文件结构
+## Execution Rules
 
-### 新增或移动的包
+- 每个任务独立提交；不要把多个任务攒成一个大 diff。
+- 每个任务先写或更新能锁住目标边界的测试，再改实现。
+- 每个任务提交前运行本任务列出的最小验证命令。
+- 触及核心产物读写路径时，额外跑对应 CLI 烟测或明确说明本地缺少真实数据。
+- 不使用批量替换、codemod 或大范围格式化；逐文件人工审阅修改。
+- 将现有 `.py` 文件替换成同名目录包时，必须在同一个补丁和同一个提交里删除旧文件并添加新目录文件；不要先创建同名目录，也不要提交中间不可导入状态。
+- 开始 Task 2 前，如果本地具备真实上游数据，必须先用当前实现生成并保存 artifact baseline；后续最终验证要和该 baseline 做精确对比，不能只检查非空行数。
 
-- `src/fashion_trend/foundation/`
-  - `__init__.py`：包标记。
-  - `paths.py`：项目路径、artifact 目录、`PATH`、切分常量、competition slug。
-  - `logging.py`：当前根包 `log.py` 中的日志工具。
-  - `io.py`：通用原子 JSON/CSV/Parquet/binary 写入和文件删除。
-  - `dataframe.py`：通用 DataFrame 校验原语。
-  - `artifacts.py`：趋势训练和评价使用的 artifact 路径与 model name 安全检查。
-- `src/fashion_trend/datasets/`
-  - `__init__.py`：包标记。
-  - `download.py`：从 `00_download_data.py` 下沉的 Kaggle 下载、安全解压、跳过下载逻辑。
-  - `profile.py`：供 `01_data_check.py` 使用的原始数据存在性和基础 profile 辅助函数。
-- `src/fashion_trend/transactions/`
-  - `__init__.py`：包标记。
-  - `weekly.py`：从 `02_build_weekly_transactions.py` 下沉的周级交易表流水线。
-- `src/fashion_trend/catalog/`
-  - `__init__.py`：包标记。
-  - `articles.py`：从根包 `articles.py` 拆出的商品清洗和商品标识规范化。
-  - `graph.py`：从根包 `articles.py` 拆出的属性图节点、边构建和发布逻辑。
-- `src/fashion_trend/trend/`
-  - 保留聚焦的确定性模块：`schema.py`、`article_sales.py`、`attribute_heat.py`、`targets.py`、`samples.py`、`splits.py`、`predictions.py`。
-  - 移除 `trend/__init__.py` 的兼容 re-export 行为，只保留简短包 docstring，不再作为 facade API。
-  - 将实验层模块移入该包：
-    - `trend/models/base.py`
-    - `trend/models/last_week.py`
-    - `trend/models/moving_average.py`
-    - `trend/models/registry.py`
-    - `trend/training.py`
-    - `trend/evaluation.py`
-- `src/fashion_trend/recommendation/__init__.py`：推荐域包标记，用于依赖边界约束。
-- `src/fashion_trend/reports/__init__.py`：报告域包标记，用于依赖边界约束。
+### Artifact Drift Baseline
 
-### 删除的历史根包模块
-
-- 采用 `foundation.paths` 后删除 `src/fashion_trend/config.py`。
-- 采用 `foundation.logging` 后删除 `src/fashion_trend/log.py`。
-- 删除没有实际行为的 `src/fashion_trend/data_loader.py`。
-- 拆分到 `catalog` 后删除根包 `src/fashion_trend/articles.py`。
-- 移动到 `trend/training.py` 后删除根包 `src/fashion_trend/training.py`。
-- 移动到 `trend/evaluation.py` 后删除根包 `src/fashion_trend/evaluation.py`。
-- 移动到 `trend/models/` 后删除根包 `src/fashion_trend/models/`。
-
-### 测试
-
-- 新增 `tests/test_architecture_boundaries.py`，覆盖依赖规则和历史根包模块移除。
-- 更新现有测试，改为直接导入业务域模块：
-  - `tests/test_articles_clean.py`
-  - `tests/test_attribute_graph.py`
-  - `tests/test_trend_article_sales.py`
-  - `tests/test_trend_attribute_heat.py`
-  - `tests/test_trend_targets.py`
-  - `tests/test_trend_samples.py`
-  - `tests/test_trend_splits.py`
-  - `tests/test_trend_training.py`
-  - `tests/test_trend_evaluation.py`
-- 架构目标由 `tests/test_architecture_boundaries.py` 覆盖；不保留趋势包聚合导出入口兼容测试。
-
-### 文档
-
-- 更新 `README.md`，说明业务域驱动的内部组织方式，同时保持用户运行命令不变。
-- 更新 `docs/gpt-research/implementation-plan.md` 中涉及内部模块路径的描述。
-- 仅当实现发现设计矛盾时，才更新 `docs/superpowers/specs/2026-05-07-domain-driven-code-architecture-design.md`。
-
-## Task 1：添加架构边界测试和包骨架
-
-**Files:**
-- Create: `tests/test_architecture_boundaries.py`
-- Create: `src/fashion_trend/foundation/__init__.py`
-- Create: `src/fashion_trend/datasets/__init__.py`
-- Create: `src/fashion_trend/transactions/__init__.py`
-- Create: `src/fashion_trend/catalog/__init__.py`
-- Create: `src/fashion_trend/recommendation/__init__.py`
-- Create: `src/fashion_trend/reports/__init__.py`
-
-- [ ] **Step 1：写入失败的架构测试**
-
-创建 `tests/test_architecture_boundaries.py`：
-
-```python
-from __future__ import annotations
-
-import ast
-from pathlib import Path
-
-
-PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "src" / "fashion_trend"
-
-BUSINESS_DOMAINS = {
-    "datasets",
-    "transactions",
-    "catalog",
-    "trend",
-    "recommendation",
-    "reports",
-}
-
-HISTORICAL_ROOT_MODULES = {
-    "articles.py",
-    "config.py",
-    "data_loader.py",
-    "evaluation.py",
-    "log.py",
-    "training.py",
-}
-
-
-def iter_python_files(package_name: str) -> list[Path]:
-    package_path = PACKAGE_ROOT / package_name
-    assert package_path.exists(), f"package missing: fashion_trend.{package_name}"
-    return sorted(
-        path
-        for path in package_path.rglob("*.py")
-        if "__pycache__" not in path.parts
-    )
-
-
-def imported_modules(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    modules: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            modules.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            modules.add(node.module)
-    return modules
-
-
-def assert_package_does_not_import(
-    package_name: str,
-    forbidden_modules: set[str],
-) -> None:
-    offenders: list[str] = []
-    for path in iter_python_files(package_name):
-        for module_name in imported_modules(path):
-            for forbidden in forbidden_modules:
-                if module_name == forbidden or module_name.startswith(forbidden + "."):
-                    relative_path = path.relative_to(PACKAGE_ROOT.parents[0])
-                    offenders.append(f"{relative_path}: {module_name}")
-    assert not offenders, "\n".join(offenders)
-
-
-def test_foundation_has_no_business_domain_imports() -> None:
-    forbidden = {f"fashion_trend.{name}" for name in BUSINESS_DOMAINS}
-    assert_package_does_not_import("foundation", forbidden)
-
-
-def test_catalog_does_not_depend_on_trend_or_recommendation() -> None:
-    assert_package_does_not_import(
-        "catalog",
-        {"fashion_trend.trend", "fashion_trend.recommendation"},
-    )
-
-
-def test_transactions_does_not_depend_on_catalog_trend_or_recommendation() -> None:
-    assert_package_does_not_import(
-        "transactions",
-        {
-            "fashion_trend.catalog",
-            "fashion_trend.trend",
-            "fashion_trend.recommendation",
-        },
-    )
-
-
-def test_trend_does_not_depend_on_recommendation_or_reports() -> None:
-    assert_package_does_not_import(
-        "trend",
-        {"fashion_trend.recommendation", "fashion_trend.reports"},
-    )
-
-
-def test_recommendation_does_not_depend_on_trend_model_internals() -> None:
-    assert_package_does_not_import(
-        "recommendation",
-        {"fashion_trend.trend.models"},
-    )
-
-
-def test_historical_root_modules_are_removed() -> None:
-    existing = sorted(
-        path.name
-        for path in PACKAGE_ROOT.iterdir()
-        if path.is_file() and path.name in HISTORICAL_ROOT_MODULES
-    )
-    assert existing == []
-```
-
-- [ ] **Step 2：运行新测试，确认当前结构会失败**
-
-Run:
-
-```sh
-uv run pytest tests/test_architecture_boundaries.py -q
-```
-
-Expected: 失败信息应提到缺失的包和仍存在的历史根包模块。这是本轮迁移的 red test。
-
-- [ ] **Step 3：添加包骨架**
-
-每个包标记文件写入短 docstring：
-
-```python
-"""Domain package for the Fashion trend project."""
-```
-
-适用于：
+Before starting Task 2, check whether these upstream files exist:
 
 ```text
-src/fashion_trend/foundation/__init__.py
-src/fashion_trend/datasets/__init__.py
-src/fashion_trend/transactions/__init__.py
-src/fashion_trend/catalog/__init__.py
-src/fashion_trend/recommendation/__init__.py
-src/fashion_trend/reports/__init__.py
+data/interim/articles_clean.csv
+data/interim/transactions_train_weekly.parquet
+data/processed/features/trend_model_samples_train.parquet
+data/processed/features/trend_model_samples_valid.parquet
+data/processed/features/trend_model_samples_test.parquet
 ```
 
-- [ ] **Step 4：再次运行架构测试**
+If any file is missing, record the exact missing path in the task report and use the same reason when skipping real-data artifact comparisons later.
 
-Run:
+If all files exist, run the current implementation before structural edits:
 
 ```sh
-uv run pytest tests/test_architecture_boundaries.py -q
+uv run python src/04_build_attribute_graph.py
+uv run python src/05_compute_article_week_sales.py
+uv run python src/06_compute_attribute_week_heat.py
+uv run python src/10_train_trend_model.py --model moving_average
+uv run python src/11_eval_trend_model.py --model moving_average
 ```
 
-Expected: 只剩历史根包模块和尚未迁移依赖导致的失败。
-
-- [ ] **Step 5：提交**
-
-Run:
+Then capture the baseline summary:
 
 ```sh
-git add tests/test_architecture_boundaries.py src/fashion_trend/foundation/__init__.py src/fashion_trend/datasets/__init__.py src/fashion_trend/transactions/__init__.py src/fashion_trend/catalog/__init__.py src/fashion_trend/recommendation/__init__.py src/fashion_trend/reports/__init__.py
-git commit -m "test: 添加领域架构边界测试"
-```
-
-## Task 2：提取 foundation
-
-**Files:**
-- Move: `src/fashion_trend/config.py` -> `src/fashion_trend/foundation/paths.py`
-- Move: `src/fashion_trend/log.py` -> `src/fashion_trend/foundation/logging.py`
-- Create: `src/fashion_trend/foundation/io.py`
-- Create: `src/fashion_trend/foundation/dataframe.py`
-- Create: `src/fashion_trend/foundation/artifacts.py`
-- Modify imports in all `src/` and `tests/` files that reference `fashion_trend.config`, `fashion_trend.log`, `fashion_trend.trend.io`, or `fashion_trend.trend.validation`.
-
-- [ ] **Step 1：移动路径和日志模块**
-
-Run:
-
-```sh
-git mv src/fashion_trend/config.py src/fashion_trend/foundation/paths.py
-git mv src/fashion_trend/log.py src/fashion_trend/foundation/logging.py
-```
-
-- [ ] **Step 2：更新路径和日志 import**
-
-手动替换这些 import：
-
-```python
-from fashion_trend.config import PATH
-from fashion_trend.config import GRAPH_DIR, PATH
-from fashion_trend.config import DEFAULT_COMPETITION, RAW_DIR
-from fashion_trend.config import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
-from fashion_trend import log
-```
-
-替换为：
-
-```python
-from fashion_trend.foundation.paths import PATH
-from fashion_trend.foundation.paths import GRAPH_DIR, PATH
-from fashion_trend.foundation.paths import DEFAULT_COMPETITION, RAW_DIR
-from fashion_trend.foundation.paths import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
-from fashion_trend.foundation import logging as log
-```
-
-- [ ] **Step 3：创建通用 DataFrame 校验模块**
-
-创建 `src/fashion_trend/foundation/dataframe.py`，从 `src/fashion_trend/trend/validation.py` 移入通用函数，保持行为不变：
-
-```python
-from __future__ import annotations
-
-from collections.abc import Sequence
-
-import pandas as pd
-
-
-def validate_required_columns(
-    dataframe: pd.DataFrame,
-    required_columns: Sequence[str],
-    source_name: str,
-) -> None:
-    missing_columns = sorted(set(required_columns) - set(dataframe.columns))
-    if missing_columns:
-        raise ValueError(f"{source_name} 缺少必要字段: {', '.join(missing_columns)}")
-
-
-def validate_no_missing_values(
-    dataframe: pd.DataFrame,
-    columns: Sequence[str],
-    source_name: str,
-) -> None:
-    missing_counts = dataframe[list(columns)].isna().sum()
-    invalid_columns = [
-        f"{column}={int(count)}"
-        for column, count in missing_counts.items()
-        if int(count) > 0
-    ]
-    if invalid_columns:
-        raise ValueError(f"{source_name} 存在缺失值: {', '.join(invalid_columns)}")
-
-
-def validate_unique_key(
-    dataframe: pd.DataFrame,
-    key_columns: Sequence[str],
-    source_name: str,
-) -> None:
-    duplicate_count = int(dataframe.duplicated(list(key_columns)).sum())
-    if duplicate_count > 0:
-        key_names = ", ".join(key_columns)
-        raise ValueError(f"{source_name} 存在重复键 {key_names}: {duplicate_count} 行")
-
-
-def validate_non_negative_values(
-    dataframe: pd.DataFrame,
-    columns: Sequence[str],
-    source_name: str,
-) -> None:
-    invalid_columns = [
-        column
-        for column in columns
-        if bool((dataframe[column] < 0).any())
-    ]
-    if invalid_columns:
-        raise ValueError(f"{source_name} 存在负数: {', '.join(invalid_columns)}")
-
-
-def validate_positive_values(
-    dataframe: pd.DataFrame,
-    columns: Sequence[str],
-    source_name: str,
-) -> None:
-    invalid_columns = [
-        column
-        for column in columns
-        if bool((dataframe[column] <= 0).any())
-    ]
-    if invalid_columns:
-        raise ValueError(f"{source_name} 存在非正数: {', '.join(invalid_columns)}")
-```
-
-- [ ] **Step 4：创建通用 foundation IO**
-
-创建 `src/fashion_trend/foundation/io.py`，使用通用命名，并保留当前 `trend/io.py` 的原子写入行为：
-
-```python
-from __future__ import annotations
-
-import csv
+uv run python - <<'PY'
+import hashlib
 import json
 from pathlib import Path
 
 import pandas as pd
 
-
-def remove_file_if_exists(path: Path) -> None:
-    if path.exists():
-        path.unlink()
-
-
-def write_json_atomic(payload: dict[str, object], output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        tmp_path.replace(output_path)
-    finally:
-        remove_file_if_exists(tmp_path)
-
-
-def write_csv_atomic(dataframe: pd.DataFrame, output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        dataframe.to_csv(tmp_path, index=False, quoting=csv.QUOTE_ALL)
-        tmp_path.replace(output_path)
-    finally:
-        remove_file_if_exists(tmp_path)
-
-
-def write_parquet_atomic(dataframe: pd.DataFrame, output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        dataframe.to_parquet(tmp_path, index=False)
-        tmp_path.replace(output_path)
-    finally:
-        remove_file_if_exists(tmp_path)
+BASELINE_PATH = Path("/tmp/fashion_domain_arch_artifact_baseline.json")
+TREND_METRICS_KEYS = {
+    "model_name",
+    "prediction_path",
+    "output_path",
+    "evaluated_splits",
+    "ranking",
+    "overall",
+    "by_attr_type",
+    "groups",
+}
+CSV_ARTIFACTS = {
+    "graph_nodes_article": Path("data/processed/graph/nodes_article.csv"),
+    "graph_nodes_attribute": Path("data/processed/graph/nodes_attribute.csv"),
+    "graph_edges_article_attribute": Path(
+        "data/processed/graph/edges_article_attribute.csv"
+    ),
+    "graph_edges_attribute_hierarchy": Path(
+        "data/processed/graph/edges_attribute_hierarchy.csv"
+    ),
+    "article_week_sales": Path("data/processed/trend/article_week_sales.csv"),
+    "attribute_week_heat": Path("data/processed/trend/attribute_week_heat.csv"),
+    "moving_average_predictions": Path(
+        "outputs/models/moving_average/predictions.csv"
+    ),
+}
+JSON_ARTIFACTS = {
+    "moving_average_metadata": Path("outputs/models/moving_average/metadata.json"),
+    "moving_average_params": Path("outputs/models/moving_average/params.json"),
+    "moving_average_metrics": Path(
+        "outputs/metrics/moving_average/trend_metrics.json"
+    ),
+}
 
 
-def write_binary_atomic(payload: bytes, output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        tmp_path.write_bytes(payload)
-        tmp_path.replace(output_path)
-    finally:
-        remove_file_if_exists(tmp_path)
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+summary: dict[str, object] = {}
+for name, path in CSV_ARTIFACTS.items():
+    if not path.exists():
+        raise FileNotFoundError(path)
+    frame = pd.read_csv(path)
+    summary[name] = {
+        "path": str(path),
+        "sha256": sha256(path),
+        "rows": int(len(frame)),
+        "columns": frame.columns.tolist(),
+    }
+    if "attr_type" in frame.columns:
+        summary[name]["rows_by_attr_type"] = {
+            str(key): int(value)
+            for key, value in frame["attr_type"]
+            .astype(str)
+            .value_counts()
+            .sort_index()
+            .items()
+        }
+    if "week_id" in frame.columns:
+        week_ids = pd.to_numeric(frame["week_id"], errors="raise")
+        summary[name]["week_id"] = {
+            "min": int(week_ids.min()),
+            "max": int(week_ids.max()),
+            "nunique": int(week_ids.nunique()),
+        }
+
+for name, path in JSON_ARTIFACTS.items():
+    if not path.exists():
+        raise FileNotFoundError(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if name == "moving_average_metrics":
+        missing = sorted(TREND_METRICS_KEYS - set(payload))
+        if missing:
+            raise AssertionError(f"trend_metrics.json missing keys: {missing}")
+    summary[name] = {
+        "path": str(path),
+        "sha256": sha256(path),
+        "keys": sorted(payload),
+    }
+
+BASELINE_PATH.write_text(
+    json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True),
+    encoding="utf-8",
+)
+print(f"wrote {BASELINE_PATH}")
+PY
 ```
 
-- [ ] **Step 5：创建 artifact 安全辅助模块**
+Expected: the baseline command exits 0 and writes `/tmp/fashion_domain_arch_artifact_baseline.json`. Do not regenerate this baseline after refactors; final verification compares current artifacts to this pre-migration file.
 
-创建 `src/fashion_trend/foundation/artifacts.py`：
+## Target File Map
+
+### Architecture Tests
+
+- Modify: `tests/test_architecture_boundaries.py`
+  - 继续检测历史根包不回流。
+  - 新增 `recommendation` 上游 allowlist 检查。
+  - 新增 `reports` 上游 allowlist 检查。
+  - 新增 `foundation.paths` 导出白名单检查。
+
+### Domain Paths
+
+- Modify: `src/fashion_trend/foundation/paths.py`
+  - 最终只保留 `PROJECT_ROOT`、`DATA_DIR`、`RAW_DIR`、`INTERIM_DIR`、`PROCESSED_DIR`、`OUTPUT_DIR`。
+- Create: `src/fashion_trend/datasets/paths.py`
+  - H&M competition slug、raw H&M 根目录和 raw CSV 路径。
+- Create: `src/fashion_trend/transactions/paths.py`
+  - 周级交易表路径。
+- Create: `src/fashion_trend/catalog/paths.py`
+  - 清洗商品表和属性图产物路径。
+- Create: `src/fashion_trend/trend/paths.py`
+  - article sales、heat、target、samples、split、model output、metrics output 路径和 split 窗口配置。
+- Create: `src/fashion_trend/recommendation/paths.py`
+  - 推荐中间表、推荐结果和推荐评价输出路径。
+- Create: `src/fashion_trend/reports/paths.py`
+  - figures、tables、case studies 和 report export 路径。
+- Modify: `src/00_download_data.py` through `src/11_eval_trend_model.py`
+  - 从领域 path 模块导入本阶段路径，不再导入业务路径自 `foundation.paths`。
+- Modify: `src/fashion_trend/datasets/download.py`
+- Modify: `src/fashion_trend/trend/training.py`
+- Modify: `src/fashion_trend/trend/evaluation.py`
+- Modify: tests importing `foundation.paths` business constants.
+
+### Public Read-Only Surface
+
+- Create: `src/fashion_trend/transactions/contracts.py`
+- Create: `src/fashion_trend/transactions/readers.py`
+- Create: `src/fashion_trend/catalog/contracts.py`
+- Create: `src/fashion_trend/catalog/readers.py`
+- Create: `src/fashion_trend/trend/readers.py`
+- Create: `src/fashion_trend/recommendation/contracts.py`
+- Create: `src/fashion_trend/recommendation/readers.py`
+- Modify: trend CLI/scripts that read catalog or transaction stable artifacts to import `transactions.readers` / `catalog.readers` where they are crossing domain boundaries.
+
+### Catalog Split
+
+- Delete after replacement: `src/fashion_trend/catalog/graph.py`
+- Create: `src/fashion_trend/catalog/graph/__init__.py`
+- Create: `src/fashion_trend/catalog/graph/schema.py`
+- Create: `src/fashion_trend/catalog/graph/builders.py`
+- Create: `src/fashion_trend/catalog/graph/publishing.py`
+- Use: `src/fashion_trend/catalog/readers.py` for public graph readers.
+- Modify: `src/04_build_attribute_graph.py`
+- Modify: `tests/test_attribute_graph.py`
+
+### Trend Split
+
+- Replace file modules with focused subpackages only when tests are already locked:
+  - `src/fashion_trend/trend/attribute_heat.py` -> `src/fashion_trend/trend/heat/`
+  - `src/fashion_trend/trend/targets.py` -> `src/fashion_trend/trend/labels/`
+  - `src/fashion_trend/trend/samples.py` -> `src/fashion_trend/trend/features/`
+  - `src/fashion_trend/trend/splits.py` -> `src/fashion_trend/trend/splits/`
+- Split experiments:
+  - `src/fashion_trend/trend/models/last_week.py` -> `src/fashion_trend/trend/models/baselines/last_week.py`
+  - `src/fashion_trend/trend/models/moving_average.py` -> `src/fashion_trend/trend/models/baselines/moving_average.py`
+  - keep `src/fashion_trend/trend/models/supervised/` available for future LightGBM without implementing it in this plan.
+  - `src/fashion_trend/trend/training.py` -> `src/fashion_trend/trend/training/runner.py` and `outputs.py`
+  - `src/fashion_trend/trend/evaluation.py` -> `src/fashion_trend/trend/evaluation/metrics.py`, `payloads.py`, and `runner.py`
+
+### Documentation
+
+- Modify: `README.md`
+- Modify: `docs/gpt-research/implementation-plan.md`
+- Modify only if implementation reveals a contradiction: `docs/superpowers/specs/2026-05-07-domain-driven-code-architecture-design.md`
+
+## Task 1: Harden Architecture Boundary Tests
+
+**Files:**
+
+- Modify: `tests/test_architecture_boundaries.py`
+
+- [ ] **Step 1: Add public allowlist helpers**
+
+Add these constants near the existing import-boundary constants:
 
 ```python
-from __future__ import annotations
+RECOMMENDATION_PUBLIC_UPSTREAM_IMPORTS = {
+    "fashion_trend.transactions.contracts",
+    "fashion_trend.transactions.readers",
+    "fashion_trend.catalog.contracts",
+    "fashion_trend.catalog.readers",
+    "fashion_trend.trend.schema",
+    "fashion_trend.trend.predictions",
+    "fashion_trend.trend.readers",
+}
 
-from pathlib import Path
-
-
-def validate_safe_path_segment(segment: str, source_name: str) -> None:
-    if not segment:
-        raise ValueError(f"{source_name} 不能为空。")
-    if segment in {".", ".."} or "/" in segment or "\\" in segment:
-        raise ValueError(f"{source_name} 不是安全的路径片段: {segment}")
-
-
-def validate_output_parent_dirs(parent_path: Path, output_dir: Path) -> None:
-    parent_path = parent_path.resolve()
-    output_dir = output_dir.resolve()
-    if not output_dir.is_relative_to(parent_path):
-        raise ValueError(f"输出目录不在允许范围内: {output_dir}")
+REPORTS_PUBLIC_IMPORTS = {
+    "fashion_trend.transactions.contracts",
+    "fashion_trend.transactions.readers",
+    "fashion_trend.catalog.contracts",
+    "fashion_trend.catalog.readers",
+    "fashion_trend.trend.schema",
+    "fashion_trend.trend.predictions",
+    "fashion_trend.trend.readers",
+    "fashion_trend.recommendation.contracts",
+    "fashion_trend.recommendation.readers",
+}
 ```
 
-- [ ] **Step 6：更新 trend 模块，使其使用 foundation 校验和 IO**
-
-在当前 trend 文件中，将：
+Add these helpers below `assert_package_does_not_import()`:
 
 ```python
-from fashion_trend.trend.validation import validate_required_columns
-from fashion_trend.trend.io import write_json, write_trend_csv, write_trend_parquet
+def package_upstream_import_offenders(
+    paths: list[Path],
+    upstream_roots: set[str],
+    allowed_modules: set[str],
+) -> list[str]:
+    offenders: list[str] = []
+    for path in paths:
+        for module_name in sorted(imported_modules(path)):
+            matched_root = next(
+                (
+                    root
+                    for root in upstream_roots
+                    if module_name == root or module_name.startswith(root + ".")
+                ),
+                None,
+            )
+            if matched_root is None:
+                continue
+            is_allowed = any(
+                module_name == allowed
+                or module_name.startswith(allowed + ".")
+                for allowed in allowed_modules
+            )
+            if not is_allowed:
+                try:
+                    display_path = path.relative_to(PACKAGE_ROOT.parents[0])
+                except ValueError:
+                    display_path = path
+                offenders.append(f"{display_path}: {module_name}")
+    return offenders
+
+
+def assert_package_imports_only_allowed_upstream(
+    package_name: str,
+    upstream_roots: set[str],
+    allowed_modules: set[str],
+) -> None:
+    offenders = package_upstream_import_offenders(
+        iter_python_files(package_name),
+        upstream_roots,
+        allowed_modules,
+    )
+    assert offenders == []
 ```
 
-替换为：
+- [ ] **Step 2: Replace broad denylist tests with allowlist tests**
+
+Replace `test_recommendation_does_not_depend_on_trend_model_internals()` with:
 
 ```python
-from fashion_trend.foundation.dataframe import validate_required_columns
-from fashion_trend.foundation.io import write_csv_atomic, write_json_atomic, write_parquet_atomic
+def test_recommendation_imports_only_public_upstream_surfaces() -> None:
+    assert_package_imports_only_allowed_upstream(
+        "recommendation",
+        {
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+        },
+        RECOMMENDATION_PUBLIC_UPSTREAM_IMPORTS,
+    )
 ```
 
-并将调用：
+Replace `test_reports_does_not_depend_on_core_computation_domains()` with:
 
 ```python
-write_json(payload, path)
-write_trend_csv(frame, path)
-write_trend_parquet(frame, path)
+def test_reports_imports_only_public_read_only_surfaces() -> None:
+    assert_package_imports_only_allowed_upstream(
+        "reports",
+        {
+            "fashion_trend.datasets",
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+            "fashion_trend.recommendation",
+        },
+        REPORTS_PUBLIC_IMPORTS,
+    )
 ```
 
-替换为：
+- [ ] **Step 3: Add regression tests for allowlist behavior**
+
+Add tests using `tmp_path` so a future worker cannot accidentally weaken the helper:
 
 ```python
-write_json_atomic(payload, path)
-write_csv_atomic(frame, path)
-write_parquet_atomic(frame, path)
+def test_allowlist_rejects_recommendation_importing_catalog_graph(tmp_path) -> None:
+    package_root = tmp_path / "src" / "fashion_trend"
+    module_path = package_root / "recommendation" / "ranker.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text(
+        "from fashion_trend.catalog.graph import read_attribute_nodes\n",
+        encoding="utf-8",
+    )
+
+    offenders = package_upstream_import_offenders(
+        [module_path],
+        {"fashion_trend.catalog"},
+        {"fashion_trend.catalog.readers"},
+    )
+
+    assert offenders == [
+        f"{module_path}: fashion_trend.catalog.graph",
+        f"{module_path}: fashion_trend.catalog.graph.read_attribute_nodes",
+    ]
 ```
 
-- [ ] **Step 7：删除旧通用模块**
-
-所有 import 都迁移完成后，删除：
-
-```text
-src/fashion_trend/trend/io.py
-src/fashion_trend/trend/validation.py
-```
-
-- [ ] **Step 8：验证 foundation 边界**
+- [ ] **Step 4: Run boundary tests**
 
 Run:
 
 ```sh
 uv run pytest tests/test_architecture_boundaries.py -q
-uv run pytest tests/test_trend_article_sales.py tests/test_trend_attribute_heat.py tests/test_trend_targets.py tests/test_trend_samples.py tests/test_trend_splits.py -q
-uv run python -m py_compile src/fashion_trend/foundation/paths.py src/fashion_trend/foundation/logging.py src/fashion_trend/foundation/io.py src/fashion_trend/foundation/dataframe.py src/fashion_trend/foundation/artifacts.py
 ```
 
-Expected: 趋势阶段测试通过；架构测试仍可能因尚未迁移的历史模块失败。
+Expected: PASS. `recommendation/` and `reports/` are still empty, so the new allowlist tests should pass while guarding future imports.
 
-- [ ] **Step 9：提交**
-
-Run:
+- [ ] **Step 5: Commit**
 
 ```sh
-git add src tests
-git commit -m "refactor: 提取无业务基础层"
+git add tests/test_architecture_boundaries.py
+git commit -m "test: 收紧业务域公开依赖边界"
 ```
 
-## Task 3：迁移 datasets、transactions 和 catalog
+## Task 2: Create Domain Path Modules
 
 **Files:**
-- Create: `src/fashion_trend/datasets/download.py`
-- Create: `src/fashion_trend/datasets/profile.py`
-- Move script logic from: `src/00_download_data.py`
-- Move script logic from: `src/02_build_weekly_transactions.py`
-- Split: `src/fashion_trend/articles.py` -> `src/fashion_trend/catalog/articles.py` and `src/fashion_trend/catalog/graph.py`
+
+- Create: `src/fashion_trend/datasets/paths.py`
+- Create: `src/fashion_trend/transactions/paths.py`
+- Create: `src/fashion_trend/catalog/paths.py`
+- Create: `src/fashion_trend/trend/paths.py`
+- Create: `src/fashion_trend/recommendation/paths.py`
+- Create: `src/fashion_trend/reports/paths.py`
 - Modify: `src/00_download_data.py`
 - Modify: `src/01_data_check.py`
 - Modify: `src/02_build_weekly_transactions.py`
 - Modify: `src/03_clean_articles.py`
 - Modify: `src/04_build_attribute_graph.py`
-- Modify tests for article cleaning and graph construction.
+- Modify: `src/05_compute_article_week_sales.py`
+- Modify: `src/06_compute_attribute_week_heat.py`
+- Modify: `src/07_build_trend_targets.py`
+- Modify: `src/08_build_trend_model_samples.py`
+- Modify: `src/09_split_trend_model_samples.py`
+- Modify: `src/10_train_trend_model.py`
+- Modify: `src/11_eval_trend_model.py`
+- Modify: `src/fashion_trend/datasets/download.py`
+- Modify: `src/fashion_trend/trend/training.py`
+- Modify: `src/fashion_trend/trend/evaluation.py`
+- Modify: tests that import business path constants.
 
-- [ ] **Step 1：提取数据下载逻辑**
+- [ ] **Step 1: Add path modules without removing old exports**
 
-将这些函数和类型别名从 `src/00_download_data.py` 移到 `src/fashion_trend/datasets/download.py`：
-
-```text
-Downloader
-competition_target_dir
-should_skip_download
-extract_zip_files
-kagglehub_competition_download
-download_competition
-```
-
-`src/00_download_data.py` 中保留 `parse_args()` 和 `main()`。
-
-移动后，脚本 import 应为：
+Create `src/fashion_trend/datasets/paths.py`:
 
 ```python
-from fashion_trend.datasets.download import download_competition
-from fashion_trend.foundation.paths import DEFAULT_COMPETITION, RAW_DIR
+from pathlib import Path
+
+from fashion_trend.foundation.paths import RAW_DIR
+
+DEFAULT_COMPETITION = "h-and-m-personalized-fashion-recommendations"
+RAW_HM_DIR = RAW_DIR / DEFAULT_COMPETITION
+RAW_TRANSACTIONS_PATH = RAW_HM_DIR / "transactions_train.csv"
+RAW_ARTICLES_PATH = RAW_HM_DIR / "articles.csv"
+RAW_CUSTOMERS_PATH = RAW_HM_DIR / "customers.csv"
 ```
 
-- [ ] **Step 2：添加 raw profile 模块，明确 data-check ownership**
+Create `src/fashion_trend/transactions/paths.py`:
 
-创建 `src/fashion_trend/datasets/profile.py`：
+```python
+from pathlib import Path
+
+from fashion_trend.foundation.paths import INTERIM_DIR
+
+WEEKLY_TRANSACTIONS_PATH = INTERIM_DIR / "transactions_train_weekly.parquet"
+```
+
+Create `src/fashion_trend/catalog/paths.py`:
+
+```python
+from pathlib import Path
+
+from fashion_trend.foundation.paths import INTERIM_DIR, PROCESSED_DIR
+
+GRAPH_DIR = PROCESSED_DIR / "graph"
+ARTICLES_CLEAN_MVP_PATH = INTERIM_DIR / "articles_clean_mvp.csv"
+ARTICLES_CLEAN_PATH = INTERIM_DIR / "articles_clean.csv"
+GRAPH_NODES_ARTICLE_PATH = GRAPH_DIR / "nodes_article.csv"
+GRAPH_NODES_ATTRIBUTE_PATH = GRAPH_DIR / "nodes_attribute.csv"
+GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH = GRAPH_DIR / "edges_article_attribute.csv"
+GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH = GRAPH_DIR / "edges_attribute_hierarchy.csv"
+```
+
+Create `src/fashion_trend/trend/paths.py`:
+
+```python
+from pathlib import Path
+
+from fashion_trend.foundation.paths import OUTPUT_DIR, PROCESSED_DIR
+
+TREND_DIR = PROCESSED_DIR / "trend"
+FEATURES_DIR = PROCESSED_DIR / "features"
+OUTPUT_MODELS_DIR = OUTPUT_DIR / "models"
+OUTPUT_METRICS_DIR = OUTPUT_DIR / "metrics"
+
+TREND_ARTICLE_WEEK_SALES_PATH = TREND_DIR / "article_week_sales.csv"
+TREND_ATTRIBUTE_WEEK_HEAT_PATH = TREND_DIR / "attribute_week_heat.csv"
+TREND_ATTRIBUTE_WEEK_TARGET_PATH = TREND_DIR / "attribute_week_target.csv"
+TREND_MODEL_SAMPLES_PATH = FEATURES_DIR / "trend_model_samples.parquet"
+TREND_MODEL_SAMPLES_TRAIN_PATH = FEATURES_DIR / "trend_model_samples_train.parquet"
+TREND_MODEL_SAMPLES_VALID_PATH = FEATURES_DIR / "trend_model_samples_valid.parquet"
+TREND_MODEL_SAMPLES_TEST_PATH = FEATURES_DIR / "trend_model_samples_test.parquet"
+TREND_MODEL_SAMPLES_SPLIT_METADATA_PATH = (
+    FEATURES_DIR / "trend_model_samples_split_metadata.json"
+)
+TREND_SPLIT_VALID_WEEKS = 8
+TREND_SPLIT_TEST_WEEKS = 8
+```
+
+Create `src/fashion_trend/recommendation/paths.py`:
+
+```python
+from pathlib import Path
+
+from fashion_trend.foundation.paths import OUTPUT_DIR, PROCESSED_DIR
+
+RECOMMEND_DIR = PROCESSED_DIR / "recommend"
+RECOMMEND_FEATURES_DIR = RECOMMEND_DIR / "features"
+OUTPUT_RECOMMENDATION_DIR = OUTPUT_DIR / "recommendation"
+
+USER_PROFILE_PATH = RECOMMEND_DIR / "user_profile.parquet"
+RECOMMEND_CANDIDATES_PATH = RECOMMEND_DIR / "candidate_items.parquet"
+RECOMMENDATION_RESULT_PATH = OUTPUT_RECOMMENDATION_DIR / "recommendation_result.csv"
+RECOMMENDATION_METRICS_PATH = OUTPUT_RECOMMENDATION_DIR / "recommendation_metrics.json"
+```
+
+Create `src/fashion_trend/reports/paths.py`:
+
+```python
+from pathlib import Path
+
+from fashion_trend.foundation.paths import OUTPUT_DIR
+
+OUTPUT_REPORTS_DIR = OUTPUT_DIR / "reports"
+OUTPUT_FIGURES_DIR = OUTPUT_REPORTS_DIR / "figures"
+OUTPUT_TABLES_DIR = OUTPUT_REPORTS_DIR / "tables"
+OUTPUT_CASE_STUDIES_DIR = OUTPUT_REPORTS_DIR / "case_studies"
+```
+
+- [ ] **Step 2: Migrate import sites from `PATH[...]` to domain constants**
+
+Replace each `PATH[...]` access with the explicit domain constant. Examples:
+
+```python
+# src/02_build_weekly_transactions.py
+from fashion_trend.datasets.paths import RAW_TRANSACTIONS_PATH
+from fashion_trend.transactions.paths import WEEKLY_TRANSACTIONS_PATH
+```
+
+```python
+# src/06_compute_attribute_week_heat.py
+from fashion_trend.catalog.paths import (
+    GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH,
+    GRAPH_NODES_ATTRIBUTE_PATH,
+)
+from fashion_trend.trend.paths import (
+    TREND_ARTICLE_WEEK_SALES_PATH,
+    TREND_ATTRIBUTE_WEEK_HEAT_PATH,
+)
+```
+
+```python
+# src/fashion_trend/trend/training.py
+from fashion_trend.trend.paths import (
+    OUTPUT_MODELS_DIR,
+    TREND_MODEL_SAMPLES_TEST_PATH,
+    TREND_MODEL_SAMPLES_TRAIN_PATH,
+    TREND_MODEL_SAMPLES_VALID_PATH,
+)
+```
+
+`default_trend_model_input_paths()` should return:
+
+```python
+return {
+    "train": TREND_MODEL_SAMPLES_TRAIN_PATH,
+    "valid": TREND_MODEL_SAMPLES_VALID_PATH,
+    "test": TREND_MODEL_SAMPLES_TEST_PATH,
+}
+```
+
+- [ ] **Step 3: Update tests importing path constants**
+
+Move imports such as:
+
+```python
+from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR
+```
+
+to:
+
+```python
+from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
+```
+
+- [ ] **Step 4: Verify no production or test file still consumes global `PATH`**
+
+Run:
+
+```sh
+rg -n "PATH\\[|from fashion_trend\\.foundation\\.paths import .*PATH|OUTPUT_MODELS_DIR|OUTPUT_METRICS_DIR|GRAPH_DIR|RAW_HM_DIR|DEFAULT_COMPETITION|TREND_SPLIT" src tests
+```
+
+Expected: no `PATH[` references. Business constants may still appear only in their new owning domain path modules and their intended import sites.
+
+- [ ] **Step 5: Run focused tests**
+
+Run:
+
+```sh
+uv run pytest tests/test_architecture_boundaries.py tests/test_trend_training.py tests/test_trend_evaluation.py tests/test_attribute_graph.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```sh
+git add src tests
+git commit -m "refactor: 迁移业务路径到领域模块"
+```
+
+## Task 3: Retire Business Exports from `foundation.paths`
+
+**Files:**
+
+- Modify: `src/fashion_trend/foundation/paths.py`
+- Modify: `tests/test_architecture_boundaries.py`
+
+- [ ] **Step 1: Add the `foundation.paths` export whitelist test**
+
+Add to `tests/test_architecture_boundaries.py`:
+
+```python
+FOUNDATION_PATH_ALLOWED_EXPORTS = {
+    "PROJECT_ROOT",
+    "DATA_DIR",
+    "RAW_DIR",
+    "INTERIM_DIR",
+    "PROCESSED_DIR",
+    "OUTPUT_DIR",
+}
+
+
+def test_foundation_paths_exports_only_project_roots() -> None:
+    import fashion_trend.foundation.paths as paths
+
+    exported_names = {
+        name
+        for name in vars(paths)
+        if name.isupper() and not name.startswith("_")
+    }
+    assert exported_names == FOUNDATION_PATH_ALLOWED_EXPORTS
+```
+
+- [ ] **Step 2: Shrink `foundation.paths`**
+
+Replace `src/fashion_trend/foundation/paths.py` with:
+
+```python
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DATA_DIR = PROJECT_ROOT / "data"
+RAW_DIR = DATA_DIR / "raw"
+INTERIM_DIR = DATA_DIR / "interim"
+PROCESSED_DIR = DATA_DIR / "processed"
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
+```
+
+- [ ] **Step 3: Run boundary and path import scans**
+
+Run:
+
+```sh
+uv run pytest tests/test_architecture_boundaries.py -q
+rg -n "PATH\\[|DEFAULT_COMPETITION|RAW_HM_DIR|GRAPH_DIR|TREND_DIR|FEATURES_DIR|OUTPUT_MODELS_DIR|OUTPUT_METRICS_DIR|OUTPUT_FIGURES_DIR|OUTPUT_REPORTS_DIR|TREND_SPLIT" src/fashion_trend/foundation src tests
+```
+
+Expected:
+
+- pytest PASS.
+- `rg` only finds business path names in domain path modules, scripts importing those domain constants, tests that intentionally assert domain path behavior, or documentation strings inside tests. It must not find business exports in `src/fashion_trend/foundation/paths.py`.
+
+- [ ] **Step 4: Run full tests**
+
+Run:
+
+```sh
+uv run pytest -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```sh
+git add src/fashion_trend/foundation/paths.py tests/test_architecture_boundaries.py src tests
+git commit -m "refactor: 退役 foundation 业务路径"
+```
+
+## Task 4: Establish Public `contracts` and `readers`
+
+**Files:**
+
+- Create: `src/fashion_trend/transactions/contracts.py`
+- Create: `src/fashion_trend/transactions/readers.py`
+- Create: `src/fashion_trend/catalog/contracts.py`
+- Create: `src/fashion_trend/catalog/readers.py`
+- Create: `src/fashion_trend/trend/readers.py`
+- Create: `src/fashion_trend/recommendation/contracts.py`
+- Create: `src/fashion_trend/recommendation/readers.py`
+- Modify: `src/fashion_trend/transactions/weekly.py`
+- Modify: `src/fashion_trend/catalog/graph.py`
+- Modify: `src/fashion_trend/trend/schema.py`
+- Modify: `src/fashion_trend/trend/article_sales.py`
+- Modify: `src/fashion_trend/trend/attribute_heat.py`
+- Modify: `src/fashion_trend/trend/samples.py`
+- Modify: `src/05_compute_article_week_sales.py`
+- Modify: `src/06_compute_attribute_week_heat.py`
+- Modify: `src/07_build_trend_targets.py`
+- Modify: `src/08_build_trend_model_samples.py`
+- Modify: tests that import reader functions from internal build modules.
+
+- [ ] **Step 1: Move stable transaction contracts**
+
+Create `transactions/contracts.py`:
+
+```python
+WEEKLY_TRANSACTION_COLUMNS: tuple[str, ...] = (
+    "week_id",
+    "article_id",
+    "customer_id",
+    "price",
+)
+```
+
+This is the same stable weekly transaction contract currently defined in `trend.schema`. After creating it:
+
+```python
+# src/fashion_trend/trend/article_sales.py
+from fashion_trend.transactions.contracts import WEEKLY_TRANSACTION_COLUMNS
+```
+
+Remove `WEEKLY_TRANSACTION_COLUMNS` from `src/fashion_trend/trend/schema.py`. The trend domain may consume the transaction public contract, but it must not keep a duplicate transaction schema.
+
+Create `transactions/readers.py` with the current `read_weekly_transactions()` implementation. Update `transactions/weekly.py` to import `WEEKLY_TRANSACTION_COLUMNS` from `transactions.contracts` and remove its old reader-only column constant.
+
+- [ ] **Step 2: Move stable catalog graph contracts and readers**
+
+Create `catalog/contracts.py` with:
+
+```python
+ARTICLE_ATTRIBUTE_EDGE_COLUMNS: tuple[str, ...] = (
+    "article_id",
+    "attr_id",
+    "attr_type",
+    "attr_value",
+)
+
+ARTICLE_ATTRIBUTE_EDGE_DTYPES: dict[str, str] = {
+    "article_id": "string",
+    "attr_id": "string",
+    "attr_type": "string",
+    "attr_value": "string",
+}
+
+ATTRIBUTE_NODE_COLUMNS: tuple[str, ...] = (
+    "attr_id",
+    "attr_type",
+    "attr_value",
+    "article_count",
+    "is_core_attr",
+)
+
+ATTRIBUTE_NODE_DTYPES: dict[str, str] = {
+    "attr_id": "string",
+    "attr_type": "string",
+    "attr_value": "string",
+    "article_count": "int64",
+    "is_core_attr": "int64",
+}
+
+ATTRIBUTE_HIERARCHY_EDGE_COLUMNS: tuple[str, ...] = (
+    "parent_attr_id",
+    "child_attr_id",
+    "parent_attr_type",
+    "child_attr_type",
+    "relation_type",
+    "edge_weight",
+)
+
+ATTRIBUTE_HIERARCHY_EDGE_DTYPES: dict[str, str] = {
+    "parent_attr_id": "string",
+    "child_attr_id": "string",
+    "parent_attr_type": "string",
+    "child_attr_type": "string",
+    "relation_type": "string",
+    "edge_weight": "int64",
+}
+```
+
+These replace the upstream catalog contracts currently duplicated in `trend.schema`:
+
+```text
+ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS
+ARTICLE_ATTRIBUTE_EDGE_HEAT_DTYPES
+ATTRIBUTE_NODE_HEAT_COLUMNS
+ATTRIBUTE_NODE_HEAT_DTYPES
+ATTRIBUTE_HIERARCHY_EDGE_COLUMNS
+ATTRIBUTE_HIERARCHY_EDGE_DTYPES
+```
+
+After creating `catalog.contracts`, update trend internals to consume the upstream public contracts:
+
+```python
+# src/fashion_trend/trend/attribute_heat.py
+from fashion_trend.catalog.contracts import (
+    ARTICLE_ATTRIBUTE_EDGE_COLUMNS,
+    ATTRIBUTE_NODE_COLUMNS,
+)
+
+# src/fashion_trend/trend/samples.py
+from fashion_trend.catalog.contracts import ATTRIBUTE_HIERARCHY_EDGE_COLUMNS
+```
+
+Then remove the duplicated upstream catalog contract names from `src/fashion_trend/trend/schema.py`.
+
+Create `catalog/readers.py` by moving these functions out of `catalog.graph`:
+
+```python
+read_article_attribute_edges()
+read_attribute_nodes()
+read_attribute_hierarchy_edges()
+```
+
+Keep the same exception messages and dtype behavior.
+
+- [ ] **Step 3: Add trend readers without wrapping internal builders**
+
+Create `trend/readers.py` and move or re-export stable read-only functions:
+
+```python
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from fashion_trend.trend.article_sales import read_article_week_sales
+from fashion_trend.trend.attribute_heat import read_attribute_week_heat
+from fashion_trend.trend.evaluation import read_trend_model_predictions
+from fashion_trend.trend.splits import read_trend_model_split
+from fashion_trend.trend.targets import read_attribute_week_target
+from fashion_trend.trend.schema import TREND_METRICS_PAYLOAD_REQUIRED_KEYS
+
+
+def read_trend_metrics(metrics_path: Path) -> dict[str, object]:
+    if not metrics_path.exists():
+        raise FileNotFoundError(f"趋势评价指标文件不存在: {metrics_path}")
+    try:
+        payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"无法读取趋势评价指标文件: {metrics_path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"趋势评价指标文件必须是 JSON object: {metrics_path}")
+    missing_keys = sorted(set(TREND_METRICS_PAYLOAD_REQUIRED_KEYS) - set(payload))
+    if missing_keys:
+        raise ValueError(
+            "趋势评价指标文件缺少必要字段: "
+            + ", ".join(missing_keys)
+            + f"。文件: {metrics_path}"
+        )
+    return payload
+```
+
+Do not expose `build_*`, `validate_*`, `run_*`, `compute_*`, `train_*`, or `evaluate_*` functions from `trend.readers`.
+
+Add the public metrics payload contract to `trend.schema`:
+
+```python
+TREND_METRICS_PAYLOAD_REQUIRED_KEYS: tuple[str, ...] = (
+    "model_name",
+    "prediction_path",
+    "output_path",
+    "evaluated_splits",
+    "ranking",
+    "overall",
+    "by_attr_type",
+    "groups",
+)
+```
+
+`reports` must use `trend.readers.read_trend_metrics()` for `trend_metrics.json`; it must not import `trend.evaluation` or duplicate JSON parsing.
+
+- [ ] **Step 4: Add empty recommendation public modules**
+
+Create `recommendation/contracts.py`:
+
+```python
+RECOMMENDATION_TOP_K = 12
+```
+
+Create `recommendation/readers.py`:
 
 ```python
 from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 
-RAW_FILE_NAMES = (
-    "articles.csv",
-    "customers.csv",
-    "transactions_train.csv",
+
+def read_recommendation_result(result_path: Path) -> pd.DataFrame:
+    if not result_path.exists():
+        raise FileNotFoundError(f"推荐结果文件不存在: {result_path}")
+    return pd.read_csv(result_path)
+```
+
+This reader is intentionally minimal and read-only. It must not build candidates or compute metrics.
+
+- [ ] **Step 5: Update cross-domain imports**
+
+Use public readers at domain boundaries:
+
+```python
+# src/05_compute_article_week_sales.py
+from fashion_trend.transactions.readers import read_weekly_transactions
+```
+
+```python
+# src/06_compute_attribute_week_heat.py
+from fashion_trend.catalog.readers import (
+    read_article_attribute_edges,
+    read_attribute_nodes,
 )
-
-
-def validate_raw_dataset_files(raw_dataset_dir: Path) -> dict[str, int]:
-    row_counts: dict[str, int] = {}
-    for file_name in RAW_FILE_NAMES:
-        csv_path = raw_dataset_dir / file_name
-        if not csv_path.exists():
-            raise FileNotFoundError(f"原始数据文件不存在: {csv_path}")
-        with csv_path.open("rb") as handle:
-            line_count = sum(1 for _ in handle)
-        row_counts[file_name] = max(line_count - 1, 0)
-    return row_counts
 ```
-
-这能让 `datasets` ownership 明确，即使当前 `01_data_check.py` 的行为仍然较轻量。
-
-- [ ] **Step 3：让 `01_data_check.py` 成为可读的 datasets 流程索引**
-
-将 `src/01_data_check.py` 替换为：
 
 ```python
-from __future__ import annotations
-
-from fashion_trend.datasets.profile import validate_raw_dataset_files
-from fashion_trend.foundation import logging as log
-from fashion_trend.foundation.paths import RAW_HM_DIR
-
-
-LOG_SOURCE = "data-check"
-
-
-def main() -> int:
-    try:
-        log.info(f"检查原始数据目录: {RAW_HM_DIR}", source=LOG_SOURCE)
-        row_counts = validate_raw_dataset_files(RAW_HM_DIR)
-    except (FileNotFoundError, OSError, ValueError) as exc:
-        log.error(f"处理失败: {exc}", source=LOG_SOURCE)
-        return 1
-
-    for file_name, row_count in row_counts.items():
-        log.info(f"{file_name}: {row_count:,} 行", source=LOG_SOURCE)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+# src/08_build_trend_model_samples.py
+from fashion_trend.catalog.readers import (
+    read_attribute_hierarchy_edges,
+    read_attribute_nodes,
+)
 ```
 
-- [ ] **Step 4：移动周级交易逻辑**
+- [ ] **Step 6: Update tests**
 
-将 `src/02_build_weekly_transactions.py` 中除 `main()` 之外的所有常量和函数移动到 `src/fashion_trend/transactions/weekly.py`。
-
-`src/02_build_weekly_transactions.py` 只保留这些 import：
+Reader tests should import from public reader modules:
 
 ```python
-from fashion_trend.foundation import logging as log
-from fashion_trend.foundation.paths import PATH
-from fashion_trend.transactions.weekly import build_weekly_transactions
+from fashion_trend.catalog.readers import read_article_attribute_edges
+from fashion_trend.transactions.readers import read_weekly_transactions
 ```
 
-保持脚本 `main()` 可读：
+Builder tests should continue to import builder functions from their implementation modules until Task 5 splits `catalog.graph`.
 
-```python
-def main() -> int:
-    try:
-        log.info(f"输入文件: {PATH['raw_transactions']}", source=LOG_SOURCE)
-        build_weekly_transactions(
-            raw_transactions_path=PATH["raw_transactions"],
-            weekly_transactions_path=PATH["interim_transactions_weekly"],
-        )
-        log.info(f"输出文件: {PATH['interim_transactions_weekly']}", source=LOG_SOURCE)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
-        log.error(f"处理失败: {exc}", source=LOG_SOURCE)
-        return 1
-    return 0
-```
-
-- [ ] **Step 5：拆分 catalog 商品清洗和属性图构建**
-
-将商品清洗函数移动到 `src/fashion_trend/catalog/articles.py`：
-
-```text
-ARTICLE_ID_COLUMN
-PRODUCT_CODE_COLUMN
-validate_required_columns
-validate_no_missing_values
-validate_unique_values
-normalize_article_identifiers
-build_clean_article_frames
-read_articles_csv
-clean_articles_file
-restore_mvp_output
-```
-
-将属性图相关函数移动到 `src/fashion_trend/catalog/graph.py`：
-
-```text
-make_attr_id
-make_article_node_id
-make_edge_type
-build_article_nodes
-build_attribute_nodes
-build_article_attribute_edges
-build_attribute_hierarchy_edges
-read_clean_articles
-validate_graph_references
-cleanup_graph_publish_files
-rollback_graph_outputs
-publish_graph_frames
-build_attribute_graph_frames
-build_attribute_graph_files
-```
-
-将通用 CSV/文件 helper 替换为 foundation 调用：
-
-```python
-from fashion_trend.foundation.io import remove_file_if_exists, write_csv_atomic
-```
-
-旧代码中单个 CSV 写入的位置使用 `write_csv_atomic(frame, output_path)`。图发布的 rollback helper 保留在 `catalog.graph`，因为它属于属性图发布语义。
-
-- [ ] **Step 6：更新 catalog 脚本**
-
-`src/03_clean_articles.py` 应导入：
-
-```python
-from fashion_trend.catalog.articles import clean_articles_file
-from fashion_trend.foundation import logging as log
-from fashion_trend.foundation.paths import PATH
-```
-
-`src/04_build_attribute_graph.py` 应导入：
-
-```python
-from fashion_trend.catalog.graph import build_attribute_graph_files
-from fashion_trend.foundation import logging as log
-from fashion_trend.foundation.paths import GRAPH_DIR, PATH
-```
-
-- [ ] **Step 7：更新 catalog 测试**
-
-将测试中的：
-
-```python
-from fashion_trend.articles import ...
-```
-
-替换为：
-
-```python
-from fashion_trend.catalog.articles import ...
-from fashion_trend.catalog.graph import ...
-```
-
-- [ ] **Step 8：删除根包 article/data-loader 模块**
-
-删除：
-
-```text
-src/fashion_trend/articles.py
-src/fashion_trend/data_loader.py
-```
-
-- [ ] **Step 9：验证 datasets、transactions 和 catalog**
+- [ ] **Step 7: Verify**
 
 Run:
 
 ```sh
-uv run pytest tests/test_articles_clean.py tests/test_attribute_graph.py tests/test_architecture_boundaries.py -q
-uv run python -m py_compile src/00_download_data.py src/01_data_check.py src/02_build_weekly_transactions.py src/03_clean_articles.py src/04_build_attribute_graph.py src/fashion_trend/datasets/download.py src/fashion_trend/datasets/profile.py src/fashion_trend/transactions/weekly.py src/fashion_trend/catalog/articles.py src/fashion_trend/catalog/graph.py
+uv run pytest tests/test_architecture_boundaries.py tests/test_trend_article_sales.py tests/test_trend_attribute_heat.py tests/test_trend_samples.py tests/test_attribute_graph.py -q
+rg -n "WEEKLY_TRANSACTION_COLUMNS|ARTICLE_ATTRIBUTE_EDGE_HEAT_COLUMNS|ARTICLE_ATTRIBUTE_EDGE_HEAT_DTYPES|ATTRIBUTE_NODE_HEAT_COLUMNS|ATTRIBUTE_NODE_HEAT_DTYPES|ATTRIBUTE_HIERARCHY_EDGE_COLUMNS|ATTRIBUTE_HIERARCHY_EDGE_DTYPES" src/fashion_trend/trend/schema.py
 ```
 
-Expected: article 和 graph 测试通过；架构测试可能仍因 Task 5 前的趋势实验层根包模块失败。
+Expected:
 
-- [ ] **Step 10：提交**
+- pytest PASS.
+- `rg` returns no matches for upstream transaction/catalog contract names in `trend.schema.py` (exit code 1 with no output is acceptable here); those names now live in `transactions.contracts` and `catalog.contracts`.
 
-Run:
+- [ ] **Step 8: Commit**
 
 ```sh
 git add src tests
-git commit -m "refactor: 迁移数据交易和商品目录域"
+git commit -m "refactor: 建立跨领域只读接口"
 ```
 
-## Task 4：收敛确定性趋势流水线边界
+## Task 5: Split `catalog` Graph Responsibilities
 
 **Files:**
-- Modify: `src/fashion_trend/trend/article_sales.py`
-- Modify: `src/fashion_trend/trend/attribute_heat.py`
-- Modify: `src/fashion_trend/trend/targets.py`
-- Modify: `src/fashion_trend/trend/samples.py`
-- Modify: `src/fashion_trend/trend/splits.py`
-- Modify: `src/fashion_trend/trend/predictions.py`
-- Modify: `src/fashion_trend/trend/__init__.py`
+
+- Delete in the same patch before adding the directory: `src/fashion_trend/catalog/graph.py`
+- Create: `src/fashion_trend/catalog/graph/__init__.py`
+- Create: `src/fashion_trend/catalog/graph/schema.py`
+- Create: `src/fashion_trend/catalog/graph/builders.py`
+- Create: `src/fashion_trend/catalog/graph/publishing.py`
+- Modify: `src/fashion_trend/catalog/readers.py`
+- Modify: `src/04_build_attribute_graph.py`
+- Modify: `tests/test_attribute_graph.py`
+- Modify: `tests/test_architecture_boundaries.py` only if its fixture still imports the old file module.
+
+- [ ] **Step 1: Replace `catalog/graph.py` with `catalog/graph/` in one patch**
+
+`src/fashion_trend/catalog/graph.py` already exists, so `src/fashion_trend/catalog/graph/` cannot be created until the file path is removed. Perform this as one atomic edit:
+
+```text
+Delete File: src/fashion_trend/catalog/graph.py
+Add File: src/fashion_trend/catalog/graph/__init__.py
+Add File: src/fashion_trend/catalog/graph/schema.py
+Add File: src/fashion_trend/catalog/graph/builders.py
+Add File: src/fashion_trend/catalog/graph/publishing.py
+```
+
+Do not commit after deleting `graph.py` but before adding the package files and updating imports.
+
+- [ ] **Step 2: Move graph constants to `graph/schema.py`**
+
+Move these definitions from `catalog.graph`:
+
+```python
+LEVEL_BY_ATTRIBUTE
+HIERARCHY_RELATIONS
+GRAPH_OUTPUT_FILENAMES
+make_attr_id()
+make_article_node_id()
+make_edge_type()
+```
+
+`graph/schema.py` must not import pandas or write files.
+
+- [ ] **Step 3: Move build functions to `graph/builders.py`**
+
+Move:
+
+```python
+build_article_nodes()
+build_attribute_nodes()
+build_article_attribute_edges()
+build_attribute_hierarchy_edges()
+validate_graph_references()
+build_attribute_graph_frames()
+```
+
+Keep `build_attribute_graph_frames()` returning the same four keys:
+
+```python
+{
+    "nodes_article": nodes_article,
+    "nodes_attribute": nodes_attribute,
+    "edges_article_attribute": edges_article_attribute,
+    "edges_attribute_hierarchy": edges_attribute_hierarchy,
+}
+```
+
+- [ ] **Step 4: Move publishing functions to `graph/publishing.py`**
+
+Move:
+
+```python
+cleanup_graph_publish_files()
+rollback_graph_outputs()
+write_graph_frame_temp()
+publish_graph_frames()
+```
+
+Keep rollback semantics and CSV quoting exactly as current tests assert.
+
+- [ ] **Step 5: Keep the CLI entry function public through `graph/__init__.py`**
+
+Implement `build_attribute_graph_files()` in `graph/__init__.py`:
+
+```python
+from pathlib import Path
+
+from fashion_trend.catalog.graph.builders import build_attribute_graph_frames
+from fashion_trend.catalog.graph.publishing import publish_graph_frames
+from fashion_trend.catalog.readers import read_clean_articles
+
+
+def build_attribute_graph_files(clean_articles_path: Path, graph_dir: Path) -> dict[str, int]:
+    clean_articles = read_clean_articles(clean_articles_path)
+    graph_frames = build_attribute_graph_frames(clean_articles)
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    publish_graph_frames(graph_frames, graph_dir)
+    return {
+        graph_name: len(graph_frame)
+        for graph_name, graph_frame in graph_frames.items()
+    }
+```
+
+- [ ] **Step 6: Move `read_clean_articles()` to `catalog/readers.py`**
+
+`catalog/readers.py` owns read-only access to catalog stable artifacts. Keep `read_clean_articles()` behavior unchanged.
+
+- [ ] **Step 7: Update tests and imports**
+
+Use these imports:
+
+```python
+from fashion_trend.catalog.graph import build_attribute_graph_files
+from fashion_trend.catalog.graph.builders import (
+    build_article_attribute_edges,
+    build_article_nodes,
+    build_attribute_graph_frames,
+    build_attribute_hierarchy_edges,
+    build_attribute_nodes,
+)
+from fashion_trend.catalog.graph.publishing import publish_graph_frames
+```
+
+- [ ] **Step 8: Verify**
+
+Run:
+
+```sh
+uv run pytest tests/test_attribute_graph.py tests/test_architecture_boundaries.py -q
+uv run python -m py_compile src/fashion_trend/catalog/graph/__init__.py src/fashion_trend/catalog/graph/schema.py src/fashion_trend/catalog/graph/builders.py src/fashion_trend/catalog/graph/publishing.py src/fashion_trend/catalog/readers.py
+```
+
+Expected: PASS and compile succeeds.
+
+- [ ] **Step 9: Commit**
+
+```sh
+git add src/fashion_trend/catalog src/04_build_attribute_graph.py tests/test_attribute_graph.py tests/test_architecture_boundaries.py
+git commit -m "refactor: 拆分 catalog 图构建职责"
+```
+
+## Task 6: Split Trend Deterministic Pipeline
+
+**Files:**
+
+- Create: `src/fashion_trend/trend/heat/__init__.py`
+- Create: `src/fashion_trend/trend/heat/article_sales.py`
+- Create: `src/fashion_trend/trend/heat/attribute_heat.py`
+- Create: `src/fashion_trend/trend/labels/__init__.py`
+- Create: `src/fashion_trend/trend/labels/targets.py`
+- Create: `src/fashion_trend/trend/features/__init__.py`
+- Create: `src/fashion_trend/trend/features/samples.py`
+- Delete in the same patch before adding the directory: `src/fashion_trend/trend/splits.py`
+- Create: `src/fashion_trend/trend/splits/__init__.py`
+- Create: `src/fashion_trend/trend/splits/time_split.py`
+- Delete after imports are migrated: old file modules `article_sales.py`, `attribute_heat.py`, `targets.py`, `samples.py`
+- Modify: `src/fashion_trend/trend/readers.py`
 - Modify: `src/05_compute_article_week_sales.py`
 - Modify: `src/06_compute_attribute_week_heat.py`
 - Modify: `src/07_build_trend_targets.py`
 - Modify: `src/08_build_trend_model_samples.py`
 - Modify: `src/09_split_trend_model_samples.py`
-- Modify trend tests.
+- Modify: trend tests importing deterministic modules.
 
-- [ ] **Step 1：移动周级交易读取 ownership**
+- [ ] **Step 1: Move article sales and attribute heat into `trend/heat/`**
 
-如果 `read_weekly_transactions()` 仍在 `trend/article_sales.py`，将它移动到 `src/fashion_trend/transactions/weekly.py`，因为它读取的是稳定交易产物。不要在 `trend/article_sales.py` 中导入或重新导出该 reader，避免恢复旧 reader 泄漏。
-
-然后在 `src/05_compute_article_week_sales.py` 中直接导入：
-
-```python
-from fashion_trend.transactions.weekly import read_weekly_transactions
-```
-
-`trend/article_sales.py` 只保留 `build_article_week_sales_frame()`、`validate_article_week_sales()` 和商品周销量读取/校验等 article sales 阶段逻辑。
-
-- [ ] **Step 2：把 catalog 图读取从 trend heat 中移出**
-
-将这些 reader 从 `trend/attribute_heat.py` 移动到 `catalog/graph.py`：
+Move the current contents as:
 
 ```text
-read_article_attribute_edges
-read_attribute_nodes
+src/fashion_trend/trend/article_sales.py -> src/fashion_trend/trend/heat/article_sales.py
+src/fashion_trend/trend/attribute_heat.py -> src/fashion_trend/trend/heat/attribute_heat.py
 ```
 
-这些 heat-specific validator 保留在 `trend/attribute_heat.py`：
-
-```text
-validate_article_attribute_edges_for_heat
-validate_all_sales_articles_have_attribute_edges
-validate_attribute_nodes_for_heat
-validate_attribute_edge_node_metadata_consistency
-build_attribute_week_heat_frame
-validate_attribute_week_heat
-read_attribute_week_heat
-```
-
-更新 `src/06_compute_attribute_week_heat.py`：
+Update CLI imports to:
 
 ```python
-from fashion_trend.catalog.graph import read_article_attribute_edges, read_attribute_nodes
-from fashion_trend.trend.attribute_heat import (
+from fashion_trend.trend.heat.article_sales import (
+    build_article_week_sales_frame,
+    validate_article_week_sales,
+)
+from fashion_trend.trend.heat.attribute_heat import (
     build_attribute_week_heat_frame,
-    validate_all_sales_articles_have_attribute_edges,
-    validate_attribute_edge_node_metadata_consistency,
     validate_attribute_week_heat,
 )
 ```
 
-- [ ] **Step 3：移除 trend package facade exports**
+- [ ] **Step 2: Move labels and features**
 
-将 `src/fashion_trend/trend/__init__.py` 替换为：
+Move:
 
-```python
-"""Trend domain package."""
+```text
+src/fashion_trend/trend/targets.py -> src/fashion_trend/trend/labels/targets.py
+src/fashion_trend/trend/samples.py -> src/fashion_trend/trend/features/samples.py
 ```
 
-如仍存在趋势包聚合导出入口兼容测试，应删除；该导入形式不再支持，`tests/test_architecture_boundaries.py` 已覆盖架构目标。
+Update CLI imports accordingly.
 
-- [ ] **Step 4：更新确定性趋势测试，改为直接导入**
+- [ ] **Step 3: Replace `trend/splits.py` with `trend/splits/` in one patch**
 
-每个趋势测试都应从具体模块导入，例如：
+`src/fashion_trend/trend/splits.py` already exists, so `src/fashion_trend/trend/splits/` cannot be created while the file exists. Perform this as one atomic edit:
+
+```text
+Delete File: src/fashion_trend/trend/splits.py
+Add File: src/fashion_trend/trend/splits/__init__.py
+Add File: src/fashion_trend/trend/splits/time_split.py
+```
+
+Move the old `splits.py` contents into `splits/time_split.py`.
+
+Expose only the functions used by CLI/training through `trend/splits/__init__.py`:
 
 ```python
-from fashion_trend.trend.article_sales import (
-    build_article_week_sales_frame,
-    validate_article_week_sales,
+from fashion_trend.trend.splits.time_split import (
+    build_trend_model_split_frames,
+    build_trend_model_split_metadata,
+    read_trend_model_split,
+    validate_trend_model_split_frame,
+    validate_trend_model_split_frames,
 )
-from fashion_trend.trend.attribute_heat import build_attribute_week_heat_frame
-from fashion_trend.trend.targets import build_attribute_week_target_frame
-from fashion_trend.trend.samples import build_trend_model_samples_frame
-from fashion_trend.trend.splits import build_trend_model_split_frames
+
+__all__ = [
+    "build_trend_model_split_frames",
+    "build_trend_model_split_metadata",
+    "read_trend_model_split",
+    "validate_trend_model_split_frame",
+    "validate_trend_model_split_frames",
+]
 ```
 
-- [ ] **Step 5：验证确定性趋势流水线**
+- [ ] **Step 4: Update `trend.readers`**
+
+After moving modules, `trend/readers.py` should import read-only functions from the new locations:
+
+```python
+from fashion_trend.trend.heat.article_sales import read_article_week_sales
+from fashion_trend.trend.heat.attribute_heat import read_attribute_week_heat
+from fashion_trend.trend.labels.targets import read_attribute_week_target
+from fashion_trend.trend.splits import read_trend_model_split
+```
+
+Do not expose builders through `trend.readers`.
+
+- [ ] **Step 5: Verify no code uses old module paths**
+
+Run:
+
+```sh
+test ! -f src/fashion_trend/trend/article_sales.py
+test ! -f src/fashion_trend/trend/attribute_heat.py
+test ! -f src/fashion_trend/trend/targets.py
+test ! -f src/fashion_trend/trend/samples.py
+test ! -f src/fashion_trend/trend/splits.py
+rg -n "fashion_trend\\.trend\\.(article_sales|attribute_heat|targets|samples)" src tests
+rg -n "fashion_trend\\.trend\\.splits\\.time_split" src/fashion_trend/recommendation src/fashion_trend/reports
+```
+
+Expected:
+
+- all `test ! -f` checks exit 0.
+- first `rg` returns no matches; old file-module paths are gone.
+- second `rg` returns no matches in `recommendation` or `reports`; package-level imports from `fashion_trend.trend.splits` remain allowed for CLI, trend internals, and tests.
+
+- [ ] **Step 6: Run focused tests**
 
 Run:
 
 ```sh
 uv run pytest tests/test_trend_article_sales.py tests/test_trend_attribute_heat.py tests/test_trend_targets.py tests/test_trend_samples.py tests/test_trend_splits.py tests/test_architecture_boundaries.py -q
-uv run python -m py_compile src/fashion_trend/trend/article_sales.py src/fashion_trend/trend/attribute_heat.py src/fashion_trend/trend/targets.py src/fashion_trend/trend/samples.py src/fashion_trend/trend/splits.py src/fashion_trend/trend/predictions.py src/05_compute_article_week_sales.py src/06_compute_attribute_week_heat.py src/07_build_trend_targets.py src/08_build_trend_model_samples.py src/09_split_trend_model_samples.py
 ```
 
-Expected: 确定性趋势测试通过；如果根包趋势实验模块尚未迁移，架构测试仍可能因此失败。
+Expected: PASS.
 
-- [ ] **Step 6：提交**
-
-Run:
+- [ ] **Step 7: Commit**
 
 ```sh
-git add src tests
-git commit -m "refactor: 收敛趋势确定性流水线边界"
+git add src/fashion_trend/trend src/05_compute_article_week_sales.py src/06_compute_attribute_week_heat.py src/07_build_trend_targets.py src/08_build_trend_model_samples.py src/09_split_trend_model_samples.py tests
+git commit -m "refactor: 收敛趋势确定性流水线"
 ```
 
-## Task 5：将趋势模型、训练和评价移动到 trend 域内
+## Task 7: Split Trend Experiments
 
 **Files:**
-- Move: `src/fashion_trend/models/` -> `src/fashion_trend/trend/models/`
-- Move: `src/fashion_trend/training.py` -> `src/fashion_trend/trend/training.py`
-- Move: `src/fashion_trend/evaluation.py` -> `src/fashion_trend/trend/evaluation.py`
+
+- Create: `src/fashion_trend/trend/models/baselines/__init__.py`
+- Create: `src/fashion_trend/trend/models/baselines/last_week.py`
+- Create: `src/fashion_trend/trend/models/baselines/moving_average.py`
+- Create: `src/fashion_trend/trend/models/supervised/__init__.py`
+- Delete after imports are migrated: `src/fashion_trend/trend/models/last_week.py`
+- Delete after imports are migrated: `src/fashion_trend/trend/models/moving_average.py`
+- Modify: `src/fashion_trend/trend/models/registry.py`
+- Delete in the same patch before adding the directory: `src/fashion_trend/trend/training.py`
+- Create: `src/fashion_trend/trend/training/__init__.py`
+- Create: `src/fashion_trend/trend/training/outputs.py`
+- Create: `src/fashion_trend/trend/training/runner.py`
+- Delete in the same patch before adding the directory: `src/fashion_trend/trend/evaluation.py`
+- Create: `src/fashion_trend/trend/evaluation/__init__.py`
+- Create: `src/fashion_trend/trend/evaluation/metrics.py`
+- Create: `src/fashion_trend/trend/evaluation/payloads.py`
+- Create: `src/fashion_trend/trend/evaluation/runner.py`
 - Modify: `src/10_train_trend_model.py`
 - Modify: `src/11_eval_trend_model.py`
+- Modify: `src/fashion_trend/trend/readers.py`
 - Modify: `tests/test_trend_training.py`
 - Modify: `tests/test_trend_evaluation.py`
 
-- [ ] **Step 1：移动趋势实验层模块**
+- [ ] **Step 1: Move baseline models**
 
-Run:
+Move files:
 
-```sh
-mkdir -p src/fashion_trend/trend/models
-git mv src/fashion_trend/models/base.py src/fashion_trend/trend/models/base.py
-git mv src/fashion_trend/models/last_week.py src/fashion_trend/trend/models/last_week.py
-git mv src/fashion_trend/models/moving_average.py src/fashion_trend/trend/models/moving_average.py
-git mv src/fashion_trend/models/registry.py src/fashion_trend/trend/models/registry.py
-git mv src/fashion_trend/models/__init__.py src/fashion_trend/trend/models/__init__.py
-git mv src/fashion_trend/training.py src/fashion_trend/trend/training.py
-git mv src/fashion_trend/evaluation.py src/fashion_trend/trend/evaluation.py
+```text
+trend/models/last_week.py -> trend/models/baselines/last_week.py
+trend/models/moving_average.py -> trend/models/baselines/moving_average.py
 ```
 
-- [ ] **Step 2：更新趋势模型 import**
-
-将：
+Update `registry.py` imports:
 
 ```python
-from fashion_trend.models.base import ...
-from fashion_trend.models.last_week import ...
-from fashion_trend.models.moving_average import ...
-from fashion_trend.models.registry import ...
-from fashion_trend.training import run_trend_model_training
-from fashion_trend.evaluation import run_trend_model_evaluation
+from fashion_trend.trend.models.baselines.last_week import (
+    LAST_WEEK_MODEL_NAME,
+    LastWeekTrainer,
+)
+from fashion_trend.trend.models.baselines.moving_average import (
+    MOVING_AVERAGE_MODEL_NAME,
+    MovingAverageTrainer,
+)
 ```
 
-替换为：
+Create `models/supervised/__init__.py` with:
 
 ```python
-from fashion_trend.trend.models.base import ...
-from fashion_trend.trend.models.last_week import ...
-from fashion_trend.trend.models.moving_average import ...
-from fashion_trend.trend.models.registry import ...
+"""Supervised trend model implementations."""
+```
+
+- [ ] **Step 2: Replace `trend/training.py` with `trend/training/` in one patch**
+
+`src/fashion_trend/trend/training.py` already exists, so create the package and delete the file in one atomic edit:
+
+```text
+Delete File: src/fashion_trend/trend/training.py
+Add File: src/fashion_trend/trend/training/__init__.py
+Add File: src/fashion_trend/trend/training/outputs.py
+Add File: src/fashion_trend/trend/training/runner.py
+```
+
+Do not commit after deleting `training.py` but before adding the package files and updating imports.
+
+- [ ] **Step 3: Split training outputs from runner**
+
+Move these functions to `trend/training/outputs.py`:
+
+```python
+derive_trend_model_output_paths()
+validate_trend_train_result()
+build_trend_train_metadata()
+write_trend_model_outputs()
+```
+
+Move private output helpers used only by those functions into `outputs.py` as well.
+
+Move these functions to `trend/training/runner.py`:
+
+```python
+default_trend_model_input_paths()
+read_trend_model_split_frames()
+run_trend_model_training()
+```
+
+`runner.py` imports output helpers from `outputs.py`.
+
+`trend/training/__init__.py` exports the CLI/public training entry points:
+
+```python
+from fashion_trend.trend.training.outputs import (
+    build_trend_train_metadata,
+    derive_trend_model_output_paths,
+    validate_trend_train_result,
+    write_trend_model_outputs,
+)
+from fashion_trend.trend.training.runner import run_trend_model_training
+
+__all__ = [
+    "build_trend_train_metadata",
+    "derive_trend_model_output_paths",
+    "run_trend_model_training",
+    "validate_trend_train_result",
+    "write_trend_model_outputs",
+]
+```
+
+- [ ] **Step 4: Replace `trend/evaluation.py` with `trend/evaluation/` in one patch**
+
+`src/fashion_trend/trend/evaluation.py` already exists, so create the package and delete the file in one atomic edit:
+
+```text
+Delete File: src/fashion_trend/trend/evaluation.py
+Add File: src/fashion_trend/trend/evaluation/__init__.py
+Add File: src/fashion_trend/trend/evaluation/metrics.py
+Add File: src/fashion_trend/trend/evaluation/payloads.py
+Add File: src/fashion_trend/trend/evaluation/runner.py
+```
+
+Do not commit after deleting `evaluation.py` but before adding the package files and updating imports.
+
+- [ ] **Step 5: Split evaluation metrics, payloads, and runner**
+
+Move these functions and constants to `trend/evaluation/metrics.py`:
+
+```python
+TREND_EVALUATION_SPLITS
+TREND_EVALUATION_K_VALUES
+TREND_EVALUATION_GROUP_COLUMNS
+TREND_EVALUATION_TARGET_COLUMN
+TREND_EVALUATION_PREDICTION_COLUMN
+compute_trend_group_metrics()
+compute_trend_metrics()
+```
+
+Move metric private helpers to `metrics.py`.
+
+Move these functions to `trend/evaluation/payloads.py`:
+
+```python
+derive_trend_metric_output_paths()
+read_trend_model_predictions()
+validate_trend_model_predictions_for_evaluation()
+build_trend_metrics_payload()
+write_trend_metrics()
+```
+
+Move `run_trend_model_evaluation()` to `trend/evaluation/runner.py`.
+
+`trend/evaluation/__init__.py` exports the stable public functions currently imported by CLI and tests.
+
+- [ ] **Step 6: Update imports**
+
+CLI remains stable:
+
+```python
 from fashion_trend.trend.training import run_trend_model_training
 from fashion_trend.trend.evaluation import run_trend_model_evaluation
 ```
 
-- [ ] **Step 3：使用 foundation artifact 安全 helper**
-
-在 `trend/training.py` 和 `trend/evaluation.py` 中，用 foundation helper 替换重复的私有 model-name/path 检查：
+Tests can import focused internals where they are testing internals:
 
 ```python
-from fashion_trend.foundation.artifacts import (
-    validate_output_parent_dirs,
-    validate_safe_path_segment,
-)
+from fashion_trend.trend.training.outputs import derive_trend_model_output_paths
+from fashion_trend.trend.evaluation.metrics import compute_trend_group_metrics
 ```
 
-调用：
+- [ ] **Step 7: Verify old experiment paths are gone**
 
-```python
-validate_safe_path_segment(model_name, "model_name")
-```
-
-以及：
-
-```python
-validate_output_parent_dirs(OUTPUT_MODELS_DIR, output_dir)
-```
-
-或：
-
-```python
-validate_output_parent_dirs(OUTPUT_METRICS_DIR, output_dir)
-```
-
-兼容目标：不安全的 `model_name` 仍必须抛出 `ValueError`。
-
-- [ ] **Step 4：删除根包 models 目录**
-
-所有 import 更新完成、测试也改为从 `fashion_trend.trend.models` 导入后，删除空根目录：
+Run:
 
 ```sh
-rmdir src/fashion_trend/models
+test ! -f src/fashion_trend/trend/models/last_week.py
+test ! -f src/fashion_trend/trend/models/moving_average.py
+test ! -f src/fashion_trend/trend/training.py
+test ! -f src/fashion_trend/trend/evaluation.py
+rg -n "trend\\.models\\.(last_week|moving_average)" src tests
+rg -n "fashion_trend\\.trend\\.training\\.(runner|outputs)|fashion_trend\\.trend\\.evaluation\\.(metrics|payloads|runner)" src/10_train_trend_model.py src/11_eval_trend_model.py src/fashion_trend/recommendation src/fashion_trend/reports
 ```
 
-- [ ] **Step 5：验证训练和评价**
+Expected:
+
+- all `test ! -f` checks exit 0.
+- first `rg` returns no stale model file imports.
+- second `rg` returns no CLI, recommendation, or reports imports that bypass the package public entrypoints. CLI may still import `run_trend_model_training` and `run_trend_model_evaluation` from `fashion_trend.trend.training` / `fashion_trend.trend.evaluation` package `__init__.py`; tests may import focused internals when they are testing those internals.
+
+- [ ] **Step 8: Run focused and full tests**
 
 Run:
 
 ```sh
 uv run pytest tests/test_trend_training.py tests/test_trend_evaluation.py tests/test_architecture_boundaries.py -q
-uv run python -m py_compile src/10_train_trend_model.py src/11_eval_trend_model.py src/fashion_trend/trend/training.py src/fashion_trend/trend/evaluation.py src/fashion_trend/trend/models/base.py src/fashion_trend/trend/models/last_week.py src/fashion_trend/trend/models/moving_average.py src/fashion_trend/trend/models/registry.py
+uv run pytest -q
 ```
 
-Expected: 训练/评价测试通过；架构边界测试在依赖方向和历史根包模块移除方面通过。
+Expected: PASS.
 
-- [ ] **Step 6：提交**
-
-Run:
+- [ ] **Step 9: Commit**
 
 ```sh
-git add src tests
-git commit -m "refactor: 迁移趋势实验层"
+git add src/fashion_trend/trend src/10_train_trend_model.py src/11_eval_trend_model.py tests/test_trend_training.py tests/test_trend_evaluation.py tests/test_architecture_boundaries.py
+git commit -m "refactor: 拆分趋势实验层职责"
 ```
 
-## Task 6：刷新编号 CLI，使其成为流程索引
+## Task 8: Lock Recommendation and Reports Boundaries, Then Sync Docs
 
 **Files:**
-- Modify: `src/00_download_data.py`
-- Modify: `src/01_data_check.py`
-- Modify: `src/02_build_weekly_transactions.py`
-- Modify: `src/03_clean_articles.py`
-- Modify: `src/04_build_attribute_graph.py`
-- Modify: `src/05_compute_article_week_sales.py`
-- Modify: `src/06_compute_attribute_week_heat.py`
-- Modify: `src/07_build_trend_targets.py`
-- Modify: `src/08_build_trend_model_samples.py`
-- Modify: `src/09_split_trend_model_samples.py`
-- Modify: `src/10_train_trend_model.py`
-- Modify: `src/11_eval_trend_model.py`
 
-- [ ] **Step 1：审查每个编号脚本是否保留可读流程**
-
-每个脚本中，`main()` 或顶层阶段函数应呈现这种形态：
-
-```python
-def main(...) -> int:
-    try:
-        log.info("输入文件或输入目录: ...", source=LOG_SOURCE)
-        ...
-        log.info("关键处理步骤: ...", source=LOG_SOURCE)
-        ...
-        log.info("输出文件或输出目录: ...", source=LOG_SOURCE)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
-        log.error(f"处理失败: {exc}", source=LOG_SOURCE)
-        return 1
-    return 0
-```
-
-实际日志应命名真实产物，例如 `attribute_week_heat.csv`、`trend_model_samples.parquet` 或 `outputs/models/<model>/predictions.csv`。
-
-- [ ] **Step 2：CLI 参数解析继续留在编号脚本**
-
-`00_download_data.py`、`10_train_trend_model.py` 和 `11_eval_trend_model.py` 的 `parse_args()` 保留在脚本中。业务包接收已解析的值，不接收 argparse namespace。
-
-`src/10_train_trend_model.py` 应导入：
-
-```python
-from fashion_trend.foundation import logging as log
-from fashion_trend.trend.models.registry import UnknownTrendModelError
-from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
-from fashion_trend.trend.training import run_trend_model_training
-```
-
-`src/11_eval_trend_model.py` 应导入：
-
-```python
-from fashion_trend.foundation import logging as log
-from fashion_trend.trend.evaluation import run_trend_model_evaluation
-```
-
-- [ ] **Step 3：确认编号脚本不是计算事实来源**
-
-搜索编号脚本中的重 pandas 逻辑：
-
-```sh
-rg -n "groupby|merge|rolling|to_parquet|to_csv|pd\\." src/0*.py src/1*.py
-```
-
-Expected: 编号脚本中不再有重计算 pandas 用法。`01_data_check.py` 可以调用 `datasets.profile`，但不应直接做业务 transform。
-
-- [ ] **Step 4：验证 CLI 可编译**
-
-Run:
-
-```sh
-uv run python -m py_compile src/00_download_data.py src/01_data_check.py src/02_build_weekly_transactions.py src/03_clean_articles.py src/04_build_attribute_graph.py src/05_compute_article_week_sales.py src/06_compute_attribute_week_heat.py src/07_build_trend_targets.py src/08_build_trend_model_samples.py src/09_split_trend_model_samples.py src/10_train_trend_model.py src/11_eval_trend_model.py
-```
-
-Expected: 所有脚本编译通过。
-
-- [ ] **Step 5：提交**
-
-Run:
-
-```sh
-git add src
-git commit -m "refactor: 刷新编号脚本流程索引"
-```
-
-## Task 7：同步文档并运行完整验证
-
-**Files:**
+- Modify: `src/fashion_trend/recommendation/contracts.py`
+- Modify: `src/fashion_trend/recommendation/readers.py`
+- Modify: `src/fashion_trend/reports/paths.py`
+- Modify: `tests/test_architecture_boundaries.py`
 - Modify: `README.md`
 - Modify: `docs/gpt-research/implementation-plan.md`
-- Modify: `docs/superpowers/specs/2026-05-07-domain-driven-code-architecture-design.md` only if implementation contradicts the spec.
 
-- [ ] **Step 1：更新 README 架构说明**
+- [ ] **Step 1: Add explicit no-core-computation import fixtures**
 
-在 `README.md` 的实现位置说明中写明：
+Add this regression test to prove core computation imports fail the allowlist without importing those modules at runtime:
 
-```markdown
-项目内部代码按业务域组织在 `src/fashion_trend/` 下：
+```python
+def test_allowlist_rejects_core_computation_imports(tmp_path) -> None:
+    package_root = tmp_path / "src" / "fashion_trend"
+    module_path = package_root / "reports" / "summary.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_text(
+        "\n".join(
+            [
+                "from fashion_trend.transactions.weekly import build_weekly_transactions",
+                "from fashion_trend.catalog.graph.builders import build_attribute_nodes",
+                "from fashion_trend.trend.features.samples import build_trend_model_samples_frame",
+                "from fashion_trend.trend.training import run_trend_model_training",
+                "from fashion_trend.trend.evaluation import run_trend_model_evaluation",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-- `foundation/`：路径、日志、原子写入、通用校验和 artifact 安全。
-- `datasets/`：原始数据下载、解压和基础检查。
-- `transactions/`：周级交易表和交易窗口。
-- `catalog/`：商品表清洗和静态属性图。
-- `trend/`：属性热度、标签、样本、时间切分、趋势模型训练和趋势评价。
-- `recommendation/`：候选、重排序、Top-12 和推荐评价。
-- `reports/`：图表、表格和案例导出。
+    offenders = package_upstream_import_offenders(
+        [module_path],
+        {
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+        },
+        REPORTS_PUBLIC_IMPORTS,
+    )
 
-`src/00_*.py` 到 `src/16_*.py` 仍是用户运行入口；脚本保留高层流程索引，计算事实位于业务包。
+    assert offenders == [
+        f"{module_path}: fashion_trend.catalog.graph.builders",
+        f"{module_path}: fashion_trend.catalog.graph.builders.build_attribute_nodes",
+        f"{module_path}: fashion_trend.transactions.weekly",
+        f"{module_path}: fashion_trend.transactions.weekly.build_weekly_transactions",
+        f"{module_path}: fashion_trend.trend.evaluation",
+        f"{module_path}: fashion_trend.trend.evaluation.run_trend_model_evaluation",
+        f"{module_path}: fashion_trend.trend.features.samples",
+        f"{module_path}: fashion_trend.trend.features.samples.build_trend_model_samples_frame",
+        f"{module_path}: fashion_trend.trend.training",
+        f"{module_path}: fashion_trend.trend.training.run_trend_model_training",
+    ]
 ```
 
-保持现有用户命令不变。
+- [ ] **Step 2: Keep recommendation public modules read-only**
 
-- [ ] **Step 2：更新 implementation-plan 中的模块路径引用**
+`recommendation/contracts.py` may define stable output column names and `RECOMMENDATION_TOP_K`. It must not import `transactions`, `catalog`, or `trend`.
 
-在 `docs/gpt-research/implementation-plan.md` 中，将旧内部路径：
+`recommendation/readers.py` may import `recommendation.contracts` and pandas only. It must not import upstream domains.
+
+- [ ] **Step 3: Keep reports path ownership under reports**
+
+Ensure `reports/paths.py` owns only `outputs/reports/` descendants:
+
+```python
+OUTPUT_REPORTS_DIR = OUTPUT_DIR / "reports"
+OUTPUT_FIGURES_DIR = OUTPUT_REPORTS_DIR / "figures"
+OUTPUT_TABLES_DIR = OUTPUT_REPORTS_DIR / "tables"
+OUTPUT_CASE_STUDIES_DIR = OUTPUT_REPORTS_DIR / "case_studies"
+```
+
+- [ ] **Step 4: Sync README architecture notes**
+
+Update README so it says:
 
 ```text
-src/fashion_trend/articles.py
-src/fashion_trend/training.py
-src/fashion_trend/evaluation.py
-src/fashion_trend/models/
+默认路径根常量位于 foundation.paths；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 paths.py 持有。
 ```
 
-替换为：
+Also ensure README keeps these user commands stable:
+
+```sh
+uv run python src/10_train_trend_model.py --model last_week
+uv run python src/10_train_trend_model.py --model moving_average
+uv run python src/11_eval_trend_model.py --model last_week
+uv run python src/11_eval_trend_model.py --model moving_average
+```
+
+- [ ] **Step 5: Sync `docs/gpt-research/implementation-plan.md`**
+
+Correct these known drifts:
 
 ```text
-src/fashion_trend/catalog/
-src/fashion_trend/trend/training.py
-src/fashion_trend/trend/evaluation.py
-src/fashion_trend/trend/models/
+LightGBM 通过 src/10_train_trend_model.py --model lightgbm 运行，不新增 12_train_lightgbm_trend_model.py。
+12_build_user_profile.py 到 15_eval_recommendations.py 属于 recommendation。
+16_make_reports.py 覆盖 figures、tables、case studies；不再使用 16_make_figures.py 作为目标命名。
+推荐特征写入 data/processed/recommend/ 或其子目录，不写入 data/processed/features/。
 ```
 
-编号脚本名称和 artifact 路径保持不变。
-
-- [ ] **Step 3：运行完整测试**
+- [ ] **Step 6: Run documentation and architecture scans**
 
 Run:
 
 ```sh
-uv run pytest
+rg -n "12_train_lightgbm|16_make_figures|data/processed/features/.+recommend|from fashion_trend\\.trend import" README.md docs/gpt-research/implementation-plan.md src tests
+uv run pytest tests/test_architecture_boundaries.py -q
 ```
 
-Expected: 全部测试通过。
+Expected:
 
-- [ ] **Step 4：运行 src 全量编译验证**
+- `rg` finds no stale target naming except explanatory historical references that explicitly say they are obsolete.
+- architecture tests PASS.
+
+- [ ] **Step 7: Run final verification**
 
 Run:
 
 ```sh
-uv run python -m py_compile $(find src -name '*.py' -not -path '*/__pycache__/*' | sort)
+uv run pytest -q
+uv run python -m compileall -q src
+git diff --check
 ```
 
-Expected: 命令成功退出。
+Expected: tests PASS, compile succeeds, diff check has no output.
 
-- [ ] **Step 5：检查历史 import 残留**
+- [ ] **Step 8: Run real artifact smoke tests when inputs exist**
 
-Run:
-
-```sh
-rg -n "fashion_trend\\.(articles|config|data_loader|evaluation|log|models|training)\\b|from fashion_trend\\.trend import" src tests README.md docs/gpt-research/implementation-plan.md
-```
-
-Expected: 无匹配。
-
-- [ ] **Step 6：运行现有产物契约 CLI 烟测**
-
-运行最能发现行为漂移的命令：
+If the local workspace has the required upstream data files, run the artifact-preserving smoke chain:
 
 ```sh
+uv run python src/04_build_attribute_graph.py
 uv run python src/05_compute_article_week_sales.py
 uv run python src/06_compute_attribute_week_heat.py
 uv run python src/10_train_trend_model.py --model moving_average
@@ -1156,6 +1581,10 @@ uv run python src/11_eval_trend_model.py --model moving_average
 Expected:
 
 ```text
+data/processed/graph/nodes_article.csv exists
+data/processed/graph/nodes_attribute.csv exists
+data/processed/graph/edges_article_attribute.csv exists
+data/processed/graph/edges_attribute_hierarchy.csv exists
 data/processed/trend/article_week_sales.csv exists
 data/processed/trend/attribute_week_heat.csv exists
 outputs/models/moving_average/predictions.csv exists
@@ -1164,70 +1593,157 @@ outputs/models/moving_average/params.json exists
 outputs/metrics/moving_average/trend_metrics.json exists
 ```
 
-- [ ] **Step 7：运行 artifact shape 检查**
+If any required upstream data is missing, do not treat the smoke test as passing. Record the exact missing file path and the reason the CLI smoke chain was skipped.
 
-Run:
+- [ ] **Step 9: Check artifact schemas, row counts, distributions, and checksums**
+
+After the smoke chain runs, compare current artifact summaries against the pre-migration baseline captured before Task 2:
 
 ```sh
 uv run python - <<'PY'
+import hashlib
+import json
 from pathlib import Path
 
 import pandas as pd
 
-checks = {
+BASELINE_PATH = Path("/tmp/fashion_domain_arch_artifact_baseline.json")
+if not BASELINE_PATH.exists():
+    raise FileNotFoundError(
+        f"pre-migration artifact baseline missing: {BASELINE_PATH}"
+    )
+
+TREND_METRICS_KEYS = {
+    "model_name",
+    "prediction_path",
+    "output_path",
+    "evaluated_splits",
+    "ranking",
+    "overall",
+    "by_attr_type",
+    "groups",
+}
+CSV_ARTIFACTS = {
+    "graph_nodes_article": Path("data/processed/graph/nodes_article.csv"),
+    "graph_nodes_attribute": Path("data/processed/graph/nodes_attribute.csv"),
+    "graph_edges_article_attribute": Path(
+        "data/processed/graph/edges_article_attribute.csv"
+    ),
+    "graph_edges_attribute_hierarchy": Path(
+        "data/processed/graph/edges_attribute_hierarchy.csv"
+    ),
     "article_week_sales": Path("data/processed/trend/article_week_sales.csv"),
     "attribute_week_heat": Path("data/processed/trend/attribute_week_heat.csv"),
-    "moving_average_predictions": Path("outputs/models/moving_average/predictions.csv"),
+    "moving_average_predictions": Path(
+        "outputs/models/moving_average/predictions.csv"
+    ),
+}
+JSON_ARTIFACTS = {
+    "moving_average_metadata": Path("outputs/models/moving_average/metadata.json"),
+    "moving_average_params": Path("outputs/models/moving_average/params.json"),
+    "moving_average_metrics": Path(
+        "outputs/metrics/moving_average/trend_metrics.json"
+    ),
 }
 
-for name, path in checks.items():
-    frame = pd.read_csv(path)
-    print(name, len(frame), list(frame.columns))
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def collect_summary() -> dict[str, object]:
+    summary: dict[str, object] = {}
+    for name, path in CSV_ARTIFACTS.items():
+        if not path.exists():
+            raise FileNotFoundError(path)
+        frame = pd.read_csv(path)
+        if frame.empty:
+            raise AssertionError(f"{name} is empty")
+        summary[name] = {
+            "path": str(path),
+            "sha256": sha256(path),
+            "rows": int(len(frame)),
+            "columns": frame.columns.tolist(),
+        }
+        if "attr_type" in frame.columns:
+            summary[name]["rows_by_attr_type"] = {
+                str(key): int(value)
+                for key, value in frame["attr_type"]
+                .astype(str)
+                .value_counts()
+                .sort_index()
+                .items()
+            }
+        if "week_id" in frame.columns:
+            week_ids = pd.to_numeric(frame["week_id"], errors="raise")
+            summary[name]["week_id"] = {
+                "min": int(week_ids.min()),
+                "max": int(week_ids.max()),
+                "nunique": int(week_ids.nunique()),
+            }
+    for name, path in JSON_ARTIFACTS.items():
+        if not path.exists():
+            raise FileNotFoundError(path)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if name == "moving_average_metrics":
+            missing = sorted(TREND_METRICS_KEYS - set(payload))
+            if missing:
+                raise AssertionError(f"trend_metrics.json missing keys: {missing}")
+            if payload["model_name"] != "moving_average":
+                raise AssertionError("trend_metrics.json model_name changed")
+        summary[name] = {
+            "path": str(path),
+            "sha256": sha256(path),
+            "keys": sorted(payload),
+        }
+    return summary
+
+
+baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+current = collect_summary()
+if current != baseline:
+    changed = sorted(
+        name
+        for name in set(current) | set(baseline)
+        if current.get(name) != baseline.get(name)
+    )
+    raise AssertionError("artifact drift detected: " + ", ".join(changed))
+for name in sorted(current):
+    entry = current[name]
+    if "rows" in entry:
+        print(name, entry["rows"], entry["sha256"])
+    else:
+        print(name, entry["sha256"])
 PY
 ```
 
-Expected:
+Expected: command exits 0 and prints exact baseline-matching row counts and checksums. If real data is unavailable and Step 8 was skipped, skip this check with the same explicit missing-file reason. If the baseline file is missing, the architecture work is not complete; recreate it only from the pre-migration commit or rerun this task from a clean baseline.
 
-```text
-article_week_sales has columns ['week_id', 'article_id', 'sales_cnt', 'sales_user_cnt', 'sales_amount']
-attribute_week_heat has columns ['week_id', 'attr_id', 'attr_type', 'attr_value', 'heat_cnt', 'type_total_heat', 'heat_share', 'log_heat', 'rank_in_type']
-moving_average_predictions has the same columns as TREND_MODEL_PREDICTION_COLUMNS
-```
-
-- [ ] **Step 8：检查 git diff 范围**
-
-Run:
+- [ ] **Step 10: Commit**
 
 ```sh
-git diff --stat
-git diff --check
+git add src tests README.md docs/gpt-research/implementation-plan.md
+git commit -m "docs: 同步业务域架构实施边界"
 ```
 
-Expected: 只包含计划内代码、测试和文档改动；没有 whitespace errors。
+## Final Acceptance
 
-- [ ] **Step 9：提交**
+The architecture work is complete only when all checks below are true:
 
-Run:
-
-```sh
-git add README.md docs/gpt-research/implementation-plan.md docs/superpowers/specs/2026-05-07-domain-driven-code-architecture-design.md
-git commit -m "docs: 同步业务域架构说明"
-```
-
-## 最终验收
-
-满足以下条件时，本次迁移完成：
-
-- `uv run pytest` 通过。
-- `src` 全量 `py_compile` 通过。
-- `tests/test_architecture_boundaries.py` 通过。
-- `rg` 找不到已移除根包模块 import，也找不到旧 `fashion_trend.trend` facade import。
-- 编号 CLI 仍能编译，且用户命令名称稳定。
-- 既有 artifact 路径保持稳定：
-  - `data/processed/trend/article_week_sales.csv`
-  - `data/processed/trend/attribute_week_heat.csv`
-  - `data/processed/trend/attribute_week_target.csv`
-  - `data/processed/features/trend_model_samples.parquet`
-  - `outputs/models/<model>/predictions.csv`
-  - `outputs/metrics/<model>/trend_metrics.json`
-- README 和 implementation plan 已描述新的业务域驱动内部组织。
+- `tests/test_architecture_boundaries.py` uses allowlist checks for `recommendation` and `reports`.
+- `recommendation` can import upstream only through `transactions.contracts/readers`, `catalog.contracts/readers`, `trend.schema`, `trend.predictions`, and `trend.readers`.
+- `reports` can import domains only through public `contracts` / `readers` / explicit trend allowlist.
+- `foundation.paths` exports only `PROJECT_ROOT`, `DATA_DIR`, `RAW_DIR`, `INTERIM_DIR`, `PROCESSED_DIR`, and `OUTPUT_DIR`.
+- No runtime code imports global `PATH`.
+- No business path or business configuration remains in `foundation.paths`.
+- `catalog.graph` is split into schema, builders, publishing, and public readers.
+- Trend deterministic pipeline is split by heat, labels, features, and splits.
+- Trend experiments are split into model registry/baselines/supervised, training runner/outputs, and evaluation metrics/payloads/runner.
+- CLI commands `src/00_*.py` through `src/11_*.py` keep their user-facing behavior and remain readable flow indexes.
+- Existing output paths and schemas are unchanged.
+- `README.md` and `docs/gpt-research/implementation-plan.md` match the final architecture.
+- `uv run pytest -q` passes.
+- `uv run python -m compileall -q src` passes.
+- Real-data CLI smoke tests for `04`, `05`, `06`, `10 --model moving_average`, and `11 --model moving_average` pass, or the final report records the exact missing upstream data paths that prevented them from running.
+- Artifact schema, row count, key distribution, and checksum comparisons match the pre-migration baseline for graph CSVs, `article_week_sales.csv`, `attribute_week_heat.csv`, `outputs/models/moving_average/predictions.csv`, model metadata/params, and `outputs/metrics/moving_average/trend_metrics.json`; if real data is unavailable, they are skipped with the same explicit missing-data reason.
+- `git diff --check` passes before each commit.
