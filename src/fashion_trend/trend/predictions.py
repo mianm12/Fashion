@@ -20,6 +20,21 @@ def validate_trend_model_predictions(
     predictions: pd.DataFrame,
     split_samples: pd.DataFrame,
 ) -> None:
+    """校验趋势模型预测表与输入 split 样本保持契约一致。
+
+    Args:
+        predictions: 模型写出的预测表，列顺序必须等于预测列契约。
+        split_samples: 生成预测时使用的 split 样本表。
+
+    Raises:
+        ValueError: 当预测列顺序、复制字段、split、唯一键、数值有限性或
+            `pred_share_t1` 归一化分布不满足要求时抛出。
+
+    Notes:
+        `pred_share_t1` 必须在 `split + week_id + attr_type` 内归一化；
+        `pred_target_growth` 是趋势评价指标的主要输入，因此这里只校验其
+        数值有效性和输入字段对齐，不重写模型预测。
+    """
     if predictions.columns.tolist() != list(TREND_MODEL_PREDICTION_COLUMNS):
         raise ValueError("趋势模型预测表列必须与契约完全一致。")
     validate_required_columns(
@@ -87,6 +102,20 @@ def derive_normalized_pred_share_t1(
     predictions: pd.DataFrame,
     epsilon: float,
 ) -> pd.Series:
+    """由预测增长率派生并归一化下一周预测占比。
+
+    Args:
+        predictions: 至少包含分组列、`share_t` 和 `pred_target_growth` 的预测原始表。
+        epsilon: 与增长率公式配套的非负平滑参数。
+
+    Returns:
+        名为 `pred_share_t1` 的序列。先用 `exp(pred_target_growth) * (share_t
+        + epsilon) - epsilon` 还原原始占比，再截断为非负值，并在
+        `split + week_id + attr_type` 组内归一化。
+
+    Raises:
+        ValueError: 当输入列、平滑参数、原始数值或组内总和不满足要求时抛出。
+    """
     validate_required_columns(
         predictions,
         (*TREND_MODEL_PRED_SHARE_GROUP_COLUMNS, "share_t", "pred_target_growth"),
@@ -125,6 +154,16 @@ def validate_pred_share_t1_distribution(
     predictions: pd.DataFrame,
     source_name: str,
 ) -> None:
+    """校验 `pred_share_t1` 在预测分组内形成合法概率分布。
+
+    Args:
+        predictions: 待校验的预测表，需包含预测份额分组列和 `pred_share_t1`。
+        source_name: 用于错误信息的来源名称。
+
+    Raises:
+        ValueError: 当 `pred_share_t1` 非数值、非有限、越界或未在
+            `split + week_id + attr_type` 内归一化为 1 时抛出。
+    """
     validate_required_columns(
         predictions,
         (*TREND_MODEL_PRED_SHARE_GROUP_COLUMNS, "pred_share_t1"),

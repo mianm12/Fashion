@@ -24,6 +24,19 @@ def build_attribute_graph_features_frame(
     attribute_nodes: pd.DataFrame,
     attribute_hierarchy_edges: pd.DataFrame,
 ) -> pd.DataFrame:
+    """构造属性图度数特征。
+
+    Args:
+        attribute_nodes: 属性节点表，提供属性全集、商品覆盖数和核心属性标志。
+        attribute_hierarchy_edges: 属性层级边表，提供父子属性关系。
+
+    Returns:
+        每个属性一行的图特征表，包含 `parent_count`、`child_count`
+        和二者相加得到的 `degree`。
+
+    Raises:
+        ValueError: 当节点或层级边契约不满足，或层级边引用未知属性时抛出。
+    """
     validate_attribute_nodes_for_heat(attribute_nodes)
     validate_required_columns(
         attribute_hierarchy_edges,
@@ -98,6 +111,25 @@ def build_trend_model_samples_frame(
     min_lag_weeks: int = 4,
     epsilon: float = 1e-6,
 ) -> pd.DataFrame:
+    """构造趋势模型训练样本表。
+
+    Args:
+        attribute_week_heat: 完整属性周热度面板，提供当周和历史热度特征。
+        attribute_week_target: 由同一热度面板派生的趋势标签表。
+        attribute_nodes: 属性节点表，提供商品覆盖数和核心属性标志。
+        attribute_hierarchy_edges: 属性层级边表，用于生成图度数特征。
+        min_lag_weeks: 样本最小历史周边界，必须覆盖固定 4 周特征窗口。
+        epsilon: 与标签构造一致的占比增长率平滑参数。
+
+    Returns:
+        满足 `TREND_MODEL_SAMPLE_COLUMNS` 的趋势训练样本表。样本使用固定
+        4 周 lag、移动均值和波动特征，合并属性图度数特征，保留历史总热度、
+        历史活跃周数和趋势资格标志，并只输出具有未来标签的非最后周样本。
+
+    Raises:
+        ValueError: 当输入契约、`min_lag_weeks`、`epsilon` 或目标键完整性
+            不满足要求时抛出。
+    """
     validate_attribute_week_heat(attribute_week_heat)
     validate_attribute_nodes_for_heat(attribute_nodes)
     feature_lag_weeks = 4
@@ -121,6 +153,7 @@ def build_trend_model_samples_frame(
         }
     )
     grouped = base.groupby("attr_id", sort=False)
+    # 固定 4 周特征窗口是训练样本契约的一部分，由 min_lag_weeks 保护边界。
     for lag in range(1, feature_lag_weeks + 1):
         base[f"heat_lag_{lag}"] = grouped["heat_t"].shift(lag)
         base[f"share_lag_{lag}"] = grouped["share_t"].shift(lag)
@@ -161,6 +194,7 @@ def build_trend_model_samples_frame(
     non_last_week_ids = set(attribute_week_heat["week_id"]) - {
         attribute_week_heat["week_id"].max()
     }
+    # 先核对目标键，避免样本内连接静默丢弃本应存在的训练目标。
     expected_target_keys = base[
         (base["week_id"] >= min_lag_weeks) & (base["week_id"].isin(non_last_week_ids))
     ].loc[:, ["week_id", "attr_id"]]
@@ -211,6 +245,14 @@ def build_trend_model_samples_frame(
 
 
 def validate_trend_model_samples(trend_model_samples: pd.DataFrame) -> None:
+    """校验趋势训练样本表满足最终列契约、唯一键和数值有限性。
+
+    Args:
+        trend_model_samples: 待校验的趋势训练样本表。
+
+    Raises:
+        ValueError: 当缺少契约列、存在缺失值、键重复或数值字段非有限时抛出。
+    """
     validate_required_columns(
         trend_model_samples,
         TREND_MODEL_SAMPLE_COLUMNS,

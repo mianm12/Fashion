@@ -12,6 +12,7 @@ from fashion_trend.trend.splits import read_trend_model_split
 
 
 def read_trend_metrics(metrics_path: Path) -> dict[str, object]:
+    """读取 `outputs/metrics/<model>/trend_metrics.json` 趋势评价 JSON 产物。"""
     if not metrics_path.exists():
         raise FileNotFoundError(f"趋势评价指标文件不存在: {metrics_path}")
     try:

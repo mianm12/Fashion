@@ -21,6 +21,21 @@ def build_trend_model_split_frames(
     valid_weeks: int,
     test_weeks: int,
 ) -> dict[str, pd.DataFrame]:
+    """按时间顺序切分趋势模型样本。
+
+    Args:
+        trend_model_samples: 完整趋势训练样本表。
+        valid_weeks: 从测试窗口之前留出的连续验证周数。
+        test_weeks: 从样本尾部留出的连续测试周数。
+
+    Returns:
+        `train`、`valid`、`test` 三个样本表。训练集覆盖验证窗口之前的周，
+        验证集覆盖测试窗口之前的连续周，测试集覆盖最后连续周；验证和测试
+        都按时间留出，不与更早样本混排。
+
+    Raises:
+        ValueError: 当样本契约、窗口大小或可切分周数不满足要求时抛出。
+    """
     validate_trend_model_samples(trend_model_samples)
     if valid_weeks <= 0:
         raise ValueError("valid_weeks 必须为正整数。")
@@ -64,6 +79,15 @@ def validate_trend_model_split_frames(
     split_frames: dict[str, pd.DataFrame],
     original_samples: pd.DataFrame | None = None,
 ) -> None:
+    """校验训练、验证、测试切分完整且周范围按时间递增。
+
+    Args:
+        split_frames: 按 split 名称索引的切分样本表。
+        original_samples: 可选的原始样本表，用于校验切分合并后覆盖全集。
+
+    Raises:
+        ValueError: 当 split 缺失、单个 split 无效、周范围重叠或覆盖不全时抛出。
+    """
     missing_splits = set(TREND_MODEL_SPLIT_VALUES) - set(split_frames)
     if missing_splits:
         raise ValueError(f"趋势样本切分缺少 split: {sorted(missing_splits)}")
@@ -98,6 +122,7 @@ def validate_trend_model_split_frame(
     split_frame: pd.DataFrame,
     expected_split: str | None = None,
 ) -> None:
+    """校验单个趋势样本 split 的列契约、非空约束、split 值和唯一键。"""
     validate_required_columns(
         split_frame,
         TREND_MODEL_SPLIT_COLUMNS,
@@ -134,6 +159,21 @@ def build_trend_model_split_metadata(
     valid_weeks: int,
     test_weeks: int,
 ) -> dict[str, object]:
+    """构造时间切分元数据 JSON payload。
+
+    Args:
+        split_frames: 已通过校验的训练、验证、测试切分表。
+        input_path: 原始趋势训练样本表路径。
+        output_paths: 各 split 对应的写出路径。
+        valid_weeks: 本次切分使用的验证窗口周数。
+        test_weeks: 本次切分使用的测试窗口周数。
+
+    Returns:
+        描述时间切分策略、输入路径、窗口大小和各 split 行数及周范围的字典。
+
+    Raises:
+        ValueError: 当切分表不满足时间切分契约时抛出。
+    """
     validate_trend_model_split_frames(split_frames)
     split_metadata: dict[str, dict[str, object]] = {}
     for split_name in TREND_MODEL_SPLIT_VALUES:
@@ -156,6 +196,7 @@ def build_trend_model_split_metadata(
 
 
 def read_trend_model_split(input_path: Path) -> pd.DataFrame:
+    """读取单个 `trend_model_samples_<split>.parquet` 时间切分样本表。"""
     if not input_path.exists():
         raise FileNotFoundError(f"趋势样本 split 不存在: {input_path}")
     dataframe = pd.read_parquet(input_path)

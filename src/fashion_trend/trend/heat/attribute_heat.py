@@ -27,6 +27,7 @@ from fashion_trend.trend.schema import (
 def validate_article_attribute_edges_for_heat(
     article_attribute_edges: pd.DataFrame,
 ) -> None:
+    """校验属性热度计算所需的商品-属性边表主键和属性元数据一致性。"""
     validate_required_columns(
         article_attribute_edges,
         ARTICLE_ATTRIBUTE_EDGE_COLUMNS,
@@ -66,6 +67,7 @@ def validate_all_sales_articles_have_attribute_edges(
     article_week_sales: pd.DataFrame,
     article_attribute_edges: pd.DataFrame,
 ) -> None:
+    """校验商品周销量表中的所有商品都能映射到至少一条属性边。"""
     sales_article_ids = set(article_week_sales["article_id"].astype("string"))
     edge_article_ids = set(article_attribute_edges["article_id"].astype("string"))
     missing_article_ids = sorted(sales_article_ids - edge_article_ids)
@@ -78,6 +80,7 @@ def validate_all_sales_articles_have_attribute_edges(
 
 
 def read_attribute_week_heat(attribute_week_heat_path: Path) -> pd.DataFrame:
+    """读取 `attribute_week_heat.csv` 属性周热度表并保留契约列类型。"""
     if not attribute_week_heat_path.exists():
         raise FileNotFoundError(f"属性周热度表不存在: {attribute_week_heat_path}")
 
@@ -105,6 +108,7 @@ def read_attribute_week_heat(attribute_week_heat_path: Path) -> pd.DataFrame:
 
 
 def validate_attribute_nodes_for_heat(attribute_nodes: pd.DataFrame) -> None:
+    """校验属性热度和图特征依赖的属性节点表字段、主键和标志位。"""
     validate_required_columns(
         attribute_nodes,
         ATTRIBUTE_NODE_COLUMNS,
@@ -130,6 +134,7 @@ def validate_attribute_edge_node_metadata_consistency(
     article_attribute_edges: pd.DataFrame,
     attribute_nodes: pd.DataFrame,
 ) -> None:
+    """校验商品-属性边表与属性节点表中的属性类型和值保持一致。"""
     edge_attributes = article_attribute_edges.loc[
         :, ["attr_id", "attr_type", "attr_value"]
     ].drop_duplicates()
@@ -162,6 +167,22 @@ def build_attribute_week_heat_frame(
     article_attribute_edges: pd.DataFrame,
     attribute_nodes: pd.DataFrame,
 ) -> pd.DataFrame:
+    """构建完整属性周热度面板。
+
+    Args:
+        article_week_sales: 商品周销量表，提供每个商品在每周的销售次数。
+        article_attribute_edges: 商品-属性边表，用于把商品销量分摊到属性。
+        attribute_nodes: 属性节点表，提供完整属性全集和属性元数据。
+
+    Returns:
+        完整 `week_id x attr_id` 面板。未观测到销量的属性周填充为
+        `heat_cnt=0`，再按 `week_id + attr_type` 计算 `type_total_heat`
+        和 `heat_share`，用 `log1p(heat_cnt)` 生成 `log_heat`，并按
+        `week_id`、`attr_type`、`heat_cnt` 降序、`attr_id` 升序生成稳定排名。
+
+    Raises:
+        ValueError: 当输入契约、商品映射、属性节点或元数据一致性不满足要求时抛出。
+    """
     validate_article_week_sales(article_week_sales)
     validate_article_attribute_edges_for_heat(article_attribute_edges)
     validate_attribute_nodes_for_heat(attribute_nodes)
@@ -207,6 +228,7 @@ def build_attribute_week_heat_frame(
 
     weeks = pd.DataFrame({"week_id": sorted(normalized_sales["week_id"].unique())})
     attributes = attribute_nodes.loc[:, ["attr_id", "attr_type", "attr_value"]].copy()
+    # 完整面板保留零热度属性，避免下游标签和样本阶段隐式补缺。
     panel = weeks.merge(attributes, how="cross")
     heat = panel.merge(observed_heat, on=["week_id", "attr_id"], how="left")
     heat["heat_cnt"] = heat["heat_cnt"].fillna(0).astype("int64")
@@ -221,6 +243,7 @@ def build_attribute_week_heat_frame(
     )
     heat["log_heat"] = np.log1p(heat["heat_cnt"])
 
+    # 排名先按热度降序，再用 attr_id 升序稳定处理同热度属性。
     heat = heat.sort_values(
         ["week_id", "attr_type", "heat_cnt", "attr_id"],
         ascending=[True, True, False, True],
@@ -241,6 +264,16 @@ def validate_attribute_week_heat(
     expected_week_ids: Sequence[int] | None = None,
     expected_attribute_nodes: pd.DataFrame | None = None,
 ) -> None:
+    """校验属性周热度表的完整性和派生字段一致性。
+
+    Args:
+        attribute_week_heat: 待校验的属性周热度表。
+        expected_week_ids: 可选的预期周集合，用于校验完整面板周范围。
+        expected_attribute_nodes: 可选的属性节点表，用于校验属性全集和行数。
+
+    Raises:
+        ValueError: 当列契约、主键、非负约束、占比、`log1p` 或排名不一致时抛出。
+    """
     validate_required_columns(
         attribute_week_heat,
         ATTRIBUTE_WEEK_HEAT_COLUMNS,
@@ -347,6 +380,7 @@ def validate_attribute_week_heat(
     ):
         raise ValueError("属性周热度表存在 log_heat 与 log1p(heat_cnt) 不一致。")
 
+    # 排名契约要求每个 week_id + attr_type 分组内从 1 开始且连续。
     rank_counts = attribute_week_heat.groupby(["week_id", "attr_type"])[
         "rank_in_type"
     ].nunique()

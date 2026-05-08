@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# 稳定 `article_week_sales.csv` 的完整输出列顺序。
 ARTICLE_WEEK_SALES_COLUMNS: tuple[str, ...] = (
     "week_id",
     "article_id",
@@ -8,6 +9,7 @@ ARTICLE_WEEK_SALES_COLUMNS: tuple[str, ...] = (
     "sales_amount",
 )
 
+# 稳定 `attribute_week_heat.csv` 的完整输出列顺序。
 ATTRIBUTE_WEEK_HEAT_COLUMNS: tuple[str, ...] = (
     "week_id",
     "attr_id",
@@ -20,6 +22,7 @@ ATTRIBUTE_WEEK_HEAT_COLUMNS: tuple[str, ...] = (
     "rank_in_type",
 )
 
+# 稳定 `attribute_week_target.csv` 的完整输出列顺序。
 ATTRIBUTE_WEEK_TARGET_COLUMNS: tuple[str, ...] = (
     "week_id",
     "attr_id",
@@ -35,6 +38,7 @@ ATTRIBUTE_WEEK_TARGET_COLUMNS: tuple[str, ...] = (
     "target_rank_in_type_t1",
 )
 
+# 稳定 `trend_model_samples.parquet` 的训练样本列契约。
 TREND_MODEL_SAMPLE_COLUMNS: tuple[str, ...] = (
     "week_id",
     "attr_id",
@@ -75,8 +79,10 @@ TREND_MODEL_SAMPLE_COLUMNS: tuple[str, ...] = (
     "target_rank_in_type_t1",
 )
 
+# 稳定时间切分和模型输出中允许出现的 split 名称。
 TREND_MODEL_SPLIT_VALUES: tuple[str, ...] = ("train", "valid", "test")
 
+# 稳定 `outputs/models/<model>/predictions.csv` 的完整输出列顺序。
 TREND_MODEL_PREDICTION_COLUMNS: tuple[str, ...] = (
     "week_id",
     "attr_id",
@@ -91,18 +97,22 @@ TREND_MODEL_PREDICTION_COLUMNS: tuple[str, ...] = (
     "target_rank_in_type_t1",
 )
 
+# 稳定预测份额归一化使用的分组接口。
 TREND_MODEL_PRED_SHARE_GROUP_COLUMNS: tuple[str, ...] = (
     "split",
     "week_id",
     "attr_type",
 )
+# 稳定预测份额分布校验的浮点容差。
 TREND_MODEL_SHARE_TOLERANCE = 1e-9
 
+# 稳定切分后 `trend_model_samples_<split>.parquet` 的完整列契约。
 TREND_MODEL_SPLIT_COLUMNS: tuple[str, ...] = (
     "split",
     *TREND_MODEL_SAMPLE_COLUMNS,
 )
 
+# 稳定趋势评价 JSON payload 的下游消费必需键。
 TREND_METRICS_PAYLOAD_REQUIRED_KEYS: tuple[str, ...] = (
     "model_name",
     "prediction_path",
@@ -114,6 +124,7 @@ TREND_METRICS_PAYLOAD_REQUIRED_KEYS: tuple[str, ...] = (
     "groups",
 )
 
+# 读取器使用这些类型保留商品标识符和销量数值类型。
 ARTICLE_WEEK_SALES_DTYPES: dict[str, str] = {
     "week_id": "int64",
     "article_id": "string",
@@ -122,6 +133,7 @@ ARTICLE_WEEK_SALES_DTYPES: dict[str, str] = {
     "sales_amount": "float64",
 }
 
+# 读取器使用这些类型保留属性标识符、热度计数和派生数值类型。
 ATTRIBUTE_WEEK_HEAT_DTYPES: dict[str, str] = {
     "week_id": "int64",
     "attr_id": "string",
@@ -134,6 +146,7 @@ ATTRIBUTE_WEEK_HEAT_DTYPES: dict[str, str] = {
     "rank_in_type": "int64",
 }
 
+# 读取器使用这些类型保留趋势标签中的标识符、位移热度和目标数值类型。
 ATTRIBUTE_WEEK_TARGET_DTYPES: dict[str, str] = {
     "week_id": "int64",
     "attr_id": "string",

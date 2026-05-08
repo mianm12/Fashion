@@ -19,6 +19,17 @@ from fashion_trend.trend.schema import (
 
 
 def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.DataFrame:
+    """聚合周级交易表，生成商品周销量表。
+
+    Args:
+        weekly_transactions: 已按交易周展开的明细表，必须满足周级交易列契约。
+
+    Returns:
+        按 `week_id + article_id` 聚合后的销量、购买用户数和销售额表。
+
+    Raises:
+        ValueError: 当输入缺少必要列、存在缺失值或价格为负时抛出。
+    """
     validate_required_columns(
         weekly_transactions,
         WEEKLY_TRANSACTION_COLUMNS,
@@ -58,6 +69,7 @@ def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.Data
 
 
 def validate_article_week_sales(article_week_sales: pd.DataFrame) -> None:
+    """校验 `article_week_sales.csv` 商品周销量表的列、主键和非负数值。"""
     validate_required_columns(
         article_week_sales,
         ARTICLE_WEEK_SALES_COLUMNS,
@@ -86,6 +98,7 @@ def validate_article_week_sales(article_week_sales: pd.DataFrame) -> None:
 
 
 def read_article_week_sales(article_week_sales_path: Path) -> pd.DataFrame:
+    """读取 `article_week_sales.csv` 商品周销量表并保留契约列类型。"""
     if not article_week_sales_path.exists():
         raise FileNotFoundError(f"商品周销量表不存在: {article_week_sales_path}")
 
