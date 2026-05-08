@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import pytest
+
 from fashion_trend.trend.models.base import MODEL_TYPE_SUPERVISED
 
 LIGHTGBM_MODULE = "fashion_trend.trend.models.supervised.lightgbm"
@@ -88,3 +90,73 @@ class TestLightGBMTrendModel:
 
         assert trainer.name == "lightgbm"
         assert trainer.model_type == MODEL_TYPE_SUPERVISED
+
+    def test_prepare_feature_frame_uses_train_categories(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+
+        prepared = lightgbm_model.prepare_lightgbm_feature_frame(samples)
+
+        assert prepared.attr_type_categories == ("colour_group_name",)
+        assert prepared.features.columns.tolist() == [
+            *lightgbm_model.LIGHTGBM_NUMERIC_FEATURES,
+            *lightgbm_model.LIGHTGBM_CATEGORICAL_FEATURES,
+        ]
+        assert str(prepared.features["attr_type"].dtype) == "category"
+        assert list(prepared.features["attr_type"].cat.categories) == [
+            "colour_group_name"
+        ]
+
+    def test_prepare_feature_frame_reuses_train_categories(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        samples = sample_trend_model_samples_for_split().assign(split="valid")
+
+        prepared = lightgbm_model.prepare_lightgbm_feature_frame(
+            samples,
+            attr_type_categories=("colour_group_name", "product_type_name"),
+        )
+
+        assert prepared.attr_type_categories == (
+            "colour_group_name",
+            "product_type_name",
+        )
+        assert list(prepared.features["attr_type"].cat.categories) == [
+            "colour_group_name",
+            "product_type_name",
+        ]
+
+    def test_prepare_feature_frame_rejects_unknown_attr_type(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        samples = sample_trend_model_samples_for_split().assign(split="valid")
+
+        with pytest.raises(ValueError, match="未知 attr_type"):
+            lightgbm_model.prepare_lightgbm_feature_frame(
+                samples,
+                attr_type_categories=("product_type_name",),
+            )
+
+    def test_prepare_feature_frame_rejects_non_finite_numeric_feature(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+        samples.loc[samples.index[0], "growth_lag_1"] = float("nan")
+
+        with pytest.raises(ValueError, match="非有限|growth_lag_1"):
+            lightgbm_model.prepare_lightgbm_feature_frame(samples)
+
+    def test_prepare_feature_frame_rejects_missing_attr_type(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+        samples.loc[samples.index[0], "attr_type"] = None
+
+        with pytest.raises(ValueError, match="attr_type"):
+            lightgbm_model.prepare_lightgbm_feature_frame(samples)
