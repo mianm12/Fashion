@@ -228,7 +228,7 @@ LightGBM 参数不再只能通过修改源码中的常量调整。内置默认�
 约束：
 
 - `--params` 只接受 JSON object，并且只能包含 `lightgbm_params` 和 `early_stopping` 两个顶层 key。
-- `lightgbm_params` 和 `early_stopping` 都必须是 JSON object。
+- `lightgbm_params` 和 `early_stopping` 是可选顶层 key；如果出现，则必须是 JSON object。因此只覆盖 `lightgbm_params` 或只覆盖 `early_stopping` 的参数文件都合法。
 - `--param key=value` 默认写入 `lightgbm_params.<key>`。
 - `--param early_stopping.stopping_rounds=50` 写入 `early_stopping.stopping_rounds`。
 - 除 `early_stopping.stopping_rounds` 外，其他 dotted key 一律拒绝；例如不支持 `lightgbm_params.learning_rate=0.03`。
@@ -345,7 +345,7 @@ run 目录是事实来源，stable 目录是 promotion 结果。训练输出顺�
 
 run 写出失败时，不得更新 stable。stable 写出失败时，不得删除已经成功发布的 run。run metadata 发布后不再要求为了 promotion 结果回写；如果 index 更新也因磁盘或权限问题失败，CLI 仍返回失败，并在日志中输出 run 目录、stable 目录和 promotion 错误。本轮实现包含训练命令内 promotion 和 `--promote-run` 两种发布路径。
 
-`--promote-run <run_id>` 复用同一套 promotion 发布逻辑，但输入来自已有 run 目录。它必须先校验标准模型产物、run metadata、`params.json`、对应 run metrics 和 run metrics payload 都存在且路径安全，再发布 stable。发布失败时不得修改 run 目录；发布成功后稳定目录 metadata 指向 stable 路径，并记录来源 `run_id`。
+`--promote-run <run_id>` 复用同一套 promotion 发布逻辑，但输入来自已有 run 目录。它必须先校验标准模型产物、run metadata、`params.json`、对应 run metrics 和 run metrics payload 都存在且路径安全，再发布 stable。run metrics payload 必须满足 `model_name == "lightgbm"`、`run_id == <run_id>`，并且 `prediction_path` 指向 `outputs/models/lightgbm/runs/<run_id>/predictions.csv`；否则拒绝发布。发布失败时不得修改 run 目录；发布成功后稳定目录 metadata 指向 stable 路径，并记录来源 `run_id`。
 
 `--promote-run` 还必须同步发布 stable metrics。发布方式是读取：
 
@@ -366,7 +366,7 @@ outputs/metrics/lightgbm/trend_metrics.json
 outputs/metrics/lightgbm/trend_metrics.json
 ```
 
-模型产物、stable metadata 和 stable metrics 必须作为一次 promotion 操作处理：如果 stable metrics 写出失败，命令返回失败，stable model 与 stable metrics 不能被当成成功发布结果。
+模型产物、stable metadata 和 stable metrics 必须作为一次 promotion 操作处理。由于它们跨 `outputs/models/lightgbm/` 和 `outputs/metrics/lightgbm/` 两个目录，promotion 发布 stable 时必须对 stable model 产物、stable metadata 和 stable metrics 做统一 staging/backup/rollback；任一 stable 文件替换失败，都要恢复已替换的 stable 文件，保留 run 目录不动，并返回失败。
 
 ## 评价关联
 
