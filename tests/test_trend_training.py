@@ -75,6 +75,19 @@ def _expected_normalized_pred_share(
     return non_negative_share / group_total
 
 
+def _expected_current_share_distribution(predictions: pd.DataFrame) -> pd.Series:
+    """按 last_week 的当前 share 语义计算分组归一化预测 share。"""
+    current_share = predictions["share_t"].clip(lower=0.0)
+    group_total = current_share.groupby(
+        [
+            predictions["split"],
+            predictions["week_id"],
+            predictions["attr_type"],
+        ]
+    ).transform("sum")
+    return current_share / group_total
+
+
 def _assert_pred_share_t1_distribution(predictions: pd.DataFrame) -> None:
     """断言预测 share 在每个 split/week/attr_type 分组内形成分布。"""
     assert predictions["pred_share_t1"].between(0.0, 1.0).all()
@@ -88,11 +101,10 @@ class TestTrendTraining:
     def test_last_week_params_are_stable(self) -> None:
         assert LAST_WEEK_PARAMS == {
             "model_name": "last_week",
-            "formula": "pred_target_growth = growth_lag_1",
+            "formula": "pred_share_t1 = group_normalize(share_t)",
             "derived_formula": (
-                "raw_pred_share_t1 = exp(pred_target_growth) * "
-                "(share_t + epsilon) - epsilon; "
-                "pred_share_t1 = group_normalize(max(raw_pred_share_t1, 0))"
+                "pred_target_growth = log((pred_share_t1 + epsilon) / "
+                "(share_t + epsilon))"
             ),
             "epsilon": 1e-6,
         }
@@ -782,7 +794,7 @@ class TestTrendTraining:
 
         assert calls == [MOVING_AVERAGE_MODEL_NAME]
 
-    def test_predict_last_week_uses_growth_lag_1(self) -> None:
+    def test_predict_last_week_uses_current_share(self) -> None:
         split_frames = build_trend_model_split_frames(
             sample_trend_model_samples_for_split(),
             valid_weeks=4,
@@ -794,20 +806,19 @@ class TestTrendTraining:
 
         assert predictions.columns.tolist() == list(TREND_MODEL_PREDICTION_COLUMNS)
         assert set(predictions["model_name"]) == {LAST_WEEK_MODEL_NAME}
-        pd.testing.assert_series_equal(
-            predictions["pred_target_growth"],
-            samples.sort_values(["week_id", "attr_type", "attr_id"], ignore_index=True)[
-                "growth_lag_1"
-            ],
-            check_names=False,
-        )
-        expected_share = _expected_normalized_pred_share(
-            predictions,
-            float(LAST_WEEK_PARAMS["epsilon"]),
+        expected_share = _expected_current_share_distribution(predictions)
+        expected_growth = np.log(
+            (expected_share + float(LAST_WEEK_PARAMS["epsilon"]))
+            / (predictions["share_t"] + float(LAST_WEEK_PARAMS["epsilon"]))
         )
         pd.testing.assert_series_equal(
             predictions["pred_share_t1"],
             expected_share,
+            check_names=False,
+        )
+        pd.testing.assert_series_equal(
+            predictions["pred_target_growth"],
+            expected_growth,
             check_names=False,
         )
         _assert_pred_share_t1_distribution(predictions)
@@ -892,6 +903,42 @@ class TestTrendTraining:
 
         with pytest.raises(ValueError, match="growth_lag_1"):
             predict_previous_growth(samples)
+
+    def test_predict_last_week_does_not_require_growth_lag_1(self) -> None:
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+        samples = samples.drop(columns=["growth_lag_1"])
+
+        predictions = predict_last_week(samples)
+
+        assert set(predictions["model_name"]) == {LAST_WEEK_MODEL_NAME}
+        _assert_pred_share_t1_distribution(predictions)
+
+    @pytest.mark.parametrize(
+        "case",
+        ["negative", "above_one", "bad_total", "all_zero", "non_finite"],
+    )
+    def test_predict_last_week_rejects_invalid_share_t(self, case: str) -> None:
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+        group_mask = (samples["week_id"] == 4) & (
+            samples["attr_type"] == "colour_group_name"
+        )
+        black_mask = group_mask & (samples["attr_value"] == "Black")
+
+        if case == "negative":
+            samples.loc[black_mask, "share_t"] = -0.01
+        elif case == "above_one":
+            samples.loc[black_mask, "share_t"] = 1.01
+        elif case == "bad_total":
+            samples.loc[black_mask, "share_t"] = 0.80
+        elif case == "all_zero":
+            samples.loc[group_mask, "share_t"] = 0.0
+        elif case == "non_finite":
+            samples.loc[black_mask, "share_t"] = float("inf")
+        else:
+            raise AssertionError(f"未知测试场景: {case}")
+
+        with pytest.raises(ValueError, match="share_t"):
+            predict_last_week(samples)
 
     def test_predict_moving_average_rejects_illegal_split(self) -> None:
         samples = sample_trend_model_samples_for_split().assign(split="holdout")
