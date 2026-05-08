@@ -59,8 +59,7 @@ def predict_previous_growth(split_samples: pd.DataFrame) -> pd.DataFrame:
     )
     if missing_columns:
         raise ValueError(
-            "previous_growth 模型输入样本缺少必需列: "
-            + ", ".join(missing_columns)
+            "previous_growth 模型输入样本缺少必需列: " + ", ".join(missing_columns)
         )
     validate_required_columns(
         split_samples,

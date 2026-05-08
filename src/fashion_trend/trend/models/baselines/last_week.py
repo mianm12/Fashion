@@ -22,8 +22,7 @@ LAST_WEEK_PARAMS: dict[str, object] = {
     "model_name": LAST_WEEK_MODEL_NAME,
     "formula": "pred_share_t1 = group_normalize(share_t)",
     "derived_formula": (
-        "pred_target_growth = log((pred_share_t1 + epsilon) / "
-        "(share_t + epsilon))"
+        "pred_target_growth = log((pred_share_t1 + epsilon) / " "(share_t + epsilon))"
     ),
     "epsilon": 1e-6,
 }
