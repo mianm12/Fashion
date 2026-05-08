@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from fashion_trend.trend.models.base import MODEL_TYPE_SUPERVISED
@@ -347,6 +349,35 @@ class TestLightGBMTrendModel:
             "feature_importance.csv",
             "model.txt",
         ]
+
+    def test_read_best_score_returns_json_serializable_values(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+
+        class ScoreModel:
+            best_score_ = {
+                "valid_0": {
+                    "l2": np.float32(0.12),
+                    "history": [np.float64(0.2), (np.int64(3),)],
+                }
+            }
+
+        best_score = lightgbm_model._read_best_score(ScoreModel())
+
+        json.dumps(best_score)
+        assert best_score == {
+            "valid_0": {"l2": pytest.approx(0.12), "history": [0.2, [3]]}
+        }
+
+    def test_build_lightgbm_predictions_rejects_prediction_length_mismatch(
+        self,
+    ) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+
+        with pytest.raises(ValueError, match="lightgbm.*(预测|行数)"):
+            lightgbm_model._build_lightgbm_predictions(
+                _sample_lightgbm_samples("valid"),
+                [0.1],
+            )
 
     def test_trainer_rejects_split_frame_with_mismatched_split_value(self) -> None:
         lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)

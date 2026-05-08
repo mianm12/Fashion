@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 import numpy as np
 import pandas as pd
@@ -290,7 +290,18 @@ def _build_lightgbm_predictions(
         ],
     ].copy()
     predictions.insert(4, "model_name", LIGHTGBM_MODEL_NAME)
-    predictions["pred_target_growth"] = np.asarray(pred_target_growth, dtype=float)
+    pred_target_growth_array = np.asarray(pred_target_growth, dtype=float)
+    pred_count = (
+        int(pred_target_growth_array.shape[0])
+        if pred_target_growth_array.ndim > 0
+        else int(pred_target_growth_array.size)
+    )
+    if pred_target_growth_array.ndim != 1 or pred_count != len(split_samples):
+        raise ValueError(
+            "lightgbm 模型预测行数与输入样本不一致: "
+            f"predictions={pred_count}, samples={len(split_samples)}"
+        )
+    predictions["pred_target_growth"] = pred_target_growth_array
     predictions["pred_share_t1"] = derive_normalized_pred_share_t1(
         predictions,
         LIGHTGBM_EPSILON,
@@ -328,7 +339,19 @@ def _read_best_iteration(model) -> int | None:
 
 def _read_best_score(model) -> dict[str, object]:
     best_score = getattr(model, "best_score_", {})
-    return dict(best_score)
+    if not isinstance(best_score, Mapping):
+        return {}
+    return {str(key): _to_json_safe_value(value) for key, value in best_score.items()}
+
+
+def _to_json_safe_value(value):
+    if isinstance(value, Mapping):
+        return {str(key): _to_json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_json_safe_value(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 
 def _dump_model_text(booster) -> bytes:
