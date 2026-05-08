@@ -9,7 +9,9 @@ LOG_SOURCE = "weekly-transactions"
 
 
 def main() -> int:
-    """周级交易构建阶段入口，稳定写出 transactions_train_weekly.parquet。
+    """脚本入口，执行周级交易表构建并返回进程退出码。
+
+    稳定输出产物为 transactions_train_weekly.parquet。
 
     Args:
         None: 本函数直接读取项目路径配置，不接收外部参数。

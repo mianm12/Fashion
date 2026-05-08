@@ -34,7 +34,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """趋势模型训练阶段入口，稳定写出 outputs/models/<model>/，参数用法错误返回 2，领域处理错误返回 1。"""
+    """运行趋势模型训练 CLI，记录运行摘要并返回稳定退出码。
+
+    稳定输出位置为 outputs/models/<model>/；argparse 用法错误返回 2，
+    领域处理错误返回 1。
+    """
     try:
         args = parse_args(argv)
     except SystemExit as exc:
