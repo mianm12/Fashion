@@ -380,6 +380,25 @@ class TestTrendEvaluation:
         assert "valid" in payload["overall"]
         assert "test" in payload["overall"]
 
+    def test_run_trend_model_evaluation_writes_lightgbm_metrics(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation().copy()
+        predictions["model_name"] = "lightgbm"
+        model_output_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        metrics_output_root = tmp_path / "outputs" / "metrics"
+        write_csv_atomic(predictions, model_output_dir / "predictions.csv")
+
+        payload = run_trend_model_evaluation(
+            "lightgbm",
+            model_output_root=tmp_path / "outputs" / "models",
+            metrics_output_root=metrics_output_root,
+        )
+
+        assert payload["model_name"] == "lightgbm"
+        assert (metrics_output_root / "lightgbm" / "trend_metrics.json").exists()
+
     def test_run_trend_model_evaluation_reads_previous_growth_predictions(
         self,
         tmp_path: Path,

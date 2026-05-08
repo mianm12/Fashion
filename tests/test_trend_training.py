@@ -644,6 +644,73 @@ class TestTrendTraining:
         params = json.loads((output_dir / "params.json").read_text(encoding="utf-8"))
         assert params["growth_lags"] == ["growth_lag_1", "growth_lag_2"]
 
+    def test_run_trend_model_training_writes_lightgbm_outputs(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+
+        class FakeBooster:
+            def feature_name(self) -> list[str]:
+                return [*lightgbm_model.LIGHTGBM_NUMERIC_FEATURES, "attr_type"]
+
+            def feature_importance(self, importance_type: str):
+                feature_count = len(self.feature_name())
+                if importance_type == "split":
+                    return [1 for _ in range(feature_count)]
+                if importance_type == "gain":
+                    return [1.0 for _ in range(feature_count)]
+                raise AssertionError(f"unexpected importance_type={importance_type}")
+
+            def model_to_string(self) -> str:
+                return "fake lightgbm model"
+
+        class FakeModel:
+            best_iteration_ = 7
+            best_score_ = {"valid_0": {"l2": 0.1}}
+            booster_ = FakeBooster()
+
+            def predict(self, features: pd.DataFrame, num_iteration: int | None = None):
+                return features["growth_lag_1"].astype(float).to_numpy()
+
+        def fake_fit(train_features, train_target, valid_features, valid_target):
+            return FakeModel()
+
+        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        input_paths = {
+            "train": tmp_path / "trend_model_samples_train.parquet",
+            "valid": tmp_path / "trend_model_samples_valid.parquet",
+            "test": tmp_path / "trend_model_samples_test.parquet",
+        }
+        for split_name, split_frame in split_frames.items():
+            write_parquet_atomic(split_frame, input_paths[split_name])
+
+        metadata = run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=input_paths,
+            output_root=tmp_path / "outputs" / "models",
+        )
+
+        output_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        assert (output_dir / "predictions.csv").exists()
+        assert (output_dir / "params.json").exists()
+        assert (output_dir / "metadata.json").exists()
+        assert (output_dir / "feature_importance.csv").exists()
+        assert (output_dir / "model.txt").exists()
+        assert metadata["model_name"] == LIGHTGBM_MODEL_NAME
+        assert metadata["model_type"] == MODEL_TYPE_SUPERVISED
+        assert metadata["extra_artifacts"] == [
+            {"path": "feature_importance.csv", "kind": "csv"},
+            {"path": "model.txt", "kind": "binary"},
+        ]
+
     def test_run_trend_model_training_writes_previous_growth_outputs(
         self,
         tmp_path: Path,
