@@ -18,7 +18,7 @@ from fashion_trend.foundation.dataframe import (
     validate_unique_key,
 )
 from fashion_trend.foundation.io import write_json_atomic
-from fashion_trend.foundation.paths import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
+from fashion_trend.trend.paths import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
 from fashion_trend.trend.predictions import validate_pred_share_t1_distribution
 from fashion_trend.trend.schema import (
     TREND_MODEL_PREDICTION_COLUMNS,

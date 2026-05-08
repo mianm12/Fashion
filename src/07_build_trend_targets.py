@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from fashion_trend.catalog.graph import read_attribute_nodes
+from fashion_trend.catalog.paths import GRAPH_NODES_ATTRIBUTE_PATH
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic
-from fashion_trend.foundation.paths import PATH
 from fashion_trend.trend.attribute_heat import (
     read_attribute_week_heat,
     validate_attribute_nodes_for_heat,
     validate_attribute_week_heat,
+)
+from fashion_trend.trend.paths import (
+    TREND_ATTRIBUTE_WEEK_HEAT_PATH,
+    TREND_ATTRIBUTE_WEEK_TARGET_PATH,
 )
 from fashion_trend.trend.targets import (
     build_attribute_week_target_frame,
@@ -18,17 +22,15 @@ LOG_SOURCE = "trend-targets"
 
 
 def build_trend_targets() -> dict[str, int]:
-    log.info(f"输入属性节点表: {PATH['graph_nodes_attribute']}", source=LOG_SOURCE)
-    log.info(
-        f"输入属性周热度表: {PATH['trend_attribute_week_heat']}", source=LOG_SOURCE
-    )
+    log.info(f"输入属性节点表: {GRAPH_NODES_ATTRIBUTE_PATH}", source=LOG_SOURCE)
+    log.info(f"输入属性周热度表: {TREND_ATTRIBUTE_WEEK_HEAT_PATH}", source=LOG_SOURCE)
     log.info(
         "业务阶段: attribute_week_heat.csv -> attribute_week_target.csv",
         source=LOG_SOURCE,
     )
-    attribute_nodes = read_attribute_nodes(PATH["graph_nodes_attribute"])
+    attribute_nodes = read_attribute_nodes(GRAPH_NODES_ATTRIBUTE_PATH)
     validate_attribute_nodes_for_heat(attribute_nodes)
-    attribute_week_heat = read_attribute_week_heat(PATH["trend_attribute_week_heat"])
+    attribute_week_heat = read_attribute_week_heat(TREND_ATTRIBUTE_WEEK_HEAT_PATH)
     validate_attribute_week_heat(
         attribute_week_heat,
         expected_week_ids=sorted(attribute_week_heat["week_id"].unique()),
@@ -41,7 +43,7 @@ def build_trend_targets() -> dict[str, int]:
         expected_week_count=int(attribute_week_heat["week_id"].nunique()),
         expected_attribute_count=len(attribute_nodes),
     )
-    write_csv_atomic(attribute_week_target, PATH["trend_attribute_week_target"])
+    write_csv_atomic(attribute_week_target, TREND_ATTRIBUTE_WEEK_TARGET_PATH)
 
     return {
         "rows": len(attribute_week_target),
@@ -60,7 +62,7 @@ def main() -> int:
     log.info(f"趋势标签行数: {stats['rows']:,}", source=LOG_SOURCE)
     log.info(f"覆盖当前周数: {stats['weeks']:,}", source=LOG_SOURCE)
     log.info(f"覆盖属性节点数: {stats['attributes']:,}", source=LOG_SOURCE)
-    log.info(f"输出文件: {PATH['trend_attribute_week_target']}", source=LOG_SOURCE)
+    log.info(f"输出文件: {TREND_ATTRIBUTE_WEEK_TARGET_PATH}", source=LOG_SOURCE)
     return 0
 
 

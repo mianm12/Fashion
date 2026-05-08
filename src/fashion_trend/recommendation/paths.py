@@ -1,0 +1,10 @@
+from fashion_trend.foundation.paths import OUTPUT_DIR, PROCESSED_DIR
+
+RECOMMEND_DIR = PROCESSED_DIR / "recommend"
+RECOMMEND_FEATURES_DIR = RECOMMEND_DIR / "features"
+OUTPUT_RECOMMENDATION_DIR = OUTPUT_DIR / "recommendation"
+
+USER_PROFILE_PATH = RECOMMEND_DIR / "user_profile.parquet"
+RECOMMEND_CANDIDATES_PATH = RECOMMEND_DIR / "candidate_items.parquet"
+RECOMMENDATION_RESULT_PATH = OUTPUT_RECOMMENDATION_DIR / "recommendation_result.csv"
+RECOMMENDATION_METRICS_PATH = OUTPUT_RECOMMENDATION_DIR / "recommendation_metrics.json"

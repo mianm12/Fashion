@@ -4,8 +4,12 @@ from pandas import read_parquet
 
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
-from fashion_trend.foundation.paths import (
-    PATH,
+from fashion_trend.trend.paths import (
+    TREND_MODEL_SAMPLES_PATH,
+    TREND_MODEL_SAMPLES_SPLIT_METADATA_PATH,
+    TREND_MODEL_SAMPLES_TEST_PATH,
+    TREND_MODEL_SAMPLES_TRAIN_PATH,
+    TREND_MODEL_SAMPLES_VALID_PATH,
     TREND_SPLIT_TEST_WEEKS,
     TREND_SPLIT_VALID_WEEKS,
 )
@@ -19,7 +23,7 @@ LOG_SOURCE = "trend-model-split"
 
 
 def split_trend_model_samples() -> dict[str, object]:
-    input_path = PATH["features_trend_model_samples"]
+    input_path = TREND_MODEL_SAMPLES_PATH
     log.info(f"输入趋势样本表: {input_path}", source=LOG_SOURCE)
     log.info(
         f"关键参数: valid_weeks={TREND_SPLIT_VALID_WEEKS}, "
@@ -42,9 +46,9 @@ def split_trend_model_samples() -> dict[str, object]:
     validate_trend_model_split_frames(split_frames, trend_model_samples)
 
     output_paths = {
-        "train": PATH["features_trend_model_samples_train"],
-        "valid": PATH["features_trend_model_samples_valid"],
-        "test": PATH["features_trend_model_samples_test"],
+        "train": TREND_MODEL_SAMPLES_TRAIN_PATH,
+        "valid": TREND_MODEL_SAMPLES_VALID_PATH,
+        "test": TREND_MODEL_SAMPLES_TEST_PATH,
     }
     for split_name, split_frame in split_frames.items():
         write_parquet_atomic(split_frame, output_paths[split_name])
@@ -56,7 +60,7 @@ def split_trend_model_samples() -> dict[str, object]:
         valid_weeks=TREND_SPLIT_VALID_WEEKS,
         test_weeks=TREND_SPLIT_TEST_WEEKS,
     )
-    write_json_atomic(metadata, PATH["features_trend_model_samples_split_metadata"])
+    write_json_atomic(metadata, TREND_MODEL_SAMPLES_SPLIT_METADATA_PATH)
     return metadata
 
 
@@ -77,7 +81,7 @@ def main() -> int:
         )
         log.info(f"{split_name} 输出文件: {split_stats['path']}", source=LOG_SOURCE)
     log.info(
-        f"切分元数据: {PATH['features_trend_model_samples_split_metadata']}",
+        f"切分元数据: {TREND_MODEL_SAMPLES_SPLIT_METADATA_PATH}",
         source=LOG_SOURCE,
     )
     return 0

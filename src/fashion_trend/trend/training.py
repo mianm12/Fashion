@@ -18,7 +18,6 @@ from fashion_trend.foundation.io import (
     write_csv_atomic,
     write_json_atomic,
 )
-from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR, PATH
 from fashion_trend.trend.models.base import (
     KNOWN_MODEL_TYPES,
     TrendArtifact,
@@ -26,6 +25,12 @@ from fashion_trend.trend.models.base import (
     TrendTrainResult,
 )
 from fashion_trend.trend.models.registry import get_trend_model_trainer
+from fashion_trend.trend.paths import (
+    OUTPUT_MODELS_DIR,
+    TREND_MODEL_SAMPLES_TEST_PATH,
+    TREND_MODEL_SAMPLES_TRAIN_PATH,
+    TREND_MODEL_SAMPLES_VALID_PATH,
+)
 from fashion_trend.trend.predictions import validate_trend_model_predictions
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
 from fashion_trend.trend.splits import read_trend_model_split
@@ -33,9 +38,9 @@ from fashion_trend.trend.splits import read_trend_model_split
 
 def default_trend_model_input_paths() -> dict[str, Path]:
     return {
-        "train": PATH["features_trend_model_samples_train"],
-        "valid": PATH["features_trend_model_samples_valid"],
-        "test": PATH["features_trend_model_samples_test"],
+        "train": TREND_MODEL_SAMPLES_TRAIN_PATH,
+        "valid": TREND_MODEL_SAMPLES_VALID_PATH,
+        "test": TREND_MODEL_SAMPLES_TEST_PATH,
     }
 
 

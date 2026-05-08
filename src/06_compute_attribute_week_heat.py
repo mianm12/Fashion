@@ -4,9 +4,12 @@ from fashion_trend.catalog.graph import (
     read_article_attribute_edges,
     read_attribute_nodes,
 )
+from fashion_trend.catalog.paths import (
+    GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH,
+    GRAPH_NODES_ATTRIBUTE_PATH,
+)
 from fashion_trend.foundation import logging as log
 from fashion_trend.foundation.io import write_csv_atomic
-from fashion_trend.foundation.paths import PATH
 from fashion_trend.trend.article_sales import (
     read_article_week_sales,
     validate_article_week_sales,
@@ -17,29 +20,33 @@ from fashion_trend.trend.attribute_heat import (
     validate_attribute_edge_node_metadata_consistency,
     validate_attribute_week_heat,
 )
+from fashion_trend.trend.paths import (
+    TREND_ARTICLE_WEEK_SALES_PATH,
+    TREND_ATTRIBUTE_WEEK_HEAT_PATH,
+)
 
 LOG_SOURCE = "attribute-week-heat"
 
 
 def compute_attribute_week_heat() -> dict[str, int]:
-    log.info(f"输入商品周销量表: {PATH['trend_article_week_sales']}", source=LOG_SOURCE)
+    log.info(f"输入商品周销量表: {TREND_ARTICLE_WEEK_SALES_PATH}", source=LOG_SOURCE)
     log.info(
         "业务阶段: 属性图 + article_week_sales.csv -> attribute_week_heat.csv",
         source=LOG_SOURCE,
     )
-    article_week_sales = read_article_week_sales(PATH["trend_article_week_sales"])
+    article_week_sales = read_article_week_sales(TREND_ARTICLE_WEEK_SALES_PATH)
     validate_article_week_sales(article_week_sales)
 
     log.info(
-        f"输入商品-属性边表: {PATH['graph_edges_article_attribute']}",
+        f"输入商品-属性边表: {GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH}",
         source=LOG_SOURCE,
     )
     article_attribute_edges = read_article_attribute_edges(
-        PATH["graph_edges_article_attribute"]
+        GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH
     )
 
-    log.info(f"输入属性节点表: {PATH['graph_nodes_attribute']}", source=LOG_SOURCE)
-    attribute_nodes = read_attribute_nodes(PATH["graph_nodes_attribute"])
+    log.info(f"输入属性节点表: {GRAPH_NODES_ATTRIBUTE_PATH}", source=LOG_SOURCE)
+    attribute_nodes = read_attribute_nodes(GRAPH_NODES_ATTRIBUTE_PATH)
     validate_all_sales_articles_have_attribute_edges(
         article_week_sales,
         article_attribute_edges,
@@ -59,7 +66,7 @@ def compute_attribute_week_heat() -> dict[str, int]:
         expected_week_ids=sorted(article_week_sales["week_id"].unique()),
         expected_attribute_nodes=attribute_nodes,
     )
-    write_csv_atomic(attribute_week_heat, PATH["trend_attribute_week_heat"])
+    write_csv_atomic(attribute_week_heat, TREND_ATTRIBUTE_WEEK_HEAT_PATH)
 
     return {
         "rows": len(attribute_week_heat),
@@ -80,7 +87,7 @@ def main() -> int:
     log.info(f"覆盖周数: {stats['weeks']:,}", source=LOG_SOURCE)
     log.info(f"覆盖属性类型数: {stats['attr_types']:,}", source=LOG_SOURCE)
     log.info(f"覆盖属性节点数: {stats['attributes']:,}", source=LOG_SOURCE)
-    log.info(f"输出文件: {PATH['trend_attribute_week_heat']}", source=LOG_SOURCE)
+    log.info(f"输出文件: {TREND_ATTRIBUTE_WEEK_HEAT_PATH}", source=LOG_SOURCE)
     return 0
 
 

@@ -6,7 +6,8 @@ from pathlib import Path
 
 import kagglehub
 
-from fashion_trend.foundation.paths import DEFAULT_COMPETITION, RAW_DIR
+from fashion_trend.datasets.paths import DEFAULT_COMPETITION
+from fashion_trend.foundation.paths import RAW_DIR
 
 Downloader = Callable[..., str | Path]
 

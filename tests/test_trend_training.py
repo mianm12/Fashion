@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 from fashion_trend.foundation.io import write_parquet_atomic
-from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR
 from fashion_trend.trend.models.base import (
     MODEL_TYPE_BASELINE,
     TrendArtifact,
@@ -35,6 +34,7 @@ from fashion_trend.trend.models.registry import (
     get_trend_model_trainer,
     list_trend_model_names,
 )
+from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
 from fashion_trend.trend.predictions import validate_trend_model_predictions
 from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
 from fashion_trend.trend.splits import build_trend_model_split_frames

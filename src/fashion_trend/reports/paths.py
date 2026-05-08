@@ -1,0 +1,6 @@
+from fashion_trend.foundation.paths import OUTPUT_DIR
+
+OUTPUT_REPORTS_DIR = OUTPUT_DIR / "reports"
+OUTPUT_FIGURES_DIR = OUTPUT_REPORTS_DIR / "figures"
+OUTPUT_TABLES_DIR = OUTPUT_REPORTS_DIR / "tables"
+OUTPUT_CASE_STUDIES_DIR = OUTPUT_REPORTS_DIR / "case_studies"

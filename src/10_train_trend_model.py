@@ -4,12 +4,22 @@ import argparse
 from typing import Sequence
 
 from fashion_trend.foundation import logging as log
-from fashion_trend.foundation.paths import OUTPUT_MODELS_DIR, PATH
 from fashion_trend.trend.models.registry import UnknownTrendModelError
+from fashion_trend.trend.paths import (
+    OUTPUT_MODELS_DIR,
+    TREND_MODEL_SAMPLES_TEST_PATH,
+    TREND_MODEL_SAMPLES_TRAIN_PATH,
+    TREND_MODEL_SAMPLES_VALID_PATH,
+)
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
 from fashion_trend.trend.training import run_trend_model_training
 
 LOG_SOURCE = "trend-model-train"
+TREND_MODEL_SAMPLE_SPLIT_PATHS = {
+    "train": TREND_MODEL_SAMPLES_TRAIN_PATH,
+    "valid": TREND_MODEL_SAMPLES_VALID_PATH,
+    "test": TREND_MODEL_SAMPLES_TEST_PATH,
+}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -33,9 +43,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         log.info(f"模型名称参数: {args.model}", source=LOG_SOURCE)
         for split_name in TREND_MODEL_SPLIT_VALUES:
-            split_path_key = f"features_trend_model_samples_{split_name}"
             log.info(
-                f"输入 {split_name} 样本: {PATH[split_path_key]}",
+                f"输入 {split_name} 样本: {TREND_MODEL_SAMPLE_SPLIT_PATHS[split_name]}",
                 source=LOG_SOURCE,
             )
         log.info(

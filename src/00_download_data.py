@@ -5,8 +5,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from fashion_trend.datasets.download import download_competition
+from fashion_trend.datasets.paths import DEFAULT_COMPETITION
 from fashion_trend.foundation import logging as log
-from fashion_trend.foundation.paths import DEFAULT_COMPETITION, RAW_DIR
+from fashion_trend.foundation.paths import RAW_DIR
 
 LOG_SOURCE = "download-data"
 
