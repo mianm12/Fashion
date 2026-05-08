@@ -185,6 +185,15 @@ class TestLightGBMTrendModel:
         }
         assert distribution["train"]["count"] == len(samples)
 
+    def test_describe_target_distribution_rejects_empty_split(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        samples = sample_trend_model_samples_for_split().head(0).assign(split="train")
+
+        with pytest.raises(ValueError, match="lightgbm.*空"):
+            lightgbm_model.describe_target_distribution({"train": samples})
+
     def test_describe_residual_distribution_returns_valid_test_only(self) -> None:
         lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
         from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
@@ -227,6 +236,32 @@ class TestLightGBMTrendModel:
             "mae",
             "rmse",
         }
+
+    def test_describe_residual_distribution_rejects_empty_predictions(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
+
+        samples = _sample_lightgbm_samples("valid").head(0)
+        predictions = samples.loc[
+            :,
+            [
+                "week_id",
+                "attr_id",
+                "attr_type",
+                "attr_value",
+                "split",
+                "share_t",
+                "target_growth",
+                "target_rank_in_type_t1",
+            ],
+        ].copy()
+        predictions.insert(4, "model_name", "lightgbm")
+        predictions["pred_share_t1"] = []
+        predictions["pred_target_growth"] = []
+        predictions = predictions.loc[:, list(TREND_MODEL_PREDICTION_COLUMNS)]
+
+        with pytest.raises(ValueError, match="lightgbm.*空"):
+            lightgbm_model.describe_residual_distribution({"valid": predictions})
 
     def test_build_feature_importance_frame_normalizes_gain(self) -> None:
         lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)

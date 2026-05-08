@@ -174,10 +174,9 @@ def describe_residual_distribution(
 ) -> dict[str, dict[str, float | int]]:
     distribution: dict[str, dict[str, float | int]] = {}
     for split_name, predictions in prediction_frames.items():
-        residual = (
-            pd.to_numeric(predictions["target_growth"], errors="raise")
-            - pd.to_numeric(predictions["pred_target_growth"], errors="raise")
-        )
+        residual = pd.to_numeric(
+            predictions["target_growth"], errors="raise"
+        ) - pd.to_numeric(predictions["pred_target_growth"], errors="raise")
         summary = _describe_residual_series(residual)
         summary["mae"] = float(residual.abs().mean())
         summary["rmse"] = float(np.sqrt(np.square(residual).mean()))
@@ -219,6 +218,8 @@ def build_feature_importance_frame(booster) -> pd.DataFrame:
 
 def _describe_numeric_series(series: pd.Series) -> dict[str, float | int]:
     numeric = pd.to_numeric(series, errors="raise")
+    if numeric.empty:
+        raise ValueError("lightgbm 诊断数值为空。")
     values = numeric.to_numpy(dtype=float)
     if not np.isfinite(values).all():
         raise ValueError("lightgbm 诊断数值存在非有限值。")
