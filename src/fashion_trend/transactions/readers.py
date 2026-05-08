@@ -11,6 +11,7 @@ from fashion_trend.transactions.contracts import WEEKLY_TRANSACTION_COLUMNS
 
 
 def read_weekly_transactions(weekly_transactions_path: Path) -> pd.DataFrame:
+    """读取周级交易表，并保留 `WEEKLY_TRANSACTION_COLUMNS` 列契约。"""
     if not weekly_transactions_path.exists():
         raise FileNotFoundError(f"周级交易表不存在: {weekly_transactions_path}")
 

@@ -8,11 +8,13 @@ import pandas as pd
 
 
 def remove_file_if_exists(path: Path) -> None:
+    """删除已存在的临时或备份文件，缺失时保持无操作。"""
     if path.exists():
         path.unlink()
 
 
 def write_json_atomic(payload: dict[str, object], output_path: Path) -> None:
+    """先创建父目录，再通过临时 JSON 文件原子替换目标产物。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     try:
@@ -26,6 +28,7 @@ def write_json_atomic(payload: dict[str, object], output_path: Path) -> None:
 
 
 def write_csv_atomic(dataframe: pd.DataFrame, output_path: Path) -> None:
+    """先创建父目录，再通过临时 CSV 文件原子替换目标产物。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     try:
@@ -36,6 +39,7 @@ def write_csv_atomic(dataframe: pd.DataFrame, output_path: Path) -> None:
 
 
 def write_parquet_atomic(dataframe: pd.DataFrame, output_path: Path) -> None:
+    """先创建父目录，再通过临时 Parquet 文件原子替换目标产物。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     try:
@@ -46,6 +50,7 @@ def write_parquet_atomic(dataframe: pd.DataFrame, output_path: Path) -> None:
 
 
 def write_binary_atomic(payload: bytes, output_path: Path) -> None:
+    """先创建父目录，再通过临时二进制文件原子替换目标产物。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     try:

@@ -15,6 +15,7 @@ from fashion_trend.catalog.contracts import (
 
 
 def read_clean_articles(clean_articles_path: Path) -> pd.DataFrame:
+    """读取完整商品清洗 CSV，保留商品主键和产品编码为字符串。"""
     if not clean_articles_path.exists():
         raise FileNotFoundError(f"商品 clean 文件不存在: {clean_articles_path}")
 
@@ -28,6 +29,7 @@ def read_clean_articles(clean_articles_path: Path) -> pd.DataFrame:
 
 
 def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataFrame:
+    """读取商品-属性边表，并按列契约裁剪和设定 dtype。"""
     if not article_attribute_edges_path.exists():
         raise FileNotFoundError(f"商品-属性边表不存在: {article_attribute_edges_path}")
 
@@ -59,6 +61,7 @@ def read_article_attribute_edges(article_attribute_edges_path: Path) -> pd.DataF
 
 
 def read_attribute_nodes(attribute_nodes_path: Path) -> pd.DataFrame:
+    """读取属性节点表，并按列契约裁剪和设定 dtype。"""
     if not attribute_nodes_path.exists():
         raise FileNotFoundError(f"属性节点表不存在: {attribute_nodes_path}")
 
@@ -88,6 +91,7 @@ def read_attribute_nodes(attribute_nodes_path: Path) -> pd.DataFrame:
 def read_attribute_hierarchy_edges(
     attribute_hierarchy_edges_path: Path,
 ) -> pd.DataFrame:
+    """读取属性层级边表，并按列契约裁剪和设定 dtype。"""
     if not attribute_hierarchy_edges_path.exists():
         raise FileNotFoundError(f"属性层级边表不存在: {attribute_hierarchy_edges_path}")
 

@@ -145,7 +145,21 @@ def write_weekly_transactions(
     min_date: pd.Timestamp,
     chunksize: int = DEFAULT_CHUNKSIZE,
 ) -> int:
-    """按块读取原始交易表并写出周级交易 Parquet 文件。"""
+    """按块读取原始交易表并写出周级交易 Parquet 文件。
+
+    参数:
+        csv_path: H&M 原始 `transactions_train.csv` 路径。
+        output_path: 周级交易 Parquet 目标路径。
+        min_date: 全量交易表的最早交易日期，用于派生从 0 开始的周编号。
+        chunksize: pandas 分块读取行数。
+
+    返回:
+        成功写入 Parquet 的交易行数。
+
+    边界:
+        每个分块只读取必要交易列，先补 `week_id` 再写入同一个临时
+        Parquet；写入失败会删除临时文件，成功后才替换目标路径。
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_output_path = output_path.with_suffix(output_path.suffix + ".tmp")
     if tmp_output_path.exists():
@@ -196,7 +210,23 @@ def build_weekly_transactions(
     weekly_transactions_path: Path,
     chunksize: int = DEFAULT_CHUNKSIZE,
 ) -> None:
-    """构建 H&M 原始交易表对应的周级交易基础表。"""
+    """构建 H&M 原始交易表对应的周级交易基础表。
+
+    参数:
+        raw_transactions_path: 原始 `transactions_train.csv` 输入路径。
+        weekly_transactions_path: 派生周级交易 Parquet 输出路径。
+        chunksize: 日期扫描和正式写入时共享的分块读取行数。
+
+    返回:
+        None: 本函数只负责校验输入、派生周编号并写出目标产物。
+
+    异常:
+        RuntimeError: 当写入行数与日期范围扫描得到的原始行数不一致时抛出。
+
+    边界:
+        先扫描全表日期范围和总行数，再用最早日期派生 `week_id`；
+        `week_id` 公式和目标路径由上游调用方传入，不在此处重写。
+    """
     columns = read_csv_columns(raw_transactions_path)
     validate_required_columns(columns)
 

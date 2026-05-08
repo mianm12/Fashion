@@ -11,6 +11,7 @@ def build_attribute_graph_files(
     clean_articles_path: Path,
     graph_dir: Path,
 ) -> dict[str, int]:
+    """读取完整商品清洗表，构建并发布属性图 CSV 文件。"""
     clean_articles = read_clean_articles(clean_articles_path)
     graph_frames = build_attribute_graph_frames(clean_articles)
     graph_dir.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# `edges_article_attribute.csv` 的稳定列契约。
 ARTICLE_ATTRIBUTE_EDGE_COLUMNS: tuple[str, ...] = (
     "article_id",
     "attr_id",
@@ -7,6 +8,7 @@ ARTICLE_ATTRIBUTE_EDGE_COLUMNS: tuple[str, ...] = (
     "attr_value",
 )
 
+# 读取 `edges_article_attribute.csv` 时使用的稳定 dtype 契约。
 ARTICLE_ATTRIBUTE_EDGE_DTYPES: dict[str, str] = {
     "article_id": "string",
     "attr_id": "string",
@@ -14,6 +16,7 @@ ARTICLE_ATTRIBUTE_EDGE_DTYPES: dict[str, str] = {
     "attr_value": "string",
 }
 
+# `nodes_attribute.csv` 的稳定列契约。
 ATTRIBUTE_NODE_COLUMNS: tuple[str, ...] = (
     "attr_id",
     "attr_type",
@@ -22,6 +25,7 @@ ATTRIBUTE_NODE_COLUMNS: tuple[str, ...] = (
     "is_core_attr",
 )
 
+# 读取 `nodes_attribute.csv` 时使用的稳定 dtype 契约。
 ATTRIBUTE_NODE_DTYPES: dict[str, str] = {
     "attr_id": "string",
     "attr_type": "string",
@@ -30,6 +34,7 @@ ATTRIBUTE_NODE_DTYPES: dict[str, str] = {
     "is_core_attr": "int64",
 }
 
+# `edges_attribute_hierarchy.csv` 的稳定列契约。
 ATTRIBUTE_HIERARCHY_EDGE_COLUMNS: tuple[str, ...] = (
     "parent_attr_id",
     "child_attr_id",
@@ -39,6 +44,7 @@ ATTRIBUTE_HIERARCHY_EDGE_COLUMNS: tuple[str, ...] = (
     "edge_weight",
 )
 
+# 读取 `edges_attribute_hierarchy.csv` 时使用的稳定 dtype 契约。
 ATTRIBUTE_HIERARCHY_EDGE_DTYPES: dict[str, str] = {
     "parent_attr_id": "string",
     "child_attr_id": "string",

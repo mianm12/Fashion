@@ -20,6 +20,7 @@ from fashion_trend.catalog.graph.schema import (
 
 
 def build_article_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    """从完整清洗商品表构建 `nodes_article.csv` 商品节点表。"""
     required_columns = ["article_id", "product_code", "prod_name"]
     validate_required_columns(
         clean_articles.columns.tolist(),
@@ -44,6 +45,7 @@ def build_article_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_attribute_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    """从完整清洗商品表聚合属性值并构建 `nodes_attribute.csv`。"""
     validate_required_columns(
         clean_articles.columns.tolist(),
         ATTRIBUTE_COLUMNS,
@@ -91,6 +93,7 @@ def build_attribute_nodes(clean_articles: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_article_attribute_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    """从商品属性列展开 `edges_article_attribute.csv` 商品-属性边表。"""
     required_columns = ["article_id", *ATTRIBUTE_COLUMNS]
     validate_required_columns(
         clean_articles.columns.tolist(),
@@ -134,6 +137,18 @@ def build_article_attribute_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_attribute_hierarchy_edges(clean_articles: pd.DataFrame) -> pd.DataFrame:
+    """构建属性层级边表。
+
+    参数:
+        clean_articles: 完整商品清洗表，必须包含层级关系涉及的属性列。
+
+    返回:
+        按父子属性类型、节点标识和关系类型聚合后的属性层级边表。
+
+    边界:
+        关系定义完全来自 `HIERARCHY_RELATIONS`；边权重是商品表中对应
+        父子属性组合的出现次数，不在此处新增或推断其他关系。
+    """
     required_columns = tuple(
         dict.fromkeys(
             column for relation in HIERARCHY_RELATIONS for column in relation[:2]
@@ -189,6 +204,20 @@ def validate_graph_references(
     edges_article_attribute: pd.DataFrame,
     edges_attribute_hierarchy: pd.DataFrame,
 ) -> None:
+    """校验属性图边表只引用已经构建出的商品节点和属性节点。
+
+    参数:
+        nodes_article: 商品节点表。
+        nodes_attribute: 属性节点表。
+        edges_article_attribute: 商品-属性边表。
+        edges_attribute_hierarchy: 属性层级边表。
+
+    返回:
+        None: 校验通过时不返回业务数据。
+
+    异常:
+        RuntimeError: 任一边表引用缺失节点时抛出。
+    """
     article_node_ids = set(nodes_article["article_node_id"])
     attr_ids = set(nodes_attribute["attr_id"])
 
@@ -211,6 +240,18 @@ def validate_graph_references(
 def build_attribute_graph_frames(
     clean_articles: pd.DataFrame,
 ) -> dict[str, pd.DataFrame]:
+    """从完整商品清洗表构建属性图的四张内存表。
+
+    参数:
+        clean_articles: `articles_clean.csv` 对应的完整商品清洗表。
+
+    返回:
+        以图产物逻辑名为键、DataFrame 为值的四张属性图表。
+
+    边界:
+        先校验商品主键唯一，再分别构建商品节点、属性节点、商品-属性边和
+        属性层级边；所有边引用必须通过 `validate_graph_references()`。
+    """
     validate_required_columns(
         clean_articles.columns.tolist(),
         [ARTICLE_ID_COLUMN],

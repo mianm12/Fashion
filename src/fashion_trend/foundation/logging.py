@@ -137,7 +137,7 @@ def emit(
 
 
 def debug(message: str, source: str | None = None) -> None:
-    """输出 debug 级别日志。
+    """输出 debug 级别日志到标准输出。
 
     Args:
         message (str): 需要输出的日志正文。
@@ -150,7 +150,7 @@ def debug(message: str, source: str | None = None) -> None:
 
 
 def info(message: str, source: str | None = None) -> None:
-    """输出 info 级别日志。
+    """输出 info 级别日志到标准输出。
 
     Args:
         message (str): 需要输出的日志正文。
@@ -163,7 +163,7 @@ def info(message: str, source: str | None = None) -> None:
 
 
 def warning(message: str, source: str | None = None) -> None:
-    """输出 warning 级别日志。
+    """输出 warning 级别日志到标准错误。
 
     Args:
         message (str): 需要输出的日志正文。
@@ -176,7 +176,7 @@ def warning(message: str, source: str | None = None) -> None:
 
 
 def warn(message: str, source: str | None = None) -> None:
-    """输出 warning 级别日志，作为 `warning` 的简短别名。
+    """输出 warning 级别日志到标准错误，作为 `warning` 的简短别名。
 
     Args:
         message (str): 需要输出的日志正文。
@@ -189,7 +189,7 @@ def warn(message: str, source: str | None = None) -> None:
 
 
 def error(message: str, source: str | None = None) -> None:
-    """输出 error 级别日志。
+    """输出 error 级别日志到标准错误。
 
     Args:
         message (str): 需要输出的日志正文。
