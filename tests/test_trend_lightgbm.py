@@ -160,3 +160,140 @@ class TestLightGBMTrendModel:
 
         with pytest.raises(ValueError, match="attr_type"):
             lightgbm_model.prepare_lightgbm_feature_frame(samples)
+
+    def test_describe_target_distribution_returns_split_metric_mapping(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        samples = sample_trend_model_samples_for_split().assign(split="train")
+
+        distribution = lightgbm_model.describe_target_distribution({"train": samples})
+
+        assert set(distribution) == {"train"}
+        assert set(distribution["train"]) == {
+            "count",
+            "min",
+            "max",
+            "mean",
+            "std",
+            "p01",
+            "p05",
+            "p50",
+            "p95",
+            "p99",
+            "abs_gt_2",
+        }
+        assert distribution["train"]["count"] == len(samples)
+
+    def test_describe_residual_distribution_returns_valid_test_only(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
+
+        samples = _sample_lightgbm_samples("valid")
+        predictions = samples.loc[
+            :,
+            [
+                "week_id",
+                "attr_id",
+                "attr_type",
+                "attr_value",
+                "split",
+                "share_t",
+                "target_growth",
+                "target_rank_in_type_t1",
+            ],
+        ].copy()
+        predictions.insert(4, "model_name", "lightgbm")
+        predictions["pred_share_t1"] = [0.6, 0.4, 0.6, 0.4]
+        predictions["pred_target_growth"] = [0.1, -0.1, 0.2, -0.2]
+        predictions = predictions.loc[:, list(TREND_MODEL_PREDICTION_COLUMNS)]
+
+        distribution = lightgbm_model.describe_residual_distribution(
+            {"valid": predictions}
+        )
+
+        assert set(distribution) == {"valid"}
+        assert set(distribution["valid"]) == {
+            "count",
+            "min",
+            "max",
+            "mean",
+            "std",
+            "p01",
+            "p05",
+            "p50",
+            "p95",
+            "p99",
+            "mae",
+            "rmse",
+        }
+
+    def test_build_feature_importance_frame_normalizes_gain(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        booster = _FakeBooster(
+            feature_names=["growth_lag_1", "attr_type"],
+            split_importance=[3, 1],
+            gain_importance=[2.0, 6.0],
+        )
+
+        importance = lightgbm_model.build_feature_importance_frame(booster)
+
+        assert importance.to_dict(orient="records") == [
+            {
+                "feature": "growth_lag_1",
+                "split_importance": 3,
+                "gain_importance": 2.0,
+                "normalized_gain_importance": 0.25,
+            },
+            {
+                "feature": "attr_type",
+                "split_importance": 1,
+                "gain_importance": 6.0,
+                "normalized_gain_importance": 0.75,
+            },
+        ]
+
+    def test_build_feature_importance_frame_handles_zero_gain(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        booster = _FakeBooster(
+            feature_names=["growth_lag_1", "attr_type"],
+            split_importance=[0, 0],
+            gain_importance=[0.0, 0.0],
+        )
+
+        importance = lightgbm_model.build_feature_importance_frame(booster)
+
+        assert importance["normalized_gain_importance"].tolist() == [0.0, 0.0]
+
+
+def _sample_lightgbm_samples(split: str):
+    from tests.trend_samples import sample_trend_model_samples_for_split
+
+    samples = sample_trend_model_samples_for_split().head(4).copy()
+    samples["split"] = split
+    return samples
+
+
+class _FakeBooster:
+    def __init__(
+        self,
+        feature_names: list[str],
+        split_importance: list[int],
+        gain_importance: list[float],
+    ) -> None:
+        self._feature_names = feature_names
+        self._split_importance = split_importance
+        self._gain_importance = gain_importance
+
+    def feature_name(self) -> list[str]:
+        return list(self._feature_names)
+
+    def feature_importance(self, importance_type: str):
+        if importance_type == "split":
+            return list(self._split_importance)
+        if importance_type == "gain":
+            return list(self._gain_importance)
+        raise AssertionError(f"unexpected importance_type={importance_type}")
+
+    def model_to_string(self) -> str:
+        return "fake lightgbm model"

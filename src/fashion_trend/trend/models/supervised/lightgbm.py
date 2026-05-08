@@ -147,3 +147,101 @@ def _read_attr_type(
     attr_type = attr_values.astype(dtype)
     attr_type.name = "attr_type"
     return attr_type
+
+
+def describe_target_distribution(
+    split_frames: dict[str, pd.DataFrame],
+) -> dict[str, dict[str, float | int]]:
+    return {
+        split_name: _describe_target_series(split_frame[LIGHTGBM_TARGET_COLUMN])
+        for split_name, split_frame in split_frames.items()
+    }
+
+
+def describe_zero_share_rows(
+    split_frames: dict[str, pd.DataFrame],
+) -> dict[str, int]:
+    return {
+        split_name: int(
+            pd.to_numeric(split_frame["share_t"], errors="raise").eq(0).sum()
+        )
+        for split_name, split_frame in split_frames.items()
+    }
+
+
+def describe_residual_distribution(
+    prediction_frames: dict[str, pd.DataFrame],
+) -> dict[str, dict[str, float | int]]:
+    distribution: dict[str, dict[str, float | int]] = {}
+    for split_name, predictions in prediction_frames.items():
+        residual = (
+            pd.to_numeric(predictions["target_growth"], errors="raise")
+            - pd.to_numeric(predictions["pred_target_growth"], errors="raise")
+        )
+        summary = _describe_residual_series(residual)
+        summary["mae"] = float(residual.abs().mean())
+        summary["rmse"] = float(np.sqrt(np.square(residual).mean()))
+        distribution[split_name] = summary
+    return distribution
+
+
+def build_feature_importance_frame(booster) -> pd.DataFrame:
+    feature_names = list(booster.feature_name())
+    split_importance = np.asarray(
+        booster.feature_importance(importance_type="split"),
+        dtype=np.int64,
+    )
+    gain_importance = np.asarray(
+        booster.feature_importance(importance_type="gain"),
+        dtype=float,
+    )
+    total_gain = float(gain_importance.sum())
+    if total_gain > 0:
+        normalized_gain = gain_importance / total_gain
+    else:
+        normalized_gain = np.zeros_like(gain_importance, dtype=float)
+    importance = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "split_importance": split_importance,
+            "gain_importance": gain_importance,
+            "normalized_gain_importance": normalized_gain,
+        }
+    )
+    if not np.isfinite(
+        importance.loc[:, ["gain_importance", "normalized_gain_importance"]].to_numpy(
+            dtype=float
+        )
+    ).all():
+        raise ValueError("lightgbm 特征重要性存在非有限数值。")
+    return importance
+
+
+def _describe_numeric_series(series: pd.Series) -> dict[str, float | int]:
+    numeric = pd.to_numeric(series, errors="raise")
+    values = numeric.to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError("lightgbm 诊断数值存在非有限值。")
+    return {
+        "count": int(len(numeric)),
+        "min": float(numeric.min()),
+        "max": float(numeric.max()),
+        "mean": float(numeric.mean()),
+        "std": float(numeric.std(ddof=0)),
+        "p01": float(numeric.quantile(0.01)),
+        "p05": float(numeric.quantile(0.05)),
+        "p50": float(numeric.quantile(0.50)),
+        "p95": float(numeric.quantile(0.95)),
+        "p99": float(numeric.quantile(0.99)),
+    }
+
+
+def _describe_target_series(series: pd.Series) -> dict[str, float | int]:
+    summary = _describe_numeric_series(series)
+    numeric = pd.to_numeric(series, errors="raise")
+    summary["abs_gt_2"] = int(numeric.abs().gt(2).sum())
+    return summary
+
+
+def _describe_residual_series(series: pd.Series) -> dict[str, float | int]:
+    return _describe_numeric_series(series)
