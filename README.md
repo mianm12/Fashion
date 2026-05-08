@@ -665,4 +665,5 @@ uv run pytest
 - 趋势样本的 lag、移动窗口、图特征合入、目标合入和标签表与当前热度表一致性校验。
 - 趋势样本 train/valid/test 时间切分、切分读取、元数据写出和 split 合法性校验。
 - `last_week`、`previous_growth` 与 `moving_average` baseline 预测公式、预测表校验、通用训练 runner metadata、artifact 和写出顺序校验。
+- `lightgbm` 主模型的特征准备、延迟原生包导入、metadata 诊断、特征重要性、artifact 和训练/评价 runner 接入校验。
 - 趋势评价的预测读取、输入校验、分组指标、JSON payload、写出边界和 CLI 行为校验。
