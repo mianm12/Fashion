@@ -51,7 +51,7 @@ uv run python src/11_eval_trend_model.py --model lightgbm --run-id depth6-lr005
 
 会让训练和评价都绑定到同一个 run 目录。带 `--run-id`、`--params` 或 `--param` 的训练默认不发布到稳定目录；只有显式 `--promote` 才会更新 `outputs/models/lightgbm/`。也可以对无参数训练传 `--no-promote`，只保留 run 目录。
 
-`run_id` 必须通过安全路径片段校验，不能为空，不能是 `.`、`..`，不能包含 `/`，也不能逃逸模型输出根目录。
+`run_id` 必须通过安全路径片段校验，不能为空，不能是 `.`、`..`，不能包含 `/`，也不能逃逸模型输出根目录。自动生成格式固定为 `YYYYMMDD-HHMMSS-<8hex>`，时间使用本地时区；如果自动生成的目录已存在，则重新生成随机后缀，最多重试 10 次。
 
 如果用户手动指定的 `run_id` 已存在，训练默认失败，避免覆盖历史实验。稳定目录仍然允许被最新训练更新。
 
@@ -104,6 +104,7 @@ outputs/metrics/<baseline>/
 --param <key=value>
 --promote
 --no-promote
+--promote-run <safe_id>
 ```
 
 默认训练：
@@ -135,16 +136,25 @@ uv run python src/10_train_trend_model.py \
   --param num_leaves=63
 ```
 
+发布已评估 run：
+
+```sh
+uv run python src/10_train_trend_model.py --model lightgbm --promote-run depth6-lr005
+```
+
+`--promote-run` 是训练入口的互斥模式。它不重新训练，只校验 `outputs/models/lightgbm/runs/<run_id>/` 下的模型产物完整性，要求对应 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json` 已存在，然后把该 run 的模型产物发布到稳定目录并生成 stable metadata。
+
 promotion 规则：
 
 - 未传 `--run-id`、`--params`、`--param` 的无参数训练默认 `--promote`。
 - 传入 `--run-id`、`--params` 或 `--param` 的实验训练默认 `--no-promote`。
 - `--promote` 强制在 run 成功后发布稳定目录。
 - `--no-promote` 强制只保留 run 目录。
-- `--promote` 和 `--no-promote` 不能同时出现。
-- `--run-id`、`--params`、`--param`、`--promote`、`--no-promote` 只允许 `--model lightgbm` 使用；baseline 传入这些参数必须直接失败，不能静默忽略。
+- `--promote-run`、`--promote` 和 `--no-promote` 不能互相组合。
+- `--promote-run` 不能与 `--run-id`、`--params` 或 `--param` 组合。
+- `--run-id`、`--params`、`--param`、`--promote`、`--no-promote`、`--promote-run` 只允许 `--model lightgbm` 使用；baseline 传入这些参数必须直接失败，不能静默忽略。
 - 训练命令内的 `--promote` 只发布模型产物，不自动运行评价，也不发布 metrics。
-- 正式主模型的推荐流程是先 `train --no-promote`，再 `eval --run-id`，确认 valid/test 摘要后由后续显式 promote 能力发布 stable；本轮没有独立 promote 命令，因此手动 `--promote` 只适合已经明确接受的单次训练。
+- 正式主模型的推荐流程是先 `train --no-promote`，再 `eval --run-id`，确认 valid/test 摘要后通过 `--promote-run` 发布 stable。
 
 评价入口新增可选参数：
 
@@ -218,6 +228,7 @@ LightGBM 参数不再只能通过修改源码中的常量调整。内置默认�
 - `lightgbm_params` 和 `early_stopping` 都必须是 JSON object。
 - `--param key=value` 默认写入 `lightgbm_params.<key>`。
 - `--param early_stopping.stopping_rounds=50` 写入 `early_stopping.stopping_rounds`。
+- 除 `early_stopping.stopping_rounds` 外，其他 dotted key 一律拒绝；例如不支持 `lightgbm_params.learning_rate=0.03`。
 - `--param key=value` 按 JSON literal 优先解析，例如 `63` 是整数、`0.03` 是浮点、`true` 是布尔；解析失败时保留字符串。
 - 参数 key 必须属于允许清单。
 - 非法参数类型或范围必须在调用 LightGBM 前失败，不能把错误交给 LightGBM native 层。
@@ -252,7 +263,7 @@ verbosity
 | `max_depth` | `-1` 或正整数 |
 | `min_child_samples` | 正整数 |
 | `subsample` | `(0, 1]` 的有限数值 |
-| `subsample_freq` | 非负整数；当 `subsample < 1` 时建议为正整数，默认使用 `1` 让行采样实际生效 |
+| `subsample_freq` | 非负整数；当 `subsample < 1` 时必须为正整数，默认使用 `1` 让行采样实际生效 |
 | `colsample_bytree` | `(0, 1]` 的有限数值 |
 | `reg_alpha` | 非负有限数值 |
 | `reg_lambda` | 非负有限数值 |
@@ -298,13 +309,26 @@ verbosity
 
 稳定目录的 `metadata.json` 记录同一个 `run_id`。这样稳定目录始终是可被现有命令消费的当前主结果，而 run 目录保留不可覆盖的历史实验证据。
 
-训练成功后追加轻量索引：
+训练成功后更新轻量索引：
 
 ```text
 outputs/models/lightgbm/runs/index.jsonl
 ```
 
-每行包含 `run_id`、事件时间、事件类型、参数摘要、产物路径和 promotion 结果。后续系统调参可以直接读取该索引汇总结果；如果索引缺失，也可以扫描 `runs/*/metadata.json` 和稳定目录 metadata 恢复主要状态。
+`index.jsonl` 是可重建的 run summary 索引，不是事实来源。文件中每行代表一个 `run_id` 的当前摘要：
+
+```json
+{
+  "run_id": "depth6-lr005",
+  "created_at": "2026-05-08T15:30:12+08:00",
+  "run_dir": "outputs/models/lightgbm/runs/depth6-lr005",
+  "promotion_status": "not_requested",
+  "params_path": "outputs/models/lightgbm/runs/depth6-lr005/params.json",
+  "metadata_path": "outputs/models/lightgbm/runs/depth6-lr005/metadata.json"
+}
+```
+
+`promotion_status` 只允许 `not_requested`、`succeeded`、`failed`。训练、训练内 promotion 和 `--promote-run` 都通过原子重写 index 来 upsert 对应 `run_id` 的摘要。如果索引缺失，可以扫描 `runs/*/metadata.json`、稳定目录 metadata 和 metrics 文件恢复主要状态。
 
 ## Promotion 事务边界
 
@@ -313,10 +337,12 @@ run 目录是事实来源，stable 目录是 promotion 结果。训练输出顺�
 1. 在内存中完成训练、预测、参数、metadata 和 artifact 载荷构造。
 2. 先写入并发布 `outputs/models/lightgbm/runs/<run_id>/`。
 3. run 发布成功后，按 promotion 规则决定是否更新 `outputs/models/lightgbm/`。
-4. promotion 成功时，stable metadata 指向稳定目录，并向 `runs/index.jsonl` 追加 `promotion_succeeded` 事件。
-5. promotion 失败时，run 目录保留为事实来源，并尽力向 `runs/index.jsonl` 追加 `promotion_failed` 事件和错误摘要；CLI 返回失败，不能把失败的 stable 更新伪装成成功训练。
+4. promotion 成功时，stable metadata 指向稳定目录，并把 `index.jsonl` 中该 run 的 `promotion_status` 更新为 `succeeded`。
+5. promotion 失败时，run 目录保留为事实来源，并尽力把 `index.jsonl` 中该 run 的 `promotion_status` 更新为 `failed` 且记录错误摘要；CLI 返回失败，不能把失败的 stable 更新伪装成成功训练。
 
-run 写出失败时，不得更新 stable。stable 写出失败时，不得删除已经成功发布的 run。run metadata 发布后不再要求为了 promotion 结果回写；如果 index 事件也因磁盘或权限问题写入失败，CLI 仍返回失败，并在日志中输出 run 目录、stable 目录和 promotion 错误。后续可以单独设计显式 promote 命令，把已经成功的 run 发布为 stable；本轮实现只要求训练命令内的 promotion 行为。
+run 写出失败时，不得更新 stable。stable 写出失败时，不得删除已经成功发布的 run。run metadata 发布后不再要求为了 promotion 结果回写；如果 index 更新也因磁盘或权限问题失败，CLI 仍返回失败，并在日志中输出 run 目录、stable 目录和 promotion 错误。本轮实现包含训练命令内 promotion 和 `--promote-run` 两种发布路径。
+
+`--promote-run <run_id>` 复用同一套 promotion 发布逻辑，但输入来自已有 run 目录。它必须先校验标准模型产物、run metadata、`params.json` 和对应 run metrics 都存在且路径安全，再发布 stable。发布失败时不得修改 run 目录；发布成功后稳定目录 metadata 指向 stable 路径，并记录来源 `run_id`。
 
 ## 评价关联
 
@@ -376,7 +402,7 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 
 ## 实现边界
 
-本轮只为 `lightgbm` 建立 run 化训练和评价能力。baseline 仍保持当前稳定输出行为，不新增 run 目录。baseline 遇到 `--run-id`、`--params`、`--param`、`--promote` 或 `--no-promote` 必须直接失败。
+本轮只为 `lightgbm` 建立 run 化训练、评价和已评估 run 发布能力。baseline 仍保持当前稳定输出行为，不新增 run 目录。baseline 遇到 `--run-id`、`--params`、`--param`、`--promote`、`--no-promote` 或 `--promote-run` 必须直接失败。
 
 不新增编号脚本。`src/10_train_trend_model.py` 继续是训练入口，`src/11_eval_trend_model.py` 继续是评价入口。模型细节仍留在 `src/fashion_trend/trend/models/supervised/lightgbm.py`；通用路径、metadata、写盘和评价寻址能力放在 `src/fashion_trend/trend/training/` 与 `src/fashion_trend/trend/evaluation/`。
 
@@ -388,23 +414,28 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 
 - `derive_trend_model_output_paths("lightgbm", run_id="abc")` 派生到 `outputs/models/lightgbm/runs/abc/`。
 - 非安全 `run_id` 被拒绝，例如空字符串、`.`、`../x`、`nested/x`。
-- 自动 `run_id` 格式稳定，且不会覆盖已有 run 目录。
+- 自动 `run_id` 格式为 `YYYYMMDD-HHMMSS-<8hex>`，使用本地时区；自动生成冲突时最多重试 10 次。
+- 手动指定的 `run_id` 已存在时直接失败。
 - 无参数 LightGBM 训练默认 promote；带 `--run-id`、`--params` 或 `--param` 的实验训练默认不 promote。
-- `--promote` 和 `--no-promote` 互斥。
+- `--promote-run`、`--promote` 和 `--no-promote` 互斥。
+- `--promote-run` 不能与 `--run-id`、`--params` 或 `--param` 组合。
 - baseline 传入 run、参数或 promote 相关参数时直接失败。
 - LightGBM 不传参数时使用内置默认配置；本轮会有意新增 `subsample_freq: 1`，默认结果需要重新验收。
 - `--params` JSON 和 `--param` 覆盖按“内置默认 < 文件 < CLI”合并。
 - `--params` 只接受固定 shape：`lightgbm_params` 和 `early_stopping`。
 - `--param early_stopping.stopping_rounds=50` 能覆盖 early stopping。
+- 除 `early_stopping.stopping_rounds` 外，其他 dotted key 一律失败。
 - 未允许参数、非法 `objective`、非法 `early_stopping`、非法类型或非法范围会失败并给出可定位错误。
 - 训练成功后先写 run 目录；promotion 成功时再写稳定目录。
 - run metadata 和 stable metadata 分别按各自输出目录生成路径字段，并记录同一 `run_id`。
-- promotion 失败时保留 run，通过 `runs/index.jsonl` 记录失败事件；如果 index 也无法写入，则日志必须输出失败摘要，训练命令返回失败。
+- `index.jsonl` 是一行一个 run 的 summary index，`promotion_status` 只能是 `not_requested`、`succeeded` 或 `failed`。
+- promotion 失败时保留 run，通过 `runs/index.jsonl` 更新失败状态；如果 index 也无法写入，则日志必须输出失败摘要，训练命令返回失败。
+- `--promote-run <run_id>` 不重新训练，要求 run 产物和 run metrics 都存在，发布成功后稳定目录 metadata 指向 stable 路径并记录来源 run。
 - 显式 run 评价读取 `runs/<run_id>/predictions.csv`，写 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json`。
 - run 评价写入 `evaluations.jsonl`，其中 `selection_metrics` 只来自 valid split，`report_metrics` 可包含 test 摘要。
 - `--promote` 不自动运行评价或发布 metrics。
 - 默认评价仍读取稳定目录，现有 baseline 的评价测试不受影响。
-- README 和实施计划同步说明 run 目录、参数配置、promotion 风险、评价命令和重新验收要求。
+- README 和实施计划同步说明 run 目录、参数配置、`--promote-run` 工作流、promotion 风险、评价命令和重新验收要求。
 
 计划验证命令：
 
@@ -413,6 +444,7 @@ uv run pytest tests/test_trend_training.py tests/test_trend_lightgbm.py tests/te
 uv run pytest
 uv run python src/10_train_trend_model.py --model lightgbm --run-id smoke-lightgbm --no-promote
 uv run python src/11_eval_trend_model.py --model lightgbm --run-id smoke-lightgbm
+uv run python src/10_train_trend_model.py --model lightgbm --promote-run smoke-lightgbm
 ```
 
 真实 smoke 如果已有同名 run，应改用新的安全 id，不能覆盖已有历史 run。
