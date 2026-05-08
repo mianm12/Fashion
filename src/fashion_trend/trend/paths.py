@@ -27,7 +27,9 @@ TREND_MODEL_SAMPLES_TEST_PATH = FEATURES_DIR / "trend_model_samples_test.parquet
 TREND_MODEL_SAMPLES_SPLIT_METADATA_PATH = (
     FEATURES_DIR / "trend_model_samples_split_metadata.json"
 )
-# 验证集按最后测试窗口之前的连续周数留出。
+# 验证集配置为测试区间之前的连续 week_id 区间宽度；
+# 输入样本应来自完整连续周面板，否则实际观测周数可能少于该值。
 TREND_SPLIT_VALID_WEEKS = 8
-# 测试集按样本末尾连续周数留出。
+# 测试集配置为样本末尾的连续 week_id 区间宽度；
+# 输入样本应来自完整连续周面板，否则实际观测周数可能少于该值。
 TREND_SPLIT_TEST_WEEKS = 8

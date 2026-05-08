@@ -64,8 +64,9 @@ def build_attribute_week_target_frame(
     Returns:
         属性趋势标签表。每行保留第 `t` 周热度、占比和排名，并连接同一属性
         第 `t+1` 周的热度、占比、`log_heat` 与排名；`target_growth`
-        使用 `log((share_t1 + epsilon) / (share_t + epsilon))`。最后一周
-        没有未来目标，会在内连接中被排除。
+        使用 `log((share_t1 + epsilon) / (share_t + epsilon))`。没有
+        `week_id + 1` 记录的周会被排除；在当前完整连续周面板下，这等价于
+        最后一周被排除。
 
     Raises:
         ValueError: 当输入热度表不满足契约或 `epsilon` 不是正数时抛出。
@@ -95,7 +96,7 @@ def build_attribute_week_target_frame(
     next_week = attribute_week_heat.loc[
         :, ["week_id", "attr_id", "heat_cnt", "heat_share", "log_heat", "rank_in_type"]
     ].copy()
-    # 将 t+1 的记录回写到 t 的 week_id，内连接自然排除没有未来目标的最后一周。
+    # 将 t+1 的记录回写到 t 的 week_id，内连接只保留存在 week_id + 1 的周。
     next_week["week_id"] = next_week["week_id"] - 1
     next_week = next_week.rename(
         columns={
@@ -127,7 +128,7 @@ def validate_attribute_week_target(
 
     Args:
         attribute_week_target: 待校验的属性趋势标签表。
-        expected_week_count: 可选的源热度表周数，用于校验最后一周被排除后的行数。
+        expected_week_count: 可选的源热度表周数，用于按连续周面板校验目标行数。
         expected_attribute_count: 可选的属性数量，用于配合周数校验完整行数。
         epsilon: 与构造阶段一致的增长率平滑参数。
 

@@ -69,7 +69,7 @@ def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.Data
 
 
 def validate_article_week_sales(article_week_sales: pd.DataFrame) -> None:
-    """校验 `article_week_sales.csv` 商品周销量表的列、主键和非负数值。"""
+    """校验商品周销量表的列、主键、正销量/用户数和非负销售额。"""
     validate_required_columns(
         article_week_sales,
         ARTICLE_WEEK_SALES_COLUMNS,

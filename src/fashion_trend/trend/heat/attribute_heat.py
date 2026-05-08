@@ -171,7 +171,8 @@ def build_attribute_week_heat_frame(
 
     Args:
         article_week_sales: 商品周销量表，提供每个商品在每周的销售次数。
-        article_attribute_edges: 商品-属性边表，用于把商品销量分摊到属性。
+        article_attribute_edges: 商品-属性边表，用于把商品销量投影到关联属性；
+            每条商品-属性边贡献完整 `sales_cnt`，不按属性数平摊。
         attribute_nodes: 属性节点表，提供完整属性全集和属性元数据。
 
     Returns:

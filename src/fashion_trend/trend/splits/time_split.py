@@ -25,13 +25,14 @@ def build_trend_model_split_frames(
 
     Args:
         trend_model_samples: 完整趋势训练样本表。
-        valid_weeks: 从测试窗口之前留出的连续验证周数。
-        test_weeks: 从样本尾部留出的连续测试周数。
+        valid_weeks: 从测试区间之前留出的连续 `week_id` 验证区间宽度。
+        test_weeks: 从样本尾部留出的连续 `week_id` 测试区间宽度。
 
     Returns:
         `train`、`valid`、`test` 三个样本表。训练集覆盖验证窗口之前的周，
-        验证集覆盖测试窗口之前的连续周，测试集覆盖最后连续周；验证和测试
-        都按时间留出，不与更早样本混排。
+        验证集覆盖测试窗口之前的连续 `week_id` 区间，测试集覆盖末尾连续
+        `week_id` 区间。输入样本应来自完整连续周面板；如果 `week_id`
+        有缺口，实际观测周数可能少于配置值。
 
     Raises:
         ValueError: 当样本契约、窗口大小或可切分周数不满足要求时抛出。
@@ -165,11 +166,11 @@ def build_trend_model_split_metadata(
         split_frames: 已通过校验的训练、验证、测试切分表。
         input_path: 原始趋势训练样本表路径。
         output_paths: 各 split 对应的写出路径。
-        valid_weeks: 本次切分使用的验证窗口周数。
-        test_weeks: 本次切分使用的测试窗口周数。
+        valid_weeks: 本次切分使用的验证 `week_id` 区间宽度。
+        test_weeks: 本次切分使用的测试 `week_id` 区间宽度。
 
     Returns:
-        描述时间切分策略、输入路径、窗口大小和各 split 行数及周范围的字典。
+        描述时间切分策略、输入路径、区间宽度和各 split 行数及周范围的字典。
 
     Raises:
         ValueError: 当切分表不满足时间切分契约时抛出。
