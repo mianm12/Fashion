@@ -31,7 +31,7 @@ def split_trend_model_samples() -> dict[str, object]:
         3. 校验切分覆盖关系并写出 split parquet。
         4. 写出切分元数据并返回完整摘要。
 
-    Returns:
+    返回:
         dict[str, object]: 切分行数、周范围、输出路径和参数摘要。
     """
     input_path = TREND_MODEL_SAMPLES_PATH

@@ -17,10 +17,10 @@ _default_source: str | None = None
 def set_source(source: str | None) -> None:
     """设置当前进程默认日志来源名称。
 
-    Args:
+    参数:
         source (str | None): 默认日志来源名称；传入 None 时清空默认来源。
 
-    Returns:
+    返回:
         None: 本函数仅更新日志模块上下文，不返回业务数据。
     """
     global _default_source
@@ -30,10 +30,10 @@ def set_source(source: str | None) -> None:
 def current_source() -> str | None:
     """获取当前默认日志来源名称。
 
-    Args:
+    参数:
         None: 本函数不接收外部参数。
 
-    Returns:
+    返回:
         str | None: 当前默认日志来源名称；未设置时返回 None。
     """
     return _default_source
@@ -42,10 +42,10 @@ def current_source() -> str | None:
 def resolve_source(source: str | None) -> str | None:
     """解析单条日志实际使用的来源名称。
 
-    Args:
+    参数:
         source (str | None): 单条日志显式传入的来源名称。
 
-    Returns:
+    返回:
         str | None: 显式来源优先；未传入时使用默认来源。
     """
     if source is not None:
@@ -57,10 +57,10 @@ def resolve_source(source: str | None) -> str | None:
 def current_log_level() -> str:
     """获取当前运行环境配置的日志级别。
 
-    Args:
+    参数:
         None: 本函数直接读取 `FASHION_TREND_LOG_LEVEL` 环境变量。
 
-    Returns:
+    返回:
         str: 当前生效的日志级别名称；非法配置会回退到默认 `INFO`。
     """
     level_name = os.getenv("FASHION_TREND_LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
@@ -73,13 +73,13 @@ def current_log_level() -> str:
 def is_enabled(level_name: str) -> bool:
     """判断指定日志级别当前是否允许输出。
 
-    Args:
+    参数:
         level_name (str): 待判断的日志级别名称。
 
-    Returns:
+    返回:
         bool: 当指定级别不低于当前配置级别时返回 True，否则返回 False。
 
-    Raises:
+    异常:
         ValueError: 当传入未知日志级别名称时抛出。
     """
     normalized_level_name = level_name.upper()
@@ -93,12 +93,12 @@ def is_enabled(level_name: str) -> bool:
 def format_message(level_name: str, message: str, source: str | None = None) -> str:
     """格式化标准日志文本。
 
-    Args:
+    参数:
         level_name (str): 日志级别名称。
         message (str): 需要输出的日志正文。
-        source (str | None, optional): 日志来源名称。Defaults to None.
+        source (str | None，可选): 日志来源名称，默认为 None。
 
-    Returns:
+    返回:
         str: 拼接级别、来源和正文后的日志文本。
     """
     normalized_level_name = level_name.upper()
@@ -116,13 +116,13 @@ def emit(
 ) -> None:
     """按日志级别和目标流输出日志。
 
-    Args:
+    参数:
         level_name (str): 日志级别名称。
         message (str): 需要输出的日志正文。
         source (str | None): 日志来源名称。
         stream (TextIO): 日志输出目标流。
 
-    Returns:
+    返回:
         None: 本函数仅负责输出日志，不返回业务数据。
     """
     normalized_level_name = level_name.upper()
@@ -139,11 +139,11 @@ def emit(
 def debug(message: str, source: str | None = None) -> None:
     """输出 debug 级别日志到标准输出。
 
-    Args:
+    参数:
         message (str): 需要输出的日志正文。
-        source (str | None, optional): 日志来源名称。Defaults to None.
+        source (str | None，可选): 日志来源名称，默认为 None。
 
-    Returns:
+    返回:
         None: 本函数仅负责输出日志，不返回业务数据。
     """
     emit("DEBUG", message, source, sys.stdout)
@@ -152,11 +152,11 @@ def debug(message: str, source: str | None = None) -> None:
 def info(message: str, source: str | None = None) -> None:
     """输出 info 级别日志到标准输出。
 
-    Args:
+    参数:
         message (str): 需要输出的日志正文。
-        source (str | None, optional): 日志来源名称。Defaults to None.
+        source (str | None，可选): 日志来源名称，默认为 None。
 
-    Returns:
+    返回:
         None: 本函数仅负责输出日志，不返回业务数据。
     """
     emit("INFO", message, source, sys.stdout)
@@ -165,11 +165,11 @@ def info(message: str, source: str | None = None) -> None:
 def warning(message: str, source: str | None = None) -> None:
     """输出 warning 级别日志到标准错误。
 
-    Args:
+    参数:
         message (str): 需要输出的日志正文。
-        source (str | None, optional): 日志来源名称。Defaults to None.
+        source (str | None，可选): 日志来源名称，默认为 None。
 
-    Returns:
+    返回:
         None: 本函数仅负责输出日志，不返回业务数据。
     """
     emit("WARNING", message, source, sys.stderr)
@@ -178,11 +178,11 @@ def warning(message: str, source: str | None = None) -> None:
 def warn(message: str, source: str | None = None) -> None:
     """输出 warning 级别日志到标准错误，作为 `warning` 的简短别名。
 
-    Args:
+    参数:
         message (str): 需要输出的日志正文。
-        source (str | None, optional): 日志来源名称。Defaults to None.
+        source (str | None，可选): 日志来源名称，默认为 None。
 
-    Returns:
+    返回:
         None: 本函数仅负责输出日志，不返回业务数据。
     """
     warning(message, source=source)
@@ -191,11 +191,11 @@ def warn(message: str, source: str | None = None) -> None:
 def error(message: str, source: str | None = None) -> None:
     """输出 error 级别日志到标准错误。
 
-    Args:
+    参数:
         message (str): 需要输出的日志正文。
-        source (str | None, optional): 日志来源名称。Defaults to None.
+        source (str | None，可选): 日志来源名称，默认为 None。
 
-    Returns:
+    返回:
         None: 本函数仅负责输出日志，不返回业务数据。
     """
     emit("ERROR", message, source, sys.stderr)

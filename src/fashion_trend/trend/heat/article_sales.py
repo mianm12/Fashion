@@ -21,13 +21,13 @@ from fashion_trend.trend.schema import (
 def build_article_week_sales_frame(weekly_transactions: pd.DataFrame) -> pd.DataFrame:
     """聚合周级交易表，生成商品周销量表。
 
-    Args:
+    参数:
         weekly_transactions: 已按交易周展开的明细表，必须满足周级交易列契约。
 
-    Returns:
+    返回:
         按 `week_id + article_id` 聚合后的销量、购买用户数和销售额表。
 
-    Raises:
+    异常:
         ValueError: 当输入缺少必要列、存在缺失值或价格为负时抛出。
     """
     validate_required_columns(

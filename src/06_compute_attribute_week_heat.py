@@ -37,7 +37,7 @@ def compute_attribute_week_heat() -> dict[str, int]:
         3. 构建、校验并写出 attribute_week_heat.csv。
         4. 返回输出行数、周数、属性类型数和属性节点数摘要。
 
-    Returns:
+    返回:
         dict[str, int]: 属性周热度产物的行数、周数、属性类型数和属性数。
     """
     log.info(f"输入商品周销量表: {TREND_ARTICLE_WEEK_SALES_PATH}", source=LOG_SOURCE)

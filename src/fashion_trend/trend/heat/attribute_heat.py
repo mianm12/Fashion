@@ -169,19 +169,19 @@ def build_attribute_week_heat_frame(
 ) -> pd.DataFrame:
     """构建完整属性周热度面板。
 
-    Args:
+    参数:
         article_week_sales: 商品周销量表，提供每个商品在每周的销售次数。
         article_attribute_edges: 商品-属性边表，用于把商品销量投影到关联属性；
             每条商品-属性边贡献完整 `sales_cnt`，不按属性数平摊。
         attribute_nodes: 属性节点表，提供完整属性全集和属性元数据。
 
-    Returns:
+    返回:
         完整 `week_id x attr_id` 面板。未观测到销量的属性周填充为
         `heat_cnt=0`，再按 `week_id + attr_type` 计算 `type_total_heat`
         和 `heat_share`，用 `log1p(heat_cnt)` 生成 `log_heat`，并按
         `week_id`、`attr_type`、`heat_cnt` 降序、`attr_id` 升序生成稳定排名。
 
-    Raises:
+    异常:
         ValueError: 当输入契约、商品映射、属性节点或元数据一致性不满足要求时抛出。
     """
     validate_article_week_sales(article_week_sales)
@@ -267,12 +267,12 @@ def validate_attribute_week_heat(
 ) -> None:
     """校验属性周热度表的完整性和派生字段一致性。
 
-    Args:
+    参数:
         attribute_week_heat: 待校验的属性周热度表。
         expected_week_ids: 可选的预期周集合，用于校验完整面板周范围。
         expected_attribute_nodes: 可选的属性节点表，用于校验属性全集和行数。
 
-    Raises:
+    异常:
         ValueError: 当列契约、主键、非负约束、占比、`log1p` 或排名不一致时抛出。
     """
     validate_required_columns(

@@ -13,10 +13,10 @@ def main() -> int:
 
     稳定输出产物为 transactions_train_weekly.parquet。
 
-    Args:
+    参数:
         None: 本函数直接读取项目路径配置，不接收外部参数。
 
-    Returns:
+    返回:
         int: 进程退出码；0 表示成功，1 表示遇到可定位的处理错误。
     """
     try:

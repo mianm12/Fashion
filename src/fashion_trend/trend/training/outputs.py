@@ -32,6 +32,18 @@ def derive_trend_model_output_paths(
     model_name: str,
     output_root: Path = OUTPUT_MODELS_DIR,
 ) -> dict[str, Path]:
+    """派生趋势模型标准输出路径。
+
+    参数:
+        model_name: 模型名称，也是输出根目录下的安全路径片段。
+        output_root: 模型输出根目录，默认使用 `outputs/models`。
+
+    返回:
+        包含输出目录、预测表、参数文件和元数据文件的路径映射。
+
+    异常:
+        ValueError: 当模型名称不是安全路径片段，或输出目录越出根目录时抛出。
+    """
     validate_safe_path_segment(model_name, "model_name")
     output_dir = output_root / model_name
     validate_output_parent_dirs(output_dir, output_root)

@@ -21,7 +21,7 @@ def compute_article_week_sales() -> dict[str, int]:
         2. 构建并校验商品-周粒度销量表。
         3. 写出 article_week_sales.csv 并返回输出摘要。
 
-    Returns:
+    返回:
         dict[str, int]: 输出行数、覆盖周数和覆盖商品数。
     """
     log.info(f"输入周级交易表: {WEEKLY_TRANSACTIONS_PATH}", source=LOG_SOURCE)

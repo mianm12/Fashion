@@ -57,18 +57,18 @@ def build_attribute_week_target_frame(
 ) -> pd.DataFrame:
     """由属性周热度表构造 `t -> t+1` 趋势标签。
 
-    Args:
+    参数:
         attribute_week_heat: 完整属性周热度面板。
         epsilon: 用于平滑占比增长率的正数，避免零占比分母。
 
-    Returns:
+    返回:
         属性趋势标签表。每行保留第 `t` 周热度、占比和排名，并连接同一属性
         第 `t+1` 周的热度、占比、`log_heat` 与排名；`target_growth`
         使用 `log((share_t1 + epsilon) / (share_t + epsilon))`。没有
         `week_id + 1` 记录的周会被排除；在当前完整连续周面板下，这等价于
         最后一周被排除。
 
-    Raises:
+    异常:
         ValueError: 当输入热度表不满足契约或 `epsilon` 不是正数时抛出。
     """
     validate_attribute_week_heat(attribute_week_heat)
@@ -126,13 +126,13 @@ def validate_attribute_week_target(
 ) -> None:
     """校验属性趋势标签表的列契约、键约束和目标公式。
 
-    Args:
+    参数:
         attribute_week_target: 待校验的属性趋势标签表。
         expected_week_count: 可选的源热度表周数，用于按连续周面板校验目标行数。
         expected_attribute_count: 可选的属性数量，用于配合周数校验完整行数。
         epsilon: 与构造阶段一致的增长率平滑参数。
 
-    Raises:
+    异常:
         ValueError: 当行数、数值有限性、占比范围、`target_growth`
             或 `target_log_heat_t1` 不满足契约时抛出。
     """
@@ -214,12 +214,12 @@ def validate_attribute_week_target_matches_heat(
 ) -> None:
     """校验趋势标签表与当前属性周热度表重新派生的结果完全一致。
 
-    Args:
+    参数:
         attribute_week_heat: 作为事实来源的完整属性周热度表。
         attribute_week_target: 待校验的属性趋势标签表。
         epsilon: 与构造阶段一致的增长率平滑参数。
 
-    Raises:
+    异常:
         ValueError: 当目标键、属性元数据或数值字段与热度表派生结果不一致时抛出。
     """
     expected_target = build_attribute_week_target_frame(

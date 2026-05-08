@@ -23,18 +23,18 @@ def build_trend_model_split_frames(
 ) -> dict[str, pd.DataFrame]:
     """按时间顺序切分趋势模型样本。
 
-    Args:
+    参数:
         trend_model_samples: 完整趋势训练样本表。
         valid_weeks: 从测试区间之前留出的连续 `week_id` 验证区间宽度。
         test_weeks: 从样本尾部留出的连续 `week_id` 测试区间宽度。
 
-    Returns:
+    返回:
         `train`、`valid`、`test` 三个样本表。训练集覆盖验证窗口之前的周，
         验证集覆盖测试窗口之前的连续 `week_id` 区间，测试集覆盖末尾连续
         `week_id` 区间。输入样本应来自完整连续周面板；如果 `week_id`
         有缺口，实际观测周数可能少于配置值。
 
-    Raises:
+    异常:
         ValueError: 当样本契约、窗口大小或可切分周数不满足要求时抛出。
     """
     validate_trend_model_samples(trend_model_samples)
@@ -82,11 +82,11 @@ def validate_trend_model_split_frames(
 ) -> None:
     """校验训练、验证、测试切分完整且周范围按时间递增。
 
-    Args:
+    参数:
         split_frames: 按 split 名称索引的切分样本表。
         original_samples: 可选的原始样本表，用于校验切分合并后覆盖全集。
 
-    Raises:
+    异常:
         ValueError: 当 split 缺失、单个 split 无效、周范围重叠或覆盖不全时抛出。
     """
     missing_splits = set(TREND_MODEL_SPLIT_VALUES) - set(split_frames)
@@ -162,17 +162,17 @@ def build_trend_model_split_metadata(
 ) -> dict[str, object]:
     """构造时间切分元数据 JSON payload。
 
-    Args:
+    参数:
         split_frames: 已通过校验的训练、验证、测试切分表。
         input_path: 原始趋势训练样本表路径。
         output_paths: 各 split 对应的写出路径。
         valid_weeks: 本次切分使用的验证 `week_id` 区间宽度。
         test_weeks: 本次切分使用的测试 `week_id` 区间宽度。
 
-    Returns:
+    返回:
         描述时间切分策略、输入路径、区间宽度和各 split 行数及周范围的字典。
 
-    Raises:
+    异常:
         ValueError: 当切分表不满足时间切分契约时抛出。
     """
     validate_trend_model_split_frames(split_frames)
