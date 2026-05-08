@@ -50,7 +50,7 @@ H&M 数据集本身提供交易记录、商品元数据和用户元数据，其�
 | 4. 属性周热度计算  | 周级交易表 + 商品—属性边                                          | 将商品购买次数聚合到属性节点                       | `attribute_week_heat.csv`     |
 | 5. 趋势标签定义   | 属性周热度表                                                  | 计算下一周增长率、热度变化                        | `attribute_week_target.csv`   |
 | 6. 趋势样本构造   | 属性热度 + 图特征 + 时间特征                                       | 构造 lag、移动平均、增长率、父级热度等特征              | `trend_model_samples.parquet` |
-| 7. 趋势模型训练   | 趋势样本                                                    | baseline + LightGBM Regressor        | 趋势预测模型与预测结果                   |
+| 7. 趋势模型训练   | 趋势样本                                                    | Last Week Heat、Previous Growth、Moving Average + LightGBM Regressor | 趋势预测模型与预测结果                   |
 | 8. 趋势评价     | 真实趋势 + 预测趋势                                             | MAE、RMSE、Spearman、NDCG@K、Precision@K | 趋势实验结果                        |
 | 9. 推荐模块     | 用户历史 + 商品属性 + 趋势预测                                      | 候选召回 + 线性加权重排序                       | Top-12 推荐列表                   |
 | 10. 推荐评价与展示 | 推荐列表 + 测试周真实购买                                          | MAP@12、Recall@12、HitRate@12、Coverage | 推荐实验结果与展示页面                   |
@@ -820,14 +820,11 @@ $$
 
 ## 9.1 趋势预测 baseline
 
-| 模型                 | 公式 / 方法                                       | 是否必须 | 作用       |
-| ------------------ | --------------------------------------------- | ---: | -------- |
-| Last Week Heat     | $\hat{s}_{a,t+1}=s_{a,t}$                     |   必须 | 最简单基线    |
-| Moving Average（当前 moving_average 语义） | $\hat{y}_{a,t}=\operatorname{mean}(\mathrm{growth\_lag\_1},\mathrm{growth\_lag\_2})$ |   必须 | 平滑增长基线，当前由 `moving_average` 实现 |
-| Previous Growth（当前 last_week 语义） | $\hat{y}_{a,t}=y_{a,t-1}$                     |   必须 | 增长趋势基线，当前由 `last_week` 的 `growth_lag_1` 语义覆盖 |
-| Linear Regression  | 线性回归                                          |   建议 | 传统机器学习对照 |
-| Ridge Regression   | L2 正则线性回归                                     |   建议 | 稳定线性模型   |
-| LightGBM Regressor | 梯度提升树回归                                       |   必须 | 主模型      |
+| 模型              | 当前实现名 | 公式 / 方法                                                                 | 是否必须 | 作用       |
+| ----------------- | ---------- | --------------------------------------------------------------------------- | ---: | ---------- |
+| Last Week Heat    | `last_week` | $\hat{s}_{a,t+1}=\operatorname{normalize}(s_{a,t})$                         |   必须 | 当前 share 热度持平/归一化基线 |
+| Previous Growth   | `previous_growth` | $\hat{y}_{a,t}=\mathrm{growth\_lag\_1}$                                      |   必须 | 上一期增长率基线 |
+| Moving Average    | `moving_average` | $\hat{y}_{a,t}=\operatorname{mean}(\mathrm{growth\_lag\_1},\mathrm{growth\_lag\_2})$ |   必须 | 平滑增长基线 |
 
 ---
 
@@ -1204,7 +1201,7 @@ MVP 的目标是：
 | 层级边      | 至少构建 `product_group → product_type`      |
 | 属性热度     | 计算 `heat_cnt`, `heat_share`, `log_heat`  |
 | 趋势标签     | 使用 `target_growth`                       |
-| baseline | Last Week / Previous Growth、Moving Average |
+| baseline | Last Week Heat、Previous Growth、Moving Average |
 | 主模型      | LightGBM Regressor                       |
 | 趋势评价     | MAE、Spearman、NDCG@10                     |
 | 推荐       | Recent Popularity + Similarity + Trend   |
@@ -1631,18 +1628,22 @@ trend_model_samples.parquet
 
 ```text
 src/10_train_trend_model.py --model last_week
+src/10_train_trend_model.py --model previous_growth
 src/10_train_trend_model.py --model moving_average
 ```
 
-当前实现中，`last_week` 使用 `growth_lag_1` 预测 `target_growth`，承担原计划中
-Previous Growth 的增长趋势基线语义；`moving_average` 使用最近两段增长的均值作为平滑
-baseline。两者派生 `pred_share_t1` 时，先按 `target_growth` 的逆运算得到原始预测占比，
-再在同一 `split/week_id/attr_type` 内对非负原始值归一化，保证输出是合法占比分布。
+当前实现中，`last_week` 是当前 share 热度持平/归一化基线：
+`pred_share_t1 = group_normalize(share_t)`，再由预测份额和当前份额派生
+`pred_target_growth`；`previous_growth` 使用 `growth_lag_1` 预测 `target_growth`；
+`moving_average` 使用最近两段增长的均值作为平滑增长 baseline。`previous_growth`
+和 `moving_average` 派生 `pred_share_t1` 时，先按 `target_growth` 的逆运算得到原始
+预测占比，再在同一 `split/week_id/attr_type` 内对非负原始值归一化，保证输出是合法占比分布。
 
 必须实现：
 
 ```text
-Last Week / Previous Growth（当前 `last_week`）
+Last Week Heat
+Previous Growth
 Moving Average
 ```
 
@@ -1846,7 +1847,7 @@ outputs/reports/case_studies/
 
 | 实验                                      | 目的               |
 | --------------------------------------- | ---------------- |
-| Last Week vs Moving Average vs LightGBM | 证明主模型优于简单基线      |
+| Last Week Heat vs Previous Growth vs Moving Average vs LightGBM | 证明主模型优于简单基线      |
 | 使用 `heat_cnt` vs `heat_share`           | 证明标准化热度更适合趋势     |
 | 无图特征 vs 有图特征                            | 证明属性图有价值         |
 | 按属性类型评价                                 | 分析颜色、品类、图案哪个更易预测 |
@@ -2001,7 +2002,7 @@ active_weeks >= 8
 | 静态商品属性图      | 节点表、边表、图示                     |
 | 属性周热度序列      | `attribute_week_heat.csv`     |
 | 趋势预测数据集      | `trend_model_samples.parquet` |
-| baseline 实验  | 至少 3 个 baseline               |
+| baseline 实验  | Last Week Heat、Previous Growth、Moving Average |
 | LightGBM 主模型 | 趋势预测结果                        |
 | 趋势评价表        | MAE、Spearman、NDCG@K           |
 | 趋势属性榜单       | 下周上升颜色、品类、图案                  |
@@ -2110,7 +2111,7 @@ $$
 * 加入属性静态特征；
 * 加入父属性热度特征。
 
-完成趋势样本构建并执行时间切分后，主任务数据集就已经成型，可以开始训练 baseline；LightGBM 入口后续待新增。
+完成趋势样本构建并执行时间切分后，主任务数据集就已经成型，可以开始训练三类 baseline；LightGBM 入口后续待新增。
 
 [1]: https://huggingface.co/datasets/davanstrien/datasets_with_metadata_and_summaries/viewer "davanstrien/datasets_with_metadata_and_summaries · Datasets at Hugging Face"
 [2]: https://awinml.github.io/h-m-personalized-product-recommendations/ "H&M Personalized Product Recommendations"
