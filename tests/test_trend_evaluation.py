@@ -568,6 +568,47 @@ class TestTrendEvaluation:
                 prediction_path=run_dir / "predictions.csv",
             )
 
+    @pytest.mark.parametrize(
+        "field_path, bad_value, message",
+        [
+            (("overall", "valid", "mae"), float("nan"), "strict JSON|有限数值|mae"),
+            (
+                ("overall", "test", "precision_at_k", "10"),
+                "bad",
+                "有限数值|precision_at_k",
+            ),
+            (
+                ("by_attr_type", "valid", "colour_group_name", "rmse"),
+                "bad",
+                "有限数值|by_attr_type",
+            ),
+        ],
+    )
+    def test_validate_lightgbm_run_metrics_payload_rejects_invalid_metric_values(
+        self,
+        tmp_path: Path,
+        field_path: tuple[str, ...],
+        bad_value: object,
+        message: str,
+    ) -> None:
+        from fashion_trend.trend.evaluation.run_artifacts import (
+            validate_lightgbm_run_metrics_payload,
+        )
+
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+        payload = _sample_lightgbm_run_metrics_payload(run_dir)
+        target = payload
+        for key in field_path[:-1]:
+            target = target[key]
+        target[field_path[-1]] = bad_value
+
+        with pytest.raises(ValueError, match=message):
+            validate_lightgbm_run_metrics_payload(
+                payload,
+                run_id="depth6-lr005",
+                prediction_path=run_dir / "predictions.csv",
+            )
+
     def test_validate_lightgbm_run_metadata_payload_rejects_mismatched_paths(
         self,
         tmp_path: Path,
@@ -811,3 +852,39 @@ class TestTrendEvaluation:
         eval_model = importlib.import_module("11_eval_trend_model")
 
         assert eval_model.main(["--model", "last_week", "--run-id", "bad"]) == 2
+
+
+def _sample_lightgbm_run_metrics_payload(run_dir: Path) -> dict[str, object]:
+    split_metrics = {
+        "mae": 0.5,
+        "rmse": 0.7,
+        "spearman": 0.2,
+        "precision_at_k": {"10": 0.4},
+        "recall_at_k": {"10": 0.4},
+        "ndcg_at_k": {"10": 0.6},
+    }
+    return {
+        "model_name": "lightgbm",
+        "run_id": "depth6-lr005",
+        "prediction_path": str(run_dir / "predictions.csv"),
+        "output_path": str(run_dir / "trend_metrics.json"),
+        "evaluated_splits": ["valid", "test"],
+        "ranking": {
+            "target_column": "target_growth",
+            "prediction_column": "pred_target_growth",
+            "group_by": ["week_id", "attr_type"],
+            "k_values": [10],
+        },
+        "overall": {
+            "valid": dict(split_metrics),
+            "test": dict(split_metrics),
+        },
+        "by_attr_type": {
+            "valid": {"colour_group_name": dict(split_metrics)},
+            "test": {"colour_group_name": dict(split_metrics)},
+        },
+        "groups": {
+            "valid": {"ranking_groups": 4},
+            "test": {"ranking_groups": 4},
+        },
+    }

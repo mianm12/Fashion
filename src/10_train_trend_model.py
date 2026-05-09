@@ -98,22 +98,38 @@ def main(argv: Sequence[str] | None = None) -> int:
                 metrics_output_root=OUTPUT_METRICS_DIR,
             )
         else:
-            output_paths = _derive_training_log_paths(args.model, run_id=args.run_id)
             for split_name in TREND_MODEL_SPLIT_VALUES:
                 log.info(
                     f"输入 {split_name} 样本: "
                     f"{TREND_MODEL_SAMPLE_SPLIT_PATHS[split_name]}",
                     source=LOG_SOURCE,
                 )
-            log.info(
-                "业务阶段: split 样本 -> "
-                f"{_format_path_for_log(output_paths['predictions'])}",
-                source=LOG_SOURCE,
-            )
-            log.info(
-                f"输出目录: {_format_path_for_log(output_paths['output_dir'])}",
-                source=LOG_SOURCE,
-            )
+            if _should_defer_lightgbm_run_output_log(args):
+                log.info(
+                    "业务阶段: split 样本 -> "
+                    "outputs/models/lightgbm/runs/<auto-run-id>/predictions.csv"
+                    "（run_id 生成后确定，最终路径以 metadata 为准）",
+                    source=LOG_SOURCE,
+                )
+                log.info(
+                    "输出目录: outputs/models/lightgbm/runs/<auto-run-id>"
+                    "（run_id 生成后确定，最终路径以 metadata 为准）",
+                    source=LOG_SOURCE,
+                )
+            else:
+                output_paths = _derive_training_log_paths(
+                    args.model,
+                    run_id=args.run_id,
+                )
+                log.info(
+                    "业务阶段: split 样本 -> "
+                    f"{_format_path_for_log(output_paths['predictions'])}",
+                    source=LOG_SOURCE,
+                )
+                log.info(
+                    f"输出目录: {_format_path_for_log(output_paths['output_dir'])}",
+                    source=LOG_SOURCE,
+                )
             trainer_options = None
             if args.model == LIGHTGBM_MODEL_NAME and (args.params or args.param):
                 trainer_options = {
@@ -172,6 +188,15 @@ def _derive_training_log_paths(
             run_id=run_id,
         )
     return derive_trend_model_output_paths(model_name, OUTPUT_MODELS_DIR)
+
+
+def _should_defer_lightgbm_run_output_log(args: argparse.Namespace) -> bool:
+    return (
+        args.model == LIGHTGBM_MODEL_NAME
+        and args.run_id is None
+        and not args.promote
+        and (args.params is not None or bool(args.param) or args.no_promote)
+    )
 
 
 def _format_path_for_log(path: Path) -> str:

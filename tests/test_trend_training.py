@@ -1519,6 +1519,35 @@ class TestTrendTraining:
             "stable": "old"
         }
 
+    def test_promote_existing_lightgbm_run_rejects_invalid_metric_values(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        paths = _write_promotable_lightgbm_run(tmp_path)
+        payload = json.loads(paths["metrics"].read_text(encoding="utf-8"))
+        payload["overall"]["valid"]["mae"] = float("nan")
+        paths["metrics"].write_text(
+            json.dumps(payload, ensure_ascii=False, allow_nan=True),
+            encoding="utf-8",
+        )
+        stable_metrics_path = paths["metrics_root"] / "lightgbm" / "trend_metrics.json"
+        write_json_atomic({"stable": "old"}, stable_metrics_path)
+
+        with pytest.raises(ValueError, match="strict JSON|有限数值|mae"):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=paths["model_root"],
+                metrics_output_root=paths["metrics_root"],
+            )
+
+        assert json.loads(stable_metrics_path.read_text(encoding="utf-8")) == {
+            "stable": "old"
+        }
+
     def test_promote_existing_lightgbm_run_rejects_malformed_params_before_publishing(
         self,
         tmp_path: Path,
@@ -1991,6 +2020,55 @@ class TestTrendTraining:
             "业务阶段: split 样本 -> "
             "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv"
         ) in stdout
+
+    def test_train_trend_model_main_logs_deferred_output_for_auto_run_id(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            return {
+                "model_name": model_name,
+                "model_type": MODEL_TYPE_SUPERVISED,
+                "run_id": "auto-run",
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": _sample_split_metadata(),
+                "output_dir": "outputs/models/lightgbm/runs/auto-run",
+                "prediction_path": "outputs/models/lightgbm/runs/auto-run/predictions.csv",
+                "params_path": "outputs/models/lightgbm/runs/auto-run/params.json",
+            }
+
+        monkeypatch.setattr(
+            train_model,
+            "run_trend_model_training",
+            fake_run_trend_model_training,
+        )
+
+        assert (
+            train_model.main(
+                [
+                    "--model",
+                    "lightgbm",
+                    "--param",
+                    "learning_rate=0.03",
+                ]
+            )
+            == 0
+        )
+
+        stdout = capsys.readouterr().out
+        assert "run_id 生成后确定，最终路径以 metadata 为准" in stdout
+        assert (
+            "业务阶段: split 样本 -> outputs/models/lightgbm/predictions.csv"
+            not in stdout
+        )
 
     @pytest.mark.parametrize(
         "args",
