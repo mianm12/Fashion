@@ -41,7 +41,11 @@ class TestLightGBMTrendModel:
             "max_depth": 6,
             "min_child_samples": 20,
             "subsample": 0.8,
+            "subsample_freq": 1,
             "colsample_bytree": 0.8,
+            "reg_alpha": 0.0,
+            "reg_lambda": 0.0,
+            "min_split_gain": 0.0,
             "random_state": 42,
             "verbosity": -1,
         }
@@ -86,6 +90,96 @@ class TestLightGBMTrendModel:
             "target_rank_in_type_t1",
             "split",
         )
+
+    def test_lightgbm_default_params_enable_subsample_freq(self) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+
+        assert lightgbm_model.LIGHTGBM_PARAMS["subsample"] == 0.8
+        assert lightgbm_model.LIGHTGBM_PARAMS["subsample_freq"] == 1
+
+    def test_resolve_lightgbm_config_merges_file_and_cli_overrides(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        params_path = tmp_path / "params.json"
+        params_path.write_text(
+            json.dumps(
+                {
+                    "lightgbm_params": {"learning_rate": 0.03, "num_leaves": 63},
+                    "early_stopping": {"stopping_rounds": 50},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = config_module.resolve_lightgbm_config(
+            params_path=params_path,
+            cli_params=["num_leaves=31", "early_stopping.stopping_rounds=80"],
+        )
+
+        assert config.lightgbm_params["learning_rate"] == 0.03
+        assert config.lightgbm_params["num_leaves"] == 31
+        assert config.early_stopping == {"stopping_rounds": 80}
+        assert config.param_source["params_file"] == str(params_path)
+        assert config.param_source["overrides"] == {
+            "num_leaves": 31,
+            "early_stopping.stopping_rounds": 80,
+        }
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            [],
+            {"unknown": {}},
+            {"lightgbm_params": []},
+            {"early_stopping": []},
+        ],
+    )
+    def test_resolve_lightgbm_config_rejects_invalid_params_file_shape(
+        self,
+        tmp_path: Path,
+        payload: object,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        params_path = tmp_path / "params.json"
+        params_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="params|lightgbm_params|early_stopping"):
+            config_module.resolve_lightgbm_config(params_path=params_path)
+
+    @pytest.mark.parametrize(
+        "cli_param",
+        [
+            "unknown=1",
+            "objective=binary",
+            "n_estimators=0",
+            "learning_rate=0",
+            "max_depth=0",
+            "subsample=1.2",
+            "subsample_freq=0",
+            "colsample_bytree=0",
+            "reg_alpha=-1",
+            "reg_lambda=-1",
+            "min_split_gain=-0.1",
+            "early_stopping.stopping_rounds=0",
+            "lightgbm_params.learning_rate=0.03",
+        ],
+    )
+    def test_resolve_lightgbm_config_rejects_invalid_cli_param(
+        self,
+        cli_param: str,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+
+        with pytest.raises(ValueError, match="参数|objective|subsample|early_stopping"):
+            config_module.resolve_lightgbm_config(cli_params=[cli_param])
 
     def test_lightgbm_trainer_metadata(self) -> None:
         lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)

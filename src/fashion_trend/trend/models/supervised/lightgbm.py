@@ -14,6 +14,11 @@ from fashion_trend.trend.models.base import (
     TrendTrainContext,
     TrendTrainResult,
 )
+from fashion_trend.trend.models.supervised.lightgbm_config import (
+    LIGHTGBM_ALLOWED_OBJECTIVES,
+    LIGHTGBM_DEFAULT_EARLY_STOPPING,
+    LIGHTGBM_DEFAULT_PARAMS,
+)
 from fashion_trend.trend.predictions import (
     derive_normalized_pred_share_t1,
     validate_trend_model_predictions,
@@ -78,32 +83,9 @@ LIGHTGBM_EXCLUDED_COLUMNS: tuple[str, ...] = (
     "target_rank_in_type_t1",
     "split",
 )
-# 受控 objective 集合；后续处理重尾 target 时可切换到 L1 回归。
-LIGHTGBM_ALLOWED_OBJECTIVES: tuple[str, ...] = ("regression", "regression_l1")
-LIGHTGBM_PARAMS: dict[str, object] = {
-    # 默认平方误差回归，首版保守对齐常规 LGBMRegressor 语义。
-    "objective": "regression",
-    # 最大 boosting 轮次；实际预测轮次会被 early stopping 截到 best_iteration_。
-    "n_estimators": 300,
-    # 每棵树的学习率，和 n_estimators 共同控制拟合速度与容量。
-    "learning_rate": 0.05,
-    # 单棵树的最大叶子数，控制非线性表达能力。
-    "num_leaves": 31,
-    # 限制树深，避免属性周级样本上过深分裂。
-    "max_depth": 6,
-    # 叶子节点最小样本数，降低小样本叶子的过拟合风险。
-    "min_child_samples": 20,
-    # 行采样比例，用于降低单轮树对训练样本的依赖。
-    "subsample": 0.8,
-    # 列采样比例，用于让不同树关注不同特征子集。
-    "colsample_bytree": 0.8,
-    # 固定随机种子，保证训练和测试产物可复现。
-    "random_state": 42,
-    # 关闭 LightGBM 训练日志，由上层 runner 控制命令输出。
-    "verbosity": -1,
-}
+LIGHTGBM_PARAMS: dict[str, object] = dict(LIGHTGBM_DEFAULT_PARAMS)
 # valid 指标连续若干轮无提升就停止；预测和模型产物记录 best_iteration_。
-LIGHTGBM_EARLY_STOPPING: dict[str, int] = {"stopping_rounds": 30}
+LIGHTGBM_EARLY_STOPPING: dict[str, int] = dict(LIGHTGBM_DEFAULT_EARLY_STOPPING)
 # LightGBM trainer 读取样本时的最小输入契约。
 _LIGHTGBM_REQUIRED_COLUMNS: tuple[str, ...] = (
     "split",
