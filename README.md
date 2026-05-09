@@ -593,7 +593,7 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 ```
 
 调参选择只能读取 `evaluations.jsonl` 的 `selection_metrics`；test 指标只用于最终选中 run 的一次性报告。
-本轮默认 LightGBM 参数有意新增 `subsample_freq=1`，因此默认训练结果需要重新跑训练、评价和 baseline 对比后再更新摘要。
+当前内置默认 LightGBM 参数来自已选中的调参 run `tune-20260509-r25-l1-col06-min30`，因此不传 `--params` / `--param` 时会使用 `objective=regression_l1`、`colsample_bytree=0.6` 和 `min_child_samples=30`。
 
 ### 13. 趋势评价
 

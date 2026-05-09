@@ -855,14 +855,16 @@ target_growth
 
 | 参数                  |          建议值 |
 | ------------------- | -----------: |
-| `objective`         | `regression` |
+| `objective`         | `regression_l1` |
 | `n_estimators`      |          300 |
 | `learning_rate`     |         0.05 |
 | `num_leaves`        |           31 |
 | `max_depth`         |       -1 或 6 |
-| `min_child_samples` |           20 |
+| `min_child_samples` |           30 |
 | `subsample`         |          0.8 |
-| `colsample_bytree`  |          0.8 |
+| `colsample_bytree`  |          0.6 |
+
+当前代码内置默认参数采用调参 run `tune-20260509-r25-l1-col06-min30` 的选择：`objective=regression_l1`、`colsample_bytree=0.6`、`min_child_samples=30`，其余参数保持上表设置。
 
 不要把参数调优作为论文重点。
 本科毕设更重要的是：

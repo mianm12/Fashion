@@ -34,15 +34,15 @@ class TestLightGBMTrendModel:
             "regression_l1",
         )
         assert lightgbm_model.LIGHTGBM_PARAMS == {
-            "objective": "regression",
+            "objective": "regression_l1",
             "n_estimators": 300,
             "learning_rate": 0.05,
             "num_leaves": 31,
             "max_depth": 6,
-            "min_child_samples": 20,
+            "min_child_samples": 30,
             "subsample": 0.8,
             "subsample_freq": 1,
-            "colsample_bytree": 0.8,
+            "colsample_bytree": 0.6,
             "reg_alpha": 0.0,
             "reg_lambda": 0.0,
             "min_split_gain": 0.0,
@@ -96,6 +96,9 @@ class TestLightGBMTrendModel:
 
         assert lightgbm_model.LIGHTGBM_PARAMS["subsample"] == 0.8
         assert lightgbm_model.LIGHTGBM_PARAMS["subsample_freq"] == 1
+        assert lightgbm_model.LIGHTGBM_PARAMS["objective"] == "regression_l1"
+        assert lightgbm_model.LIGHTGBM_PARAMS["colsample_bytree"] == 0.6
+        assert lightgbm_model.LIGHTGBM_PARAMS["min_child_samples"] == 30
 
     def test_resolve_lightgbm_config_merges_file_and_cli_overrides(
         self,
@@ -482,7 +485,7 @@ class TestLightGBMTrendModel:
             TREND_MODEL_PREDICTION_COLUMNS
         )
         assert set(result.predictions["model_name"]) == {"lightgbm"}
-        assert result.params["objective"] == "regression"
+        assert result.params["objective"] == "regression_l1"
         assert result.params["best_iteration"] == 7
         assert result.metadata["attr_type_categories"] == ["colour_group_name"]
         assert set(result.metadata["target_distribution"]) == {"train", "valid", "test"}

@@ -204,24 +204,25 @@ prepare_lightgbm_feature_frame(samples, attr_type_categories=None)
 - valid split 用于 early stopping 和训练摘要记录。
 - test split 不参与拟合和 early stopping，只通过统一评价入口进入最终指标。
 
-第一版参数采用实施计划中的稳妥默认值，并固定随机种子。默认 objective 仍为平方误差回归：
+第一版参数采用实施计划中的稳妥默认值，并固定随机种子。调参后当前内置默认 objective 已切换为更稳健的 L1 回归：
 
 ```json
 {
-  "objective": "regression",
+  "objective": "regression_l1",
   "n_estimators": 300,
   "learning_rate": 0.05,
   "num_leaves": 31,
   "max_depth": 6,
-  "min_child_samples": 20,
+  "min_child_samples": 30,
   "subsample": 0.8,
-  "colsample_bytree": 0.8,
+  "colsample_bytree": 0.6,
+  "subsample_freq": 1,
   "random_state": 42,
   "verbosity": -1
 }
 ```
 
-真实 `target_growth` 存在重尾和大量 `share_t=0` 样本，默认 `regression` 不是唯一语义。实现中需要把 objective 作为受控参数常量记录在 `params.json`，并保留后续切换到 `regression_l1` 等 robust objective 的清晰位置；本轮不新增 CLI 参数做 objective 切换。
+真实 `target_growth` 存在重尾和大量 `share_t=0` 样本。实现中需要把 objective 作为受控参数常量记录在 `params.json`，并保留通过参数文件或 CLI 覆盖回 `regression` 等 objective 的清晰位置。
 
 训练产物必须记录目标分布和残差诊断，结构固定为 `{split: {metric: value}}`：
 

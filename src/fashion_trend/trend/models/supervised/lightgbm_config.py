@@ -7,15 +7,15 @@ from pathlib import Path
 
 LIGHTGBM_ALLOWED_OBJECTIVES: tuple[str, ...] = ("regression", "regression_l1")
 LIGHTGBM_DEFAULT_PARAMS: dict[str, object] = {
-    "objective": "regression",
+    "objective": "regression_l1",
     "n_estimators": 300,
     "learning_rate": 0.05,
     "num_leaves": 31,
     "max_depth": 6,
-    "min_child_samples": 20,
+    "min_child_samples": 30,
     "subsample": 0.8,
     "subsample_freq": 1,
-    "colsample_bytree": 0.8,
+    "colsample_bytree": 0.6,
     "reg_alpha": 0.0,
     "reg_lambda": 0.0,
     "min_split_gain": 0.0,
