@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Sequence
 
 from fashion_trend.foundation import logging as log
-from fashion_trend.trend.evaluation import run_trend_model_evaluation
-from fashion_trend.trend.paths import OUTPUT_METRICS_DIR, OUTPUT_MODELS_DIR
+from fashion_trend.trend.evaluation import (
+    derive_trend_metric_output_paths,
+    run_trend_model_evaluation,
+)
 
 LOG_SOURCE = "trend-model-eval"
 
@@ -34,18 +37,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         log.info(f"模型名称参数: {args.model}", source=LOG_SOURCE)
+        output_paths = derive_trend_metric_output_paths(args.model, run_id=args.run_id)
+        prediction_path = _format_path_for_log(output_paths["predictions"])
+        metrics_path = _format_path_for_log(output_paths["metrics"])
         log.info(
-            f"输入预测文件: {OUTPUT_MODELS_DIR / args.model / 'predictions.csv'}",
+            f"输入预测文件: {prediction_path}",
             source=LOG_SOURCE,
         )
         log.info(
-            "业务阶段: "
-            f"outputs/models/{args.model}/predictions.csv -> "
-            f"outputs/metrics/{args.model}/trend_metrics.json",
+            f"业务阶段: {prediction_path} -> {metrics_path}",
             source=LOG_SOURCE,
         )
         log.info(
-            f"输出指标文件: {OUTPUT_METRICS_DIR / args.model / 'trend_metrics.json'}",
+            f"输出指标文件: {metrics_path}",
             source=LOG_SOURCE,
         )
         metrics = run_trend_model_evaluation(args.model, run_id=args.run_id)
@@ -80,6 +84,13 @@ def _format_metric(value: object) -> str:
     if value is None:
         return "null"
     return f"{float(value):.6f}"
+
+
+def _format_path_for_log(path: Path) -> str:
+    try:
+        return path.relative_to(Path.cwd()).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 if __name__ == "__main__":

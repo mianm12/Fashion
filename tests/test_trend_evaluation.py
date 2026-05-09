@@ -615,7 +615,7 @@ class TestTrendEvaluation:
 
         assert exit_code == 0
 
-    def test_eval_trend_model_main_passes_lightgbm_run_id(self) -> None:
+    def test_eval_trend_model_main_passes_lightgbm_run_id(self, capsys) -> None:
         eval_model = importlib.import_module("11_eval_trend_model")
         original = eval_model.run_trend_model_evaluation
         calls: list[dict[str, object]] = []
@@ -666,6 +666,19 @@ class TestTrendEvaluation:
 
         assert exit_code == 0
         assert calls == [{"model_name": "lightgbm", "run_id": "depth6-lr005"}]
+        stdout = capsys.readouterr().out
+        assert (
+            "输入预测文件: " "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv"
+        ) in stdout
+        assert (
+            "业务阶段: "
+            "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv -> "
+            "outputs/metrics/lightgbm/runs/depth6-lr005/trend_metrics.json"
+        ) in stdout
+        assert (
+            "输出指标文件: "
+            "outputs/metrics/lightgbm/runs/depth6-lr005/trend_metrics.json"
+        ) in stdout
 
     def test_eval_trend_model_main_rejects_run_id_for_baseline(self) -> None:
         eval_model = importlib.import_module("11_eval_trend_model")
