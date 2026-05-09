@@ -1324,11 +1324,13 @@ hm-fashion-trend-rec/
 │   │   │   └── trend_model_samples_test.parquet
 │   │   │
 │   │   └── recommend/
-│   │       ├── features/
+│   │       ├── time_windows.parquet
+│   │       ├── target_users.parquet
+│   │       ├── evaluation_labels.parquet
 │   │       ├── user_profile.parquet
-│   │       ├── candidate_items.parquet
-│   │       ├── recommendation_result.csv
-│   │       └── recommendation_metrics.json
+│   │       └── candidates/
+│   │           └── <strategy>/
+│   │               └── candidate_items.parquet
 │
 ├── outputs/
 │   ├── models/
@@ -1340,6 +1342,17 @@ hm-fashion-trend-rec/
 │   └── metrics/
 │       └── <model>/
 │           └── trend_metrics.json
+│
+│   └── recommendation/
+│       ├── <method>/
+│       │   ├── recommendations.csv
+│       │   ├── recommendation_items.csv
+│       │   ├── params.json
+│       │   ├── metadata.json
+│       │   └── metrics.json
+│       └── experiments/
+│           └── <experiment_id>/
+│               └── experiment.json
 │
 │   └── reports/
 │       ├── figures/
@@ -1387,6 +1400,11 @@ hm-fashion-trend-rec/
 │   ├── 09_split_trend_model_samples.py
 │   ├── 10_train_trend_model.py
 │   ├── 11_eval_trend_model.py
+│   ├── 12_build_recommendation_inputs.py
+│   ├── 13_build_recommend_candidates.py
+│   ├── 14_rerank_recommendations.py
+│   ├── 15_eval_recommendations.py
+│   ├── 16_run_recommendation_experiment.py
 │   └── ...
 │
 ├── app/
@@ -1401,7 +1419,7 @@ hm-fashion-trend-rec/
 └── README.md
 ```
 
-当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/11_*.py`。后续推荐、报告和更多模型入口继续按编号脚本约定新增；内部计算事实按业务域进入 `src/fashion_trend/`。默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training/`，趋势评价在 `src/fashion_trend/trend/evaluation/`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`。
+当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/16_*.py`。后续报告和更多模型入口继续按编号脚本约定新增；内部计算事实按业务域进入 `src/fashion_trend/`。默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training/`，趋势评价在 `src/fashion_trend/trend/evaluation/`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`；推荐时间窗口、输入、候选、排序、方法、评价和实验编排位于 `src/fashion_trend/recommendation/`。
 
 ---
 
@@ -1423,11 +1441,12 @@ hm-fashion-trend-rec/
 | LightGBM run 评价 | `11_eval_trend_model.py --model lightgbm --run-id <run_id>` | `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json` |
 | 已评估 run 发布 | `10_train_trend_model.py --model lightgbm --promote-run <run_id>` | 发布到 `outputs/models/lightgbm/` 和 `outputs/metrics/lightgbm/trend_metrics.json` |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
-| 用户画像        | `12_build_user_profile.py`          | `user_profile.parquet`                                                                                     |
-| 候选召回        | `13_build_recommend_candidates.py`  | `candidate_items.parquet`                                                                                  |
-| 推荐重排序       | `14_rerank_recommendations.py`      | `recommendation_result.csv`                                                                                |
-| 推荐评价        | `15_eval_recommendations.py`        | `recommendation_metrics.json`                                                                              |
-| 报告导出        | `16_make_reports.py`                | figures、tables、case studies                                                                              |
+| 推荐输入        | `src/12_build_recommendation_inputs.py` | `time_windows.parquet`, `target_users.parquet`, `evaluation_labels.parquet`, `user_profile.parquet`       |
+| 候选召回        | `src/13_build_recommend_candidates.py --strategy <strategy>` | `data/processed/recommend/candidates/<strategy>/candidate_items.parquet` |
+| 推荐重排序       | `src/14_rerank_recommendations.py --method <method>` | `outputs/recommendation/<method>/recommendations.csv`, `recommendation_items.csv`, `params.json`, `metadata.json` |
+| 推荐评价        | `src/15_eval_recommendations.py --method <method>` | `outputs/recommendation/<method>/metrics.json`                                                             |
+| 推荐实验        | `src/16_run_recommendation_experiment.py --experiment main` | `outputs/recommendation/experiments/<experiment_id>/experiment.json`                                       |
+| 报告导出        | 后续编号入口                         | figures、tables、case studies                                                                              |
 
 ---
 
@@ -1711,40 +1730,43 @@ NDCG@10
 
 ---
 
-## 后续计划第 11 步：构建用户历史属性画像
+## 已实现第 12 步：构建推荐输入
 
 目标：
 
 ```text
-根据用户历史购买商品，统计用户偏好的属性。
+生成推荐时间窗口、eligible 用户、评价标签和用户历史属性画像。
 ```
 
 写：
 
 ```text
-12_build_user_profile.py
+src/12_build_recommendation_inputs.py
 ```
 
 输出：
 
 ```text
+data/processed/recommend/time_windows.parquet
+data/processed/recommend/target_users.parquet
+data/processed/recommend/evaluation_labels.parquet
 data/processed/recommend/user_profile.parquet
 ```
 
 ---
 
-## 后续计划第 12 步：构造推荐候选集
+## 已实现第 13 步：构造推荐候选集
 
 目标：
 
 ```text
-生成用户候选商品。
+按候选 strategy 生成用户候选商品，候选池与推荐 method 解耦。
 ```
 
 写：
 
 ```text
-13_build_recommend_candidates.py
+src/13_build_recommend_candidates.py --strategy <strategy>
 ```
 
 候选来源：
@@ -1758,29 +1780,32 @@ data/processed/recommend/user_profile.parquet
 输出：
 
 ```text
-data/processed/recommend/candidate_items.parquet
+data/processed/recommend/candidates/<strategy>/candidate_items.parquet
 ```
 
 ---
 
-## 后续计划第 13 步：线性重排序
+## 已实现第 14 步：线性重排序
 
 目标：
 
 ```text
-用 Pop + Sim + Trend + Recent 给候选商品打分。
+按推荐 method 读取默认候选 strategy，用 Pop + Sim + Trend + Recent 给候选商品打分。
 ```
 
 写：
 
 ```text
-14_rerank_recommendations.py
+src/14_rerank_recommendations.py --method <method>
 ```
 
 输出：
 
 ```text
-outputs/recommendation/recommendation_result.csv
+outputs/recommendation/<method>/recommendations.csv
+outputs/recommendation/<method>/recommendation_items.csv
+outputs/recommendation/<method>/params.json
+outputs/recommendation/<method>/metadata.json
 ```
 
 格式：
@@ -1791,7 +1816,7 @@ outputs/recommendation/recommendation_result.csv
 
 ---
 
-## 后续计划第 14 步：推荐评价
+## 已实现第 15 步：推荐评价
 
 目标：
 
@@ -1802,13 +1827,13 @@ outputs/recommendation/recommendation_result.csv
 写：
 
 ```text
-15_eval_recommendations.py
+src/15_eval_recommendations.py --method <method>
 ```
 
 输出：
 
 ```text
-outputs/recommendation/recommendation_metrics.json
+outputs/recommendation/<method>/metrics.json
 ```
 
 指标：
@@ -1823,26 +1848,24 @@ Coverage
 
 ---
 
-## 后续计划第 15 步：生成论文图表和报告素材
+## 已实现第 16 步：运行推荐实验
 
 目标：
 
 ```text
-为论文和答辩准备图表。
+编排轻量离线推荐实验，运行主方法、评价和消融汇总。
 ```
 
 写：
 
 ```text
-16_make_reports.py
+src/16_run_recommendation_experiment.py --experiment main
 ```
 
 输出：
 
 ```text
-outputs/reports/figures/
-outputs/reports/tables/
-outputs/reports/case_studies/
+outputs/recommendation/experiments/<experiment_id>/experiment.json
 ```
 
 ---
@@ -2029,10 +2052,10 @@ active_weeks >= 8
 # 22. 历史开发顺序与当前下一步
 
 本节保留基础脚本的历史开发顺序，用来说明数据流如何从原始数据推进到趋势训练样本。
-当前实现状态已经推进到 `00` 到 `11` 号入口：基础数据流、三类 baseline、
-LightGBM 主模型和趋势评价均已落地。
+当前实现状态已经推进到 `00` 到 `16` 号入口：基础数据流、三类 baseline、
+LightGBM 主模型、趋势评价和轻量离线推荐实验均已落地。
 
-当前下一步应进入推荐模块：用户画像、候选召回、重排序和推荐评价。基础脚本的历史顺序如下：
+推荐模块已包含输入构建、strategy-scoped 候选、method-scoped 推荐输出、单方法评价和 `main` 实验编排。基础脚本的历史顺序如下：
 
 ## 第 1 个脚本：`01_data_check.py`
 

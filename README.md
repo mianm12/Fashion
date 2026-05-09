@@ -1,6 +1,6 @@
 # Fashion
 
-时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量、属性周热度、趋势 baseline、LightGBM 主模型和趋势评价，为后续趋势感知 Top-N 推荐做准备。
+时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量、属性周热度、趋势 baseline、LightGBM 主模型、趋势评价和轻量离线 Top-N 推荐实验。
 
 ## 研究主线
 
@@ -16,7 +16,7 @@ H&M transactions_train.csv
     -> 趋势感知 Top-N 推荐
 ```
 
-现阶段已经完成到三类趋势 baseline、LightGBM 主模型和趋势评价闭环：
+现阶段已经完成到三类趋势 baseline、LightGBM 主模型、趋势评价和轻量离线推荐闭环：
 
 | 阶段 | 状态 | 主要产物 |
 | :--- | :--- | :--- |
@@ -34,9 +34,9 @@ H&M transactions_train.csv
 | Moving Average baseline | 已实现（运行命令后生成） | `outputs/models/moving_average/predictions.csv`、`params.json`、`metadata.json` |
 | LightGBM 主模型 | 已实现（运行命令后生成） | `outputs/models/lightgbm/predictions.csv`、`params.json`、`metadata.json`、`feature_importance.csv`、`model.txt` |
 | 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json`、`outputs/metrics/lightgbm/trend_metrics.json` |
-| 推荐模块与推荐评价 | 尚未实现 | 后续 `outputs/recommendation/recommendation_result.csv`、`recommendation_metrics.json` |
+| 推荐模块与推荐评价 | 已实现（运行命令后生成） | `outputs/recommendation/<method>/recommendations.csv`、`recommendation_items.csv`、`params.json`、`metadata.json`、`metrics.json` |
 
-上表中 baseline、LightGBM 和趋势评价的产物是对应训练、评价命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
+上表中 baseline、LightGBM、趋势评价和推荐实验的产物是对应训练、评价、推荐命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
 
 ## 数据集
 
@@ -646,15 +646,48 @@ NDCG@5/10/20
 
 排序指标按 `split + week_id + attr_type` 逐组计算，再汇总到 overall 和 by_attr_type，便于观察不同属性类型的趋势预测质量。
 
+### 14. 轻量离线推荐实验
+
+推荐模块已实现轻量离线实验版，用于把趋势预测结果映射回商品 Top-12 推荐，并通过离线指标验证趋势分的应用价值。入口为：
+
+```sh
+uv run python src/12_build_recommendation_inputs.py
+uv run python src/13_build_recommend_candidates.py --strategy <strategy>
+uv run python src/14_rerank_recommendations.py --method <method>
+uv run python src/15_eval_recommendations.py --method <method>
+uv run python src/16_run_recommendation_experiment.py --experiment main
+```
+
+推荐输入产物写入：
+
+```text
+data/processed/recommend/time_windows.parquet
+data/processed/recommend/target_users.parquet
+data/processed/recommend/evaluation_labels.parquet
+data/processed/recommend/user_profile.parquet
+data/processed/recommend/candidates/<strategy>/candidate_items.parquet
+```
+
+候选池按 strategy 隔离，推荐输出按 method 隔离。标准推荐产物写入：
+
+```text
+outputs/recommendation/<method>/recommendations.csv
+outputs/recommendation/<method>/recommendation_items.csv
+outputs/recommendation/<method>/params.json
+outputs/recommendation/<method>/metadata.json
+outputs/recommendation/<method>/metrics.json
+outputs/recommendation/experiments/<experiment_id>/experiment.json
+```
+
 ## 后续阶段
 
 趋势模型训练与评价框架已经落地到 `last_week`、`previous_growth`、`moving_average`
-三类必须 baseline 和 `lightgbm` 主模型，README 继续按计划记录后续边界：
+三类必须 baseline、`lightgbm` 主模型和推荐离线实验，README 继续按计划记录后续边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
 | 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现并完成首轮 stable 调参；后续可考虑更多监督模型或 EWMA 等增强 baseline |
-| 推荐模块 | Top-12 推荐列表和评价结果 | 将趋势分映射回商品，结合近期热门、用户历史属性偏好和 Item-CF 候选做轻量重排序 |
+| 推荐实验增强 | 推荐消融、案例展示和报告素材 | 当前已支持轻量离线 Top-12、单方法评价和 `main` 实验；后续可补充更多展示和报告导出 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
 
@@ -669,10 +702,10 @@ NDCG@5/10/20
 - `transactions/`：周级交易表和交易窗口。
 - `catalog/`：商品表清洗和静态属性图。
 - `trend/`：属性热度、标签、样本、时间切分、趋势模型训练和趋势评价。
-- `recommendation/`：预留推荐契约、路径和 reader；候选、重排序、Top-12 和推荐评价尚未实现。
+- `recommendation/`：推荐契约、路径、reader、时间窗口、输入构建、候选召回、排序特征、方法注册、推荐评价和实验编排。
 - `reports/`：预留报告输出路径和只读边界；图表、表格和案例导出尚未实现。
 
-当前已实现的 `src/00_*.py` 到 `src/11_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
+当前已实现的 `src/00_*.py` 到 `src/16_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
 
 趋势共享实现位于 `src/fashion_trend/trend/` 子包。`heat/`、`labels/`、`features/`、`splits/`、`training/`、`evaluation/` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/baselines/` 存放当前 baseline，`trend/models/supervised/` 存放 LightGBM 等监督模型；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 
