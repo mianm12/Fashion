@@ -8,6 +8,9 @@ import pandas as pd
 import fashion_trend.trend.training.run_artifacts as run_artifacts
 from fashion_trend.trend.models.base import TrendTrainContext
 from fashion_trend.trend.models.registry import get_trend_model_trainer
+from fashion_trend.trend.models.supervised.lightgbm_config import (
+    resolve_lightgbm_config_from_stable_or_default,
+)
 from fashion_trend.trend.paths import (
     OUTPUT_MODELS_DIR,
     TREND_MODEL_SAMPLES_TEST_PATH,
@@ -128,6 +131,11 @@ def _run_lightgbm_training(
 ) -> dict[str, object]:
     split_frames = read_trend_model_split_frames(input_paths)
     stable_paths = derive_trend_model_output_paths(model_name, output_root)
+    explicit_user_config = bool(trainer_options)
+    resolved_trainer_options = _resolve_lightgbm_trainer_options(
+        trainer_options,
+        stable_params_path=stable_paths["params"],
+    )
     run_root = stable_paths["output_dir"] / "runs"
     explicit_run_id = run_id is not None
     resolved_run_id = run_id or run_artifacts.generate_lightgbm_run_id(run_root)
@@ -140,7 +148,7 @@ def _run_lightgbm_training(
         raise FileExistsError(f"LightGBM run_id 已存在: {resolved_run_id}")
     promotion_requested = _resolve_lightgbm_promotion_default(
         explicit_run_id=explicit_run_id,
-        trainer_options=trainer_options,
+        explicit_user_config=explicit_user_config,
         promote=promote,
     )
     context = TrendTrainContext(
@@ -148,7 +156,7 @@ def _run_lightgbm_training(
         split_frames=split_frames,
         input_paths=input_paths,
         output_dir=run_paths["output_dir"],
-        trainer_options=trainer_options,
+        trainer_options=resolved_trainer_options,
     )
     result = trainer.train(context)
     validate_trend_train_result(result, context)
@@ -213,13 +221,26 @@ def _run_lightgbm_training(
     return metadata
 
 
+def _resolve_lightgbm_trainer_options(
+    trainer_options: Mapping[str, object],
+    *,
+    stable_params_path: Path,
+) -> dict[str, object]:
+    if trainer_options:
+        return dict(trainer_options)
+    return {
+        "lightgbm_config": resolve_lightgbm_config_from_stable_or_default(
+            stable_params_path
+        )
+    }
+
+
 def _resolve_lightgbm_promotion_default(
     *,
     explicit_run_id: bool,
-    trainer_options: Mapping[str, object],
+    explicit_user_config: bool,
     promote: bool | None,
 ) -> bool:
     if promote is not None:
         return bool(promote)
-    has_custom_config = bool(trainer_options)
-    return not explicit_run_id and not has_custom_config
+    return not explicit_run_id and not explicit_user_config

@@ -1078,6 +1078,174 @@ class TestTrendTraining:
         ]
         assert index_rows[0]["promotion_status"] == "succeeded"
 
+    def test_run_trend_model_training_uses_stable_lightgbm_params_and_promotes(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+        from fashion_trend.trend.models.supervised.lightgbm_config import (
+            LIGHTGBM_DEFAULT_PARAMS,
+        )
+
+        captured: dict[str, object] = {}
+
+        def fake_fit(
+            train_features,
+            train_target,
+            valid_features,
+            valid_target,
+            *,
+            config,
+        ):
+            captured["params"] = dict(config.lightgbm_params)
+            captured["source"] = dict(config.param_source)
+            return _FakeLightGBMModel(train_features.columns.tolist())
+
+        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        stable_params = dict(LIGHTGBM_DEFAULT_PARAMS)
+        stable_params["learning_rate"] = 0.03
+        write_json_atomic(
+            {
+                "model_name": "lightgbm",
+                "lightgbm_params": stable_params,
+                "early_stopping": {"stopping_rounds": 45},
+            },
+            stable_dir / "params.json",
+        )
+
+        metadata = run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=_write_sample_split_inputs(tmp_path),
+            output_root=tmp_path / "outputs" / "models",
+        )
+
+        run_dir = stable_dir / "runs" / str(metadata["run_id"])
+        assert captured["params"]["learning_rate"] == 0.03
+        assert captured["source"] == {
+            "default": "stable",
+            "params_file": str(stable_dir / "params.json"),
+            "overrides": {},
+        }
+        assert (run_dir / "predictions.csv").exists()
+        assert (stable_dir / "predictions.csv").exists()
+        stable_metadata = json.loads(
+            (stable_dir / "metadata.json").read_text(encoding="utf-8")
+        )
+        assert stable_metadata["param_source"]["default"] == "stable"
+        row = json.loads(
+            (stable_dir / "runs" / "index.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()[0]
+        )
+        assert row["promotion_status"] == "succeeded"
+
+    def test_run_trend_model_training_missing_stable_params_uses_builtin_and_promotes(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+
+        captured: dict[str, object] = {}
+
+        def fake_fit(
+            train_features,
+            train_target,
+            valid_features,
+            valid_target,
+            *,
+            config,
+        ):
+            captured["source"] = dict(config.param_source)
+            return _FakeLightGBMModel(train_features.columns.tolist())
+
+        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+
+        metadata = run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=_write_sample_split_inputs(tmp_path),
+            output_root=tmp_path / "outputs" / "models",
+        )
+
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        assert captured["source"] == {
+            "default": "builtin",
+            "params_file": None,
+            "overrides": {},
+        }
+        assert (
+            stable_dir / "runs" / str(metadata["run_id"]) / "predictions.csv"
+        ).exists()
+        assert (stable_dir / "predictions.csv").exists()
+
+    def test_run_trend_model_training_rejects_broken_stable_params_before_run_write(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        write_json_atomic({}, stable_dir / "params.json")
+
+        with pytest.raises(ValueError, match="stable|lightgbm_params"):
+            run_trend_model_training(
+                LIGHTGBM_MODEL_NAME,
+                input_paths=_write_sample_split_inputs(tmp_path),
+                output_root=tmp_path / "outputs" / "models",
+            )
+
+        assert not (stable_dir / "runs").exists()
+
+    def test_run_trend_model_training_explicit_config_ignores_broken_stable_params(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+        from fashion_trend.trend.models.supervised.lightgbm_config import (
+            resolve_lightgbm_config,
+        )
+
+        captured: dict[str, object] = {}
+
+        def fake_fit(
+            train_features,
+            train_target,
+            valid_features,
+            valid_target,
+            *,
+            config,
+        ):
+            captured["params"] = dict(config.lightgbm_params)
+            captured["source"] = dict(config.param_source)
+            return _FakeLightGBMModel(train_features.columns.tolist())
+
+        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        write_json_atomic({}, stable_dir / "params.json")
+
+        metadata = run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=_write_sample_split_inputs(tmp_path),
+            output_root=tmp_path / "outputs" / "models",
+            trainer_options={
+                "lightgbm_config": resolve_lightgbm_config(
+                    cli_params=["learning_rate=0.03"]
+                )
+            },
+        )
+
+        run_dir = stable_dir / "runs" / str(metadata["run_id"])
+        assert captured["params"]["learning_rate"] == 0.03
+        assert captured["params"]["num_leaves"] == 31
+        assert captured["source"] == {
+            "default": "builtin",
+            "params_file": None,
+            "overrides": {"learning_rate": 0.03},
+        }
+        assert (run_dir / "predictions.csv").exists()
+        assert not (stable_dir / "predictions.csv").exists()
+
     def test_run_trend_model_training_promote_failure_keeps_run_and_returns_error(
         self,
         tmp_path: Path,
