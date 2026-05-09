@@ -132,6 +132,229 @@ class TestLightGBMTrendModel:
             "early_stopping.stopping_rounds": 80,
         }
 
+    def test_resolve_lightgbm_config_from_stable_reads_complete_artifact(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = (
+            tmp_path / "outputs" / "models" / "lightgbm" / "params.json"
+        )
+        stable_params_path.parent.mkdir(parents=True)
+        lightgbm_params = dict(config_module.LIGHTGBM_DEFAULT_PARAMS)
+        lightgbm_params.update({"learning_rate": 0.03, "num_leaves": 63})
+        stable_params_path.write_text(
+            json.dumps(
+                {
+                    "model_name": "lightgbm",
+                    "model_type": "supervised",
+                    "best_iteration": 21,
+                    "lightgbm_params": lightgbm_params,
+                    "early_stopping": {"stopping_rounds": 45},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = config_module.resolve_lightgbm_config_from_stable_or_default(
+            stable_params_path
+        )
+
+        assert config.lightgbm_params["learning_rate"] == 0.03
+        assert config.lightgbm_params["num_leaves"] == 63
+        assert config.lightgbm_params["subsample_freq"] == 1
+        assert config.early_stopping == {"stopping_rounds": 45}
+        assert config.param_source == {
+            "default": "stable",
+            "params_file": str(stable_params_path),
+            "overrides": {},
+        }
+
+    def test_resolve_lightgbm_config_from_stable_missing_file_uses_builtin(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = (
+            tmp_path / "outputs" / "models" / "lightgbm" / "params.json"
+        )
+
+        config = config_module.resolve_lightgbm_config_from_stable_or_default(
+            stable_params_path
+        )
+
+        assert config.lightgbm_params == config_module.LIGHTGBM_DEFAULT_PARAMS
+        assert config.early_stopping == config_module.LIGHTGBM_DEFAULT_EARLY_STOPPING
+        assert config.param_source == {
+            "default": "builtin",
+            "params_file": None,
+            "overrides": {},
+        }
+
+    def test_resolve_lightgbm_config_from_stable_rejects_missing_core_sections(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = tmp_path / "params.json"
+        stable_params_path.write_text(json.dumps({}), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="stable|params.json|lightgbm_params"):
+            config_module.resolve_lightgbm_config_from_stable_or_default(
+                stable_params_path
+            )
+
+    def test_resolve_lightgbm_config_from_stable_rejects_partial_params(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = tmp_path / "params.json"
+        partial_params = dict(config_module.LIGHTGBM_DEFAULT_PARAMS)
+        partial_params.pop("learning_rate")
+        stable_params_path.write_text(
+            json.dumps(
+                {
+                    "lightgbm_params": partial_params,
+                    "early_stopping": {"stopping_rounds": 30},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="stable|learning_rate"):
+            config_module.resolve_lightgbm_config_from_stable_or_default(
+                stable_params_path
+            )
+
+    def test_resolve_lightgbm_config_from_stable_rejects_missing_early_stopping_key(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = tmp_path / "params.json"
+        stable_params_path.write_text(
+            json.dumps(
+                {
+                    "lightgbm_params": dict(config_module.LIGHTGBM_DEFAULT_PARAMS),
+                    "early_stopping": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="stable|stopping_rounds"):
+            config_module.resolve_lightgbm_config_from_stable_or_default(
+                stable_params_path
+            )
+
+    def test_resolve_lightgbm_config_from_stable_rejects_invalid_json(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = tmp_path / "params.json"
+        stable_params_path.write_text("{not-json", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="stable|JSON|params.json"):
+            config_module.resolve_lightgbm_config_from_stable_or_default(
+                stable_params_path
+            )
+
+    def test_resolve_lightgbm_config_from_stable_rejects_invalid_payloads(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        valid_params = dict(config_module.LIGHTGBM_DEFAULT_PARAMS)
+        cases = [
+            ("top_level_array", [], "object"),
+            (
+                "lightgbm_params_type",
+                {"lightgbm_params": [], "early_stopping": {"stopping_rounds": 30}},
+                "lightgbm_params",
+            ),
+            (
+                "early_stopping_type",
+                {"lightgbm_params": valid_params, "early_stopping": []},
+                "early_stopping",
+            ),
+            (
+                "unknown_param",
+                {
+                    "lightgbm_params": {**valid_params, "unknown": 1},
+                    "early_stopping": {"stopping_rounds": 30},
+                },
+                "unknown|允许清单",
+            ),
+            (
+                "invalid_param_value",
+                {
+                    "lightgbm_params": {**valid_params, "learning_rate": 0},
+                    "early_stopping": {"stopping_rounds": 30},
+                },
+                "learning_rate|大于 0",
+            ),
+        ]
+        for case_name, payload, error_match in cases:
+            stable_params_path = tmp_path / f"{case_name}.json"
+            stable_params_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with pytest.raises(ValueError, match=error_match):
+                config_module.resolve_lightgbm_config_from_stable_or_default(
+                    stable_params_path
+                )
+
+    def test_resolve_lightgbm_config_explicit_param_does_not_use_stable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = (
+            tmp_path / "outputs" / "models" / "lightgbm" / "params.json"
+        )
+        stable_params_path.parent.mkdir(parents=True)
+        lightgbm_params = dict(config_module.LIGHTGBM_DEFAULT_PARAMS)
+        lightgbm_params["num_leaves"] = 63
+        stable_params_path.write_text(
+            json.dumps(
+                {
+                    "lightgbm_params": lightgbm_params,
+                    "early_stopping": {"stopping_rounds": 45},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = config_module.resolve_lightgbm_config(
+            cli_params=["learning_rate=0.03"]
+        )
+
+        assert config.lightgbm_params["learning_rate"] == 0.03
+        assert config.lightgbm_params["num_leaves"] == 31
+        assert config.early_stopping == {"stopping_rounds": 30}
+        assert config.param_source == {
+            "default": "builtin",
+            "params_file": None,
+            "overrides": {"learning_rate": 0.03},
+        }
+
     @pytest.mark.parametrize(
         "payload",
         [

@@ -59,15 +59,56 @@ def resolve_lightgbm_config(
             lightgbm_params[key] = value
         overrides[key] = value
 
+    return _build_lightgbm_training_config(
+        lightgbm_params=lightgbm_params,
+        early_stopping=early_stopping,
+        default_source="builtin",
+        params_file=params_file_value,
+        overrides=overrides,
+    )
+
+
+def resolve_lightgbm_config_from_stable_or_default(
+    stable_params_path: Path,
+) -> LightGBMTrainingConfig:
+    """从 stable 参数 artifact 解析完整配置；缺失时回退到内置默认。"""
+
+    if not stable_params_path.exists():
+        return _build_lightgbm_training_config(
+            lightgbm_params=dict(LIGHTGBM_DEFAULT_PARAMS),
+            early_stopping=dict(LIGHTGBM_DEFAULT_EARLY_STOPPING),
+            default_source="builtin",
+            params_file=None,
+            overrides={},
+        )
+
+    stable_payload = _read_stable_params_file(stable_params_path)
+    return _build_lightgbm_training_config(
+        lightgbm_params=stable_payload["lightgbm_params"],
+        early_stopping=stable_payload["early_stopping"],
+        default_source="stable",
+        params_file=str(stable_params_path),
+        overrides={},
+    )
+
+
+def _build_lightgbm_training_config(
+    *,
+    lightgbm_params: dict[str, object],
+    early_stopping: dict[str, object],
+    default_source: str,
+    params_file: str | None,
+    overrides: dict[str, object],
+) -> LightGBMTrainingConfig:
     _validate_lightgbm_params(lightgbm_params)
     _validate_early_stopping(early_stopping)
     return LightGBMTrainingConfig(
-        lightgbm_params=lightgbm_params,
+        lightgbm_params=dict(lightgbm_params),
         early_stopping={"stopping_rounds": int(early_stopping["stopping_rounds"])},
         param_source={
-            "default": "builtin",
-            "params_file": params_file_value,
-            "overrides": overrides,
+            "default": default_source,
+            "params_file": params_file,
+            "overrides": dict(overrides),
         },
     )
 
@@ -90,6 +131,45 @@ def _read_params_file(params_path: Path) -> dict[str, dict[str, object]]:
     return {
         "lightgbm_params": dict(payload.get("lightgbm_params", {})),
         "early_stopping": dict(payload.get("early_stopping", {})),
+    }
+
+
+def _read_stable_params_file(params_path: Path) -> dict[str, dict[str, object]]:
+    try:
+        payload = json.loads(params_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"LightGBM stable params.json 不是合法 JSON: {params_path}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"LightGBM stable params.json 必须是 JSON object: {params_path}"
+        )
+    for key in ("lightgbm_params", "early_stopping"):
+        if key not in payload:
+            raise ValueError(f"LightGBM stable params.json 缺少 {key}: {params_path}")
+        if not isinstance(payload[key], dict):
+            raise ValueError(
+                f"LightGBM stable params.json 的 {key} 必须是 JSON object: {params_path}"
+            )
+
+    lightgbm_params = dict(payload["lightgbm_params"])
+    missing_param_keys = LIGHTGBM_ALLOWED_PARAM_KEYS - set(lightgbm_params)
+    if missing_param_keys:
+        raise ValueError(
+            "LightGBM stable params.json lightgbm_params 缺少 key: "
+            f"{sorted(missing_param_keys)}"
+        )
+
+    early_stopping = dict(payload["early_stopping"])
+    if "stopping_rounds" not in early_stopping:
+        raise ValueError(
+            "LightGBM stable params.json early_stopping 缺少 stopping_rounds: "
+            f"{params_path}"
+        )
+    return {
+        "lightgbm_params": lightgbm_params,
+        "early_stopping": early_stopping,
     }
 
 
