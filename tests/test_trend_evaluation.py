@@ -530,6 +530,23 @@ class TestTrendEvaluation:
                 prediction_path=run_dir / "predictions.csv",
             )
 
+    def test_validate_lightgbm_run_metrics_payload_rejects_non_object_payload(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.evaluation.run_artifacts import (
+            validate_lightgbm_run_metrics_payload,
+        )
+
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+
+        with pytest.raises(ValueError, match="metrics.*object"):
+            validate_lightgbm_run_metrics_payload(
+                [],
+                run_id="depth6-lr005",
+                prediction_path=run_dir / "predictions.csv",
+            )
+
     def test_validate_lightgbm_run_metadata_payload_rejects_mismatched_paths(
         self,
         tmp_path: Path,
@@ -556,6 +573,28 @@ class TestTrendEvaluation:
         with pytest.raises(ValueError, match="prediction_path"):
             validate_lightgbm_run_metadata_payload(
                 payload,
+                run_id="depth6-lr005",
+                run_paths=run_paths,
+            )
+
+    def test_validate_lightgbm_run_metadata_payload_rejects_non_object_payload(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training import derive_trend_model_output_paths
+        from fashion_trend.trend.training.run_artifacts import (
+            validate_lightgbm_run_metadata_payload,
+        )
+
+        run_paths = derive_trend_model_output_paths(
+            "lightgbm",
+            tmp_path / "outputs" / "models",
+            run_id="depth6-lr005",
+        )
+
+        with pytest.raises(ValueError, match="metadata.*object"):
+            validate_lightgbm_run_metadata_payload(
+                [],
                 run_id="depth6-lr005",
                 run_paths=run_paths,
             )

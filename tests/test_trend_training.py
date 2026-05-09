@@ -1493,6 +1493,81 @@ class TestTrendTraining:
         assert "promotion succeeded" in captured.err
         assert "succeeded index write failed" in captured.err
 
+    def test_promote_existing_lightgbm_run_rejects_non_object_params_before_publishing(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        paths = _write_promotable_lightgbm_run(tmp_path)
+        paths["params"].write_text("[]\n", encoding="utf-8")
+        stable_params_path = paths["model_root"] / "lightgbm" / "params.json"
+        write_json_atomic({"stable": "old"}, stable_params_path)
+
+        with pytest.raises(ValueError, match="params.json.*object"):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=paths["model_root"],
+                metrics_output_root=paths["metrics_root"],
+            )
+
+        assert json.loads(stable_params_path.read_text(encoding="utf-8")) == {
+            "stable": "old"
+        }
+
+    def test_promote_existing_lightgbm_run_rejects_malformed_params_before_publishing(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        paths = _write_promotable_lightgbm_run(tmp_path)
+        paths["params"].write_text("{\n", encoding="utf-8")
+        stable_params_path = paths["model_root"] / "lightgbm" / "params.json"
+        write_json_atomic({"stable": "old"}, stable_params_path)
+
+        with pytest.raises(ValueError, match="params.json.*JSON"):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=paths["model_root"],
+                metrics_output_root=paths["metrics_root"],
+            )
+
+        assert json.loads(stable_params_path.read_text(encoding="utf-8")) == {
+            "stable": "old"
+        }
+
+    @pytest.mark.parametrize(
+        "payload_key, file_name",
+        [
+            ("metadata", "metadata.json"),
+            ("metrics", "trend_metrics.json"),
+        ],
+    )
+    def test_promote_existing_lightgbm_run_rejects_non_object_json_payloads(
+        self,
+        tmp_path: Path,
+        payload_key: str,
+        file_name: str,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        paths = _write_promotable_lightgbm_run(tmp_path)
+        paths[payload_key].write_text("[]\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match=f"{file_name}.*object"):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=paths["model_root"],
+                metrics_output_root=paths["metrics_root"],
+            )
+
     def test_run_trend_model_training_writes_previous_growth_outputs(
         self,
         tmp_path: Path,
@@ -2328,6 +2403,65 @@ def _sample_split_metadata() -> dict[str, dict[str, int]]:
             "week_min": 20,
             "week_max": 23,
         },
+    }
+
+
+def _write_promotable_lightgbm_run(tmp_path: Path) -> dict[str, Path]:
+    model_root = tmp_path / "outputs" / "models"
+    metrics_root = tmp_path / "outputs" / "metrics"
+    run_dir = model_root / "lightgbm" / "runs" / "depth6-lr005"
+    run_metrics_dir = metrics_root / "lightgbm" / "runs" / "depth6-lr005"
+    predictions = sample_trend_predictions_for_evaluation().copy()
+    predictions["model_name"] = "lightgbm"
+    write_csv_atomic(predictions, run_dir / "predictions.csv")
+    write_json_atomic(
+        {"lightgbm_params": {"learning_rate": 0.03}},
+        run_dir / "params.json",
+    )
+    write_json_atomic(
+        {
+            "model_name": "lightgbm",
+            "model_type": "supervised",
+            "run_id": "depth6-lr005",
+            "run_dir": str(run_dir),
+            "output_dir": str(run_dir),
+            "prediction_path": str(run_dir / "predictions.csv"),
+            "params_path": str(run_dir / "params.json"),
+            "rows": len(predictions),
+            "weeks": 5,
+            "attributes": 5,
+            "splits": _sample_split_metadata(),
+            "extra_artifacts": [
+                {"path": "feature_importance.csv", "kind": "csv"},
+                {"path": "model.txt", "kind": "binary"},
+            ],
+        },
+        run_dir / "metadata.json",
+    )
+    write_csv_atomic(
+        pd.DataFrame({"feature": ["growth_lag_1"]}),
+        run_dir / "feature_importance.csv",
+    )
+    (run_dir / "model.txt").write_text("fake model", encoding="utf-8")
+    write_json_atomic(
+        {
+            "model_name": "lightgbm",
+            "run_id": "depth6-lr005",
+            "prediction_path": str(run_dir / "predictions.csv"),
+            "output_path": str(run_metrics_dir / "trend_metrics.json"),
+            "evaluated_splits": ["valid", "test"],
+            "overall": {"valid": {}, "test": {}},
+        },
+        run_metrics_dir / "trend_metrics.json",
+    )
+    return {
+        "model_root": model_root,
+        "metrics_root": metrics_root,
+        "run_dir": run_dir,
+        "run_metrics_dir": run_metrics_dir,
+        "params": run_dir / "params.json",
+        "metadata": run_dir / "metadata.json",
+        "metrics": run_metrics_dir / "trend_metrics.json",
     }
 
 

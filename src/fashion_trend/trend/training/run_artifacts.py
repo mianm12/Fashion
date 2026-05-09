@@ -209,11 +209,13 @@ def publish_lightgbm_run_to_stable(
 
 
 def validate_lightgbm_run_metadata_payload(
-    payload: dict[str, object],
+    payload: object,
     *,
     run_id: str,
     run_paths: dict[str, Path],
 ) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("LightGBM run metadata payload 顶层必须是 object。")
     expected_values = {
         "model_name": "lightgbm",
         "run_id": run_id,
@@ -261,7 +263,8 @@ def promote_existing_lightgbm_run(
             run_metrics_path,
         ]
     )
-    run_metadata = _read_json(run_paths["metadata"])
+    _read_json_object(run_paths["params"])
+    run_metadata = _read_json_object(run_paths["metadata"])
     validate_lightgbm_run_metadata_payload(
         run_metadata,
         run_id=run_id,
@@ -269,7 +272,7 @@ def promote_existing_lightgbm_run(
     )
     artifact_paths = _lightgbm_run_artifact_paths(run_metadata, run_paths["output_dir"])
     _validate_existing_lightgbm_run_files(artifact_paths)
-    run_metrics = _read_json(run_metrics_path)
+    run_metrics = _read_json_object(run_metrics_path)
     validate_lightgbm_run_metrics_payload(
         run_metrics,
         run_id=run_id,
@@ -414,8 +417,14 @@ def _remove_promotion_backups(
             remove_file_if_exists(backup_path)
 
 
-def _read_json(path: Path) -> dict[str, object]:
-    return json.loads(path.read_text(encoding="utf-8"))
+def _read_json_object(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"LightGBM promote-run {path} 不是合法 JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"LightGBM promote-run {path} 顶层必须是 object。")
+    return payload
 
 
 def _validate_existing_lightgbm_run_files(paths: list[Path]) -> None:

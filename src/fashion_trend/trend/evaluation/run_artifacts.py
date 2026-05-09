@@ -42,11 +42,13 @@ def build_lightgbm_evaluation_summary(
 
 
 def validate_lightgbm_run_metrics_payload(
-    payload: dict[str, object],
+    payload: object,
     *,
     run_id: str,
     prediction_path: Path,
 ) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("LightGBM run metrics payload 顶层必须是 object。")
     if payload.get("model_name") != "lightgbm":
         raise ValueError("LightGBM run metrics 的 model_name 必须是 lightgbm。")
     if payload.get("run_id") != run_id:
