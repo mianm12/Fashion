@@ -27,7 +27,6 @@ from fashion_trend.trend.models.base import (
 )
 from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
 from fashion_trend.trend.predictions import validate_trend_model_predictions
-from fashion_trend.trend.training.run_artifacts import validate_lightgbm_run_id
 
 
 def derive_trend_model_output_paths(
@@ -52,6 +51,8 @@ def derive_trend_model_output_paths(
     validate_safe_path_segment(model_name, "model_name")
     stable_output_dir = output_root / model_name
     if run_id is not None:
+        from fashion_trend.trend.training.run_artifacts import validate_lightgbm_run_id
+
         if model_name != "lightgbm":
             raise ValueError("只有 lightgbm 支持 run_id 输出路径。")
         validate_lightgbm_run_id(run_id)

@@ -876,6 +876,433 @@ class TestTrendTraining:
             {"path": "model.txt", "kind": "binary"},
         ]
 
+    def test_run_trend_model_training_writes_lightgbm_run_without_stable_promotion(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+
+        def fake_fit(
+            train_features, train_target, valid_features, valid_target, *, config
+        ):
+            return _FakeLightGBMModel(train_features.columns.tolist())
+
+        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+
+        metadata = run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=_write_sample_split_inputs(tmp_path),
+            output_root=tmp_path / "outputs" / "models",
+            run_id="depth6-lr005",
+            promote=False,
+        )
+
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        assert (run_dir / "predictions.csv").exists()
+        assert (run_dir / "params.json").exists()
+        assert (run_dir / "metadata.json").exists()
+        assert (run_dir / "feature_importance.csv").exists()
+        assert (run_dir / "model.txt").exists()
+        assert not (stable_dir / "predictions.csv").exists()
+        assert metadata["run_id"] == "depth6-lr005"
+        assert metadata["promotion_requested"] is False
+
+        index_lines = (
+            (stable_dir / "runs" / "index.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+        assert len(index_lines) == 1
+        summary = json.loads(index_lines[0])
+        assert summary["run_id"] == "depth6-lr005"
+        assert summary["promotion_status"] == "not_requested"
+
+    def test_run_trend_model_training_rejects_existing_manual_lightgbm_run(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+
+        monkeypatch.setattr(
+            lightgbm_model,
+            "_fit_lightgbm_model",
+            lambda train_features, train_target, valid_features, valid_target, *, config: _FakeLightGBMModel(
+                train_features.columns.tolist()
+            ),
+        )
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+        run_dir.mkdir(parents=True)
+
+        with pytest.raises(FileExistsError, match="depth6-lr005"):
+            run_trend_model_training(
+                LIGHTGBM_MODEL_NAME,
+                input_paths=_write_sample_split_inputs(tmp_path),
+                output_root=tmp_path / "outputs" / "models",
+                run_id="depth6-lr005",
+                promote=False,
+            )
+
+    def test_run_trend_model_training_manual_run_id_defaults_to_no_promote(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+
+        monkeypatch.setattr(
+            lightgbm_model,
+            "_fit_lightgbm_model",
+            lambda train_features, train_target, valid_features, valid_target, *, config: _FakeLightGBMModel(
+                train_features.columns.tolist()
+            ),
+        )
+
+        run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=_write_sample_split_inputs(tmp_path),
+            output_root=tmp_path / "outputs" / "models",
+            run_id="depth6-lr005",
+        )
+
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        run_dir = stable_dir / "runs" / "depth6-lr005"
+        assert (run_dir / "predictions.csv").exists()
+        assert not (stable_dir / "predictions.csv").exists()
+        row = json.loads(
+            (stable_dir / "runs" / "index.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()[0]
+        )
+        assert row["promotion_status"] == "not_requested"
+
+    def test_run_trend_model_training_custom_params_default_to_no_promote(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+        from fashion_trend.trend.models.supervised.lightgbm_config import (
+            resolve_lightgbm_config,
+        )
+
+        monkeypatch.setattr(
+            lightgbm_model,
+            "_fit_lightgbm_model",
+            lambda train_features, train_target, valid_features, valid_target, *, config: _FakeLightGBMModel(
+                train_features.columns.tolist()
+            ),
+        )
+
+        metadata = run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=_write_sample_split_inputs(tmp_path),
+            output_root=tmp_path / "outputs" / "models",
+            trainer_options={
+                "lightgbm_config": resolve_lightgbm_config(
+                    cli_params=["learning_rate=0.03"]
+                )
+            },
+        )
+
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        run_dir = stable_dir / "runs" / str(metadata["run_id"])
+        assert (run_dir / "predictions.csv").exists()
+        assert not (stable_dir / "predictions.csv").exists()
+        row = json.loads(
+            (stable_dir / "runs" / "index.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()[0]
+        )
+        assert row["promotion_status"] == "not_requested"
+
+    def test_run_trend_model_training_rejects_run_options_for_baseline(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        with pytest.raises(ValueError, match="lightgbm"):
+            run_trend_model_training(
+                LAST_WEEK_MODEL_NAME,
+                input_paths=_write_sample_split_inputs(tmp_path),
+                output_root=tmp_path / "outputs" / "models",
+                run_id="bad",
+                promote=False,
+            )
+
+    def test_run_trend_model_training_promotes_default_lightgbm_run(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+
+        monkeypatch.setattr(
+            lightgbm_model,
+            "_fit_lightgbm_model",
+            lambda train_features, train_target, valid_features, valid_target, *, config: _FakeLightGBMModel(
+                train_features.columns.tolist()
+            ),
+        )
+
+        metadata = run_trend_model_training(
+            LIGHTGBM_MODEL_NAME,
+            input_paths=_write_sample_split_inputs(tmp_path),
+            output_root=tmp_path / "outputs" / "models",
+        )
+
+        stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
+        run_dir = stable_dir / "runs" / str(metadata["run_id"])
+        assert (run_dir / "predictions.csv").exists()
+        assert (stable_dir / "predictions.csv").exists()
+        assert (stable_dir / "params.json").exists()
+        assert (stable_dir / "metadata.json").exists()
+        stable_metadata = json.loads(
+            (stable_dir / "metadata.json").read_text(encoding="utf-8")
+        )
+        assert stable_metadata["run_id"] == metadata["run_id"]
+        assert stable_metadata["output_dir"] == str(stable_dir)
+        assert stable_metadata["prediction_path"] == str(stable_dir / "predictions.csv")
+        assert stable_metadata["run_dir"] == str(run_dir)
+
+        index_rows = [
+            json.loads(line)
+            for line in (stable_dir / "runs" / "index.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        assert index_rows[0]["promotion_status"] == "succeeded"
+
+    def test_run_trend_model_training_promote_failure_keeps_run_and_returns_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+        from fashion_trend.trend.training import run_artifacts
+
+        monkeypatch.setattr(
+            lightgbm_model,
+            "_fit_lightgbm_model",
+            lambda train_features, train_target, valid_features, valid_target, *, config: _FakeLightGBMModel(
+                train_features.columns.tolist()
+            ),
+        )
+
+        def broken_promotion(*args, **kwargs):
+            raise OSError("stable write failed")
+
+        monkeypatch.setattr(
+            run_artifacts,
+            "publish_lightgbm_run_to_stable",
+            broken_promotion,
+        )
+
+        with pytest.raises(OSError, match="stable write failed"):
+            run_trend_model_training(
+                LIGHTGBM_MODEL_NAME,
+                input_paths=_write_sample_split_inputs(tmp_path),
+                output_root=tmp_path / "outputs" / "models",
+                run_id="depth6-lr005",
+                promote=True,
+            )
+
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+        assert (run_dir / "predictions.csv").exists()
+        index_path = (
+            tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "index.jsonl"
+        )
+        row = json.loads(index_path.read_text(encoding="utf-8").splitlines()[0])
+        assert row["promotion_status"] == "failed"
+        assert "stable write failed" in row["promotion_error"]
+
+    def test_run_trend_model_training_promote_failure_preserves_original_error_when_index_update_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+        from fashion_trend.trend.training import run_artifacts
+
+        monkeypatch.setattr(
+            lightgbm_model,
+            "_fit_lightgbm_model",
+            lambda train_features, train_target, valid_features, valid_target, *, config: _FakeLightGBMModel(
+                train_features.columns.tolist()
+            ),
+        )
+        monkeypatch.setattr(
+            run_artifacts,
+            "publish_lightgbm_run_to_stable",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                OSError("stable write failed")
+            ),
+        )
+
+        original_upsert = run_artifacts.upsert_lightgbm_run_index
+        calls = {"count": 0}
+
+        def flaky_upsert(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return original_upsert(*args, **kwargs)
+            raise OSError("index write failed")
+
+        monkeypatch.setattr(run_artifacts, "upsert_lightgbm_run_index", flaky_upsert)
+
+        with pytest.raises(OSError, match="stable write failed"):
+            run_trend_model_training(
+                LIGHTGBM_MODEL_NAME,
+                input_paths=_write_sample_split_inputs(tmp_path),
+                output_root=tmp_path / "outputs" / "models",
+                run_id="depth6-lr005",
+                promote=True,
+            )
+
+        captured = capsys.readouterr()
+        assert "stable write failed" in captured.err
+        assert "index write failed" in captured.err
+        assert "depth6-lr005" in captured.err
+
+    def test_run_trend_model_training_promote_success_index_failure_does_not_mark_failed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
+        from fashion_trend.trend.training import run_artifacts
+
+        monkeypatch.setattr(
+            lightgbm_model,
+            "_fit_lightgbm_model",
+            lambda train_features, train_target, valid_features, valid_target, *, config: _FakeLightGBMModel(
+                train_features.columns.tolist()
+            ),
+        )
+
+        def successful_publish(
+            *,
+            stable_paths: dict[str, Path],
+            **kwargs,
+        ) -> dict[str, object]:
+            stable_paths["predictions"].parent.mkdir(parents=True, exist_ok=True)
+            stable_paths["predictions"].write_text(
+                "stable published\n",
+                encoding="utf-8",
+            )
+            return {"run_id": "depth6-lr005"}
+
+        monkeypatch.setattr(
+            run_artifacts,
+            "publish_lightgbm_run_to_stable",
+            successful_publish,
+        )
+        original_upsert = run_artifacts.upsert_lightgbm_run_index
+        calls = {"count": 0}
+
+        def flaky_upsert(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return original_upsert(*args, **kwargs)
+            raise OSError("succeeded index write failed")
+
+        monkeypatch.setattr(run_artifacts, "upsert_lightgbm_run_index", flaky_upsert)
+
+        with pytest.raises(OSError, match="succeeded index write failed"):
+            run_trend_model_training(
+                LIGHTGBM_MODEL_NAME,
+                input_paths=_write_sample_split_inputs(tmp_path),
+                output_root=tmp_path / "outputs" / "models",
+                run_id="depth6-lr005",
+                promote=True,
+            )
+
+        stable_prediction_path = (
+            tmp_path / "outputs" / "models" / "lightgbm" / "predictions.csv"
+        )
+        assert stable_prediction_path.read_text(encoding="utf-8") == (
+            "stable published\n"
+        )
+        captured = capsys.readouterr()
+        assert "promotion succeeded" in captured.err
+        assert "succeeded index write failed" in captured.err
+        index_path = (
+            tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "index.jsonl"
+        )
+        rows = [
+            json.loads(line)
+            for line in index_path.read_text(encoding="utf-8").splitlines()
+        ]
+        assert rows == [
+            {
+                "created_at": rows[0]["created_at"],
+                "metadata_path": str(
+                    tmp_path
+                    / "outputs"
+                    / "models"
+                    / "lightgbm"
+                    / "runs"
+                    / "depth6-lr005"
+                    / "metadata.json"
+                ),
+                "params_path": str(
+                    tmp_path
+                    / "outputs"
+                    / "models"
+                    / "lightgbm"
+                    / "runs"
+                    / "depth6-lr005"
+                    / "params.json"
+                ),
+                "promotion_status": "not_requested",
+                "run_dir": str(
+                    tmp_path
+                    / "outputs"
+                    / "models"
+                    / "lightgbm"
+                    / "runs"
+                    / "depth6-lr005"
+                ),
+                "run_id": "depth6-lr005",
+            }
+        ]
+
+    def test_write_promotion_items_atomic_rolls_back_cross_directory_partial_publish(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            PromotionItem,
+            write_promotion_items_atomic,
+        )
+
+        stable_model_path = (
+            tmp_path / "outputs" / "models" / "lightgbm" / "predictions.csv"
+        )
+        stable_model_path.parent.mkdir(parents=True)
+        stable_model_path.write_text("old model\n", encoding="utf-8")
+        broken_metrics_parent = tmp_path / "outputs" / "metrics" / "lightgbm"
+        broken_metrics_parent.parent.mkdir(parents=True)
+        broken_metrics_parent.write_text("not a directory\n", encoding="utf-8")
+
+        with pytest.raises(OSError):
+            write_promotion_items_atomic(
+                [
+                    PromotionItem(stable_model_path, b"new model\n"),
+                    PromotionItem(
+                        broken_metrics_parent / "trend_metrics.json",
+                        {"new": True},
+                    ),
+                ],
+                tmp_path / "outputs" / "models" / "lightgbm",
+            )
+
+        assert stable_model_path.read_text(encoding="utf-8") == "old model\n"
+        assert broken_metrics_parent.read_text(encoding="utf-8") == "not a directory\n"
+
     def test_run_trend_model_training_writes_previous_growth_outputs(
         self,
         tmp_path: Path,
@@ -1473,3 +1900,48 @@ class TestTrendTraining:
 
         with pytest.raises(ValueError, match="列"):
             validate_trend_model_predictions(predictions, samples)
+
+
+def _write_sample_split_inputs(tmp_path: Path) -> dict[str, Path]:
+    split_frames = build_trend_model_split_frames(
+        sample_trend_model_samples_for_split(),
+        valid_weeks=4,
+        test_weeks=4,
+    )
+    input_paths = {
+        "train": tmp_path / "trend_model_samples_train.parquet",
+        "valid": tmp_path / "trend_model_samples_valid.parquet",
+        "test": tmp_path / "trend_model_samples_test.parquet",
+    }
+    for split_name, split_frame in split_frames.items():
+        write_parquet_atomic(split_frame, input_paths[split_name])
+    return input_paths
+
+
+class _FakeBooster:
+    def __init__(self, feature_names: list[str]) -> None:
+        self._feature_names = feature_names
+
+    def feature_name(self) -> list[str]:
+        return list(self._feature_names)
+
+    def feature_importance(self, importance_type: str):
+        if importance_type == "split":
+            return [1 for _ in self._feature_names]
+        if importance_type == "gain":
+            return [1.0 for _ in self._feature_names]
+        raise AssertionError(f"unexpected importance_type={importance_type}")
+
+    def model_to_string(self) -> str:
+        return "fake lightgbm model"
+
+
+class _FakeLightGBMModel:
+    best_iteration_ = 7
+    best_score_ = {"valid_0": {"l2": 0.12}}
+
+    def __init__(self, feature_names: list[str]) -> None:
+        self.booster_ = _FakeBooster(feature_names)
+
+    def predict(self, features: pd.DataFrame, num_iteration: int | None = None):
+        return features["growth_lag_1"].astype(float).to_numpy()
