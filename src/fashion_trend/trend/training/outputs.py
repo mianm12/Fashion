@@ -26,17 +26,21 @@ from fashion_trend.trend.models.base import (
 )
 from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
 from fashion_trend.trend.predictions import validate_trend_model_predictions
+from fashion_trend.trend.training.run_artifacts import validate_lightgbm_run_id
 
 
 def derive_trend_model_output_paths(
     model_name: str,
     output_root: Path = OUTPUT_MODELS_DIR,
+    *,
+    run_id: str | None = None,
 ) -> dict[str, Path]:
     """派生趋势模型标准输出路径。
 
     参数:
         model_name: 模型名称，也是输出根目录下的安全路径片段。
         output_root: 模型输出根目录，默认使用 `outputs/models`。
+        run_id: LightGBM 实验 run id；仅 `lightgbm` 支持。
 
     返回:
         包含输出目录、预测表、参数文件和元数据文件的路径映射。
@@ -45,7 +49,27 @@ def derive_trend_model_output_paths(
         ValueError: 当模型名称不是安全路径片段，或输出目录越出根目录时抛出。
     """
     validate_safe_path_segment(model_name, "model_name")
-    output_dir = output_root / model_name
+    stable_output_dir = output_root / model_name
+    if run_id is not None:
+        if model_name != "lightgbm":
+            raise ValueError("只有 lightgbm 支持 run_id 输出路径。")
+        validate_lightgbm_run_id(run_id)
+        run_root = stable_output_dir / "runs"
+        output_dir = run_root / run_id
+        validate_output_parent_dirs(stable_output_dir, output_root)
+        validate_output_parent_dirs(run_root, output_root)
+        validate_output_parent_dirs(output_dir, output_root)
+        return {
+            "output_dir": output_dir,
+            "stable_output_dir": stable_output_dir,
+            "run_root": run_root,
+            "index": run_root / "index.jsonl",
+            "predictions": output_dir / "predictions.csv",
+            "params": output_dir / "params.json",
+            "metadata": output_dir / "metadata.json",
+        }
+
+    output_dir = stable_output_dir
     validate_output_parent_dirs(output_dir, output_root)
     return {
         "output_dir": output_dir,

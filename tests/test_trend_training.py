@@ -230,6 +230,110 @@ class TestTrendTraining:
             == OUTPUT_MODELS_DIR / "last_week"
         )
 
+    def test_derive_trend_model_output_paths_uses_lightgbm_run_id(self) -> None:
+        paths = derive_trend_model_output_paths(
+            "lightgbm",
+            Path("outputs/models"),
+            run_id="depth6-lr005",
+        )
+
+        assert paths["output_dir"] == Path("outputs/models/lightgbm/runs/depth6-lr005")
+        assert paths["stable_output_dir"] == Path("outputs/models/lightgbm")
+        assert paths["run_root"] == Path("outputs/models/lightgbm/runs")
+        assert paths["index"] == Path("outputs/models/lightgbm/runs/index.jsonl")
+        assert paths["predictions"] == Path(
+            "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv"
+        )
+        assert paths["params"] == Path(
+            "outputs/models/lightgbm/runs/depth6-lr005/params.json"
+        )
+        assert paths["metadata"] == Path(
+            "outputs/models/lightgbm/runs/depth6-lr005/metadata.json"
+        )
+
+    def test_derive_trend_model_output_paths_rejects_run_id_for_baseline(
+        self,
+    ) -> None:
+        with pytest.raises(ValueError, match="lightgbm|run_id"):
+            derive_trend_model_output_paths(
+                "last_week",
+                Path("outputs/models"),
+                run_id="baseline-run",
+            )
+
+    @pytest.mark.parametrize("run_id", ["", ".", "..", "../x", "nested/x"])
+    def test_validate_lightgbm_run_id_rejects_unsafe_values(
+        self,
+        run_id: str,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import validate_lightgbm_run_id
+
+        with pytest.raises(ValueError, match="run_id"):
+            validate_lightgbm_run_id(run_id)
+
+    @pytest.mark.parametrize("run_id", ["index.jsonl", "evaluations.jsonl"])
+    def test_validate_lightgbm_run_id_rejects_reserved_names(
+        self,
+        run_id: str,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import validate_lightgbm_run_id
+
+        with pytest.raises(ValueError, match="保留|run_id"):
+            validate_lightgbm_run_id(run_id)
+
+    def test_generate_lightgbm_run_id_uses_local_timestamp_and_hex_suffix(
+        self,
+    ) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from fashion_trend.trend.training.run_artifacts import generate_lightgbm_run_id
+
+        run_id = generate_lightgbm_run_id(
+            run_root=Path("outputs/models/lightgbm/runs"),
+            now_factory=lambda: datetime(
+                2026,
+                5,
+                8,
+                15,
+                30,
+                12,
+                tzinfo=ZoneInfo("Asia/Shanghai"),
+            ),
+            token_factory=lambda: "a1b2c3d4",
+        )
+
+        assert run_id == "20260508-153012-a1b2c3d4"
+
+    def test_generate_lightgbm_run_id_retries_existing_directory(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from fashion_trend.trend.training.run_artifacts import generate_lightgbm_run_id
+
+        run_root = tmp_path / "outputs" / "models" / "lightgbm" / "runs"
+        (run_root / "20260508-153012-aaaaaaaa").mkdir(parents=True)
+        tokens = iter(["aaaaaaaa", "bbbbbbbb"])
+
+        run_id = generate_lightgbm_run_id(
+            run_root=run_root,
+            now_factory=lambda: datetime(
+                2026,
+                5,
+                8,
+                15,
+                30,
+                12,
+                tzinfo=ZoneInfo("Asia/Shanghai"),
+            ),
+            token_factory=lambda: next(tokens),
+        )
+
+        assert run_id == "20260508-153012-bbbbbbbb"
+
     @pytest.mark.parametrize(
         "model_name",
         [
