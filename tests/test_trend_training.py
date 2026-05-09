@@ -1548,6 +1548,56 @@ class TestTrendTraining:
             "stable": "old"
         }
 
+    def test_promote_existing_lightgbm_run_requires_standard_extra_artifacts(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        paths = _write_promotable_lightgbm_run(tmp_path)
+        metadata = json.loads(paths["metadata"].read_text(encoding="utf-8"))
+        metadata["extra_artifacts"] = [
+            {"path": "feature_importance.csv", "kind": "csv"}
+        ]
+        write_json_atomic(metadata, paths["metadata"])
+        stable_model_path = paths["model_root"] / "lightgbm" / "model.txt"
+        stable_model_path.parent.mkdir(parents=True, exist_ok=True)
+        stable_model_path.write_text("old model", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="extra_artifacts.*model.txt"):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=paths["model_root"],
+                metrics_output_root=paths["metrics_root"],
+            )
+
+        assert stable_model_path.read_text(encoding="utf-8") == "old model"
+
+    def test_promote_existing_lightgbm_run_rejects_core_extra_artifact_paths(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        paths = _write_promotable_lightgbm_run(tmp_path)
+        metadata = json.loads(paths["metadata"].read_text(encoding="utf-8"))
+        metadata["extra_artifacts"].append({"path": "predictions.csv", "kind": "csv"})
+        write_json_atomic(metadata, paths["metadata"])
+
+        with pytest.raises(
+            ValueError,
+            match="extra_artifacts.*核心产物.*predictions.csv",
+        ):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=paths["model_root"],
+                metrics_output_root=paths["metrics_root"],
+            )
+
     def test_promote_existing_lightgbm_run_rejects_malformed_params_before_publishing(
         self,
         tmp_path: Path,

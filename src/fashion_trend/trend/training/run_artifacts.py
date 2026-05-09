@@ -24,6 +24,12 @@ LIGHTGBM_RUN_ID_SUFFIX_LENGTH = 8
 LIGHTGBM_PROMOTION_STATUSES: frozenset[str] = frozenset(
     {"not_requested", "succeeded", "failed"}
 )
+LIGHTGBM_STANDARD_EXTRA_ARTIFACTS: frozenset[str] = frozenset(
+    {"feature_importance.csv", "model.txt"}
+)
+LIGHTGBM_CORE_ARTIFACT_PATHS: frozenset[str] = frozenset(
+    {"predictions.csv", "params.json", "metadata.json"}
+)
 
 
 @dataclass(frozen=True)
@@ -440,6 +446,7 @@ def _lightgbm_run_artifact_paths(
     run_dir: Path,
 ) -> list[Path]:
     artifact_paths: list[Path] = []
+    declared_paths: set[str] = set()
     extra_artifacts = run_metadata.get("extra_artifacts", [])
     if not isinstance(extra_artifacts, list):
         raise ValueError("LightGBM run metadata 的 extra_artifacts 必须是列表。")
@@ -456,5 +463,21 @@ def _lightgbm_run_artifact_paths(
             or ".." in raw_path_parts
         ):
             raise ValueError(f"LightGBM run artifact 路径不安全: {relative_path}")
+        if relative_path in LIGHTGBM_CORE_ARTIFACT_PATHS:
+            raise ValueError(
+                "LightGBM run metadata 的 extra_artifacts 不能声明核心产物: "
+                f"{relative_path}"
+            )
+        if relative_path in declared_paths:
+            raise ValueError(
+                f"LightGBM run metadata 的 extra_artifacts 路径重复: {relative_path}"
+            )
+        declared_paths.add(relative_path)
         artifact_paths.append(run_dir / artifact_path)
+    missing_artifacts = sorted(LIGHTGBM_STANDARD_EXTRA_ARTIFACTS - declared_paths)
+    if missing_artifacts:
+        raise ValueError(
+            "LightGBM run metadata 的 extra_artifacts 缺少标准产物: "
+            f"{missing_artifacts}"
+        )
     return artifact_paths
