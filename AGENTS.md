@@ -1,51 +1,51 @@
-# Repository Guidelines
+# 仓库指南
 
-## Project Scope & Current State
+## 项目范围与当前状态
 
-This is a Python 3.10-3.12 project for H&M fashion trend prediction and lightweight recommendation experiments. The current implemented pipeline reaches weekly data preparation, article cleaning, attribute graph construction, article weekly sales, attribute weekly heat, trend labels, trend samples, time-based splits, three baseline trend models, the LightGBM main model, and trend evaluation.
+这是一个 Python 3.10-3.12 项目，用于 H&M 时尚趋势预测和轻量推荐实验。当前已实现的流水线覆盖周级数据准备、商品清洗、属性图构建、商品周销量、属性周热度、趋势标签、趋势样本、基于时间的样本切分、三类趋势 baseline、LightGBM 主模型和趋势评价。
 
-Recommendation generation and recommendation evaluation are not implemented yet. Do not describe them as working code unless the implementation and artifacts exist.
+推荐生成和推荐评价尚未实现。除非对应实现和产物已经存在，否则不要把它们描述为可运行功能。
 
-Large datasets and generated artifacts live under `data/` and `outputs/`. Treat them as runtime artifacts, not source files.
+大体量数据集和生成产物位于 `data/` 和 `outputs/`。这些内容应视为运行时产物，不应作为源代码文件处理。
 
-## Project Structure & Module Organization
+## 项目结构与模块组织
 
-Numbered scripts in `src/00_*.py` through `src/11_*.py` are workflow entrypoints. Keep them as readable orchestration layers: parse arguments, call package functions in order, log progress, and return stable exit codes. Core calculations, validation, readers, writers, and artifact handling belong under `src/fashion_trend/`.
+`src/00_*.py` 到 `src/11_*.py` 的编号脚本是工作流入口。它们应保持为清晰的编排层：解析参数、按顺序调用包函数、记录日志并返回稳定退出码。核心计算、校验、读取、写入和 artifact 处理应放在 `src/fashion_trend/` 下。
 
-The package is organized by domain:
+包按领域组织：
 
-- `foundation/`: project roots, logging, dataframe utilities, safe IO, and artifact helpers.
-- `datasets/`: Kaggle download and raw dataset profiling.
-- `transactions/`: transaction paths, contracts, readers, and weekly aggregation.
-- `catalog/`: article cleaning, catalog contracts/readers, and `catalog/graph/` builders and publishers.
-- `trend/`: trend schema, paths, readers, predictions, heat, labels, features, splits, training, evaluation, and model implementations.
-- `recommendation/`: recommendation contracts, paths, and readers for future downstream work.
-- `reports/`: read-only reporting paths and boundaries.
+- `foundation/`：项目根路径、日志、DataFrame 工具、安全 IO 和 artifact helper。
+- `datasets/`：Kaggle 下载和原始数据集 profile。
+- `transactions/`：交易路径、契约、reader 和周级聚合。
+- `catalog/`：商品清洗、catalog 契约和 reader，以及 `catalog/graph/` 下的 builder 与 publisher。
+- `trend/`：趋势 schema、路径、reader、预测契约、热度、标签、特征、切分、训练、评价和模型实现。
+- `recommendation/`：为后续下游工作预留的推荐契约、路径和 reader。
+- `reports/`：只读报表路径和边界。
 
-Inside `trend/`, keep responsibilities explicit:
+在 `trend/` 内部保持职责清晰：
 
-- `heat/`: article weekly sales and attribute weekly heat.
-- `labels/`: trend target generation.
-- `features/`: trend model sample generation.
-- `splits/`: time-based train/valid/test split logic.
-- `models/baselines/`: deterministic baselines such as `last_week`, `previous_growth`, and `moving_average`.
-- `models/supervised/`: supervised models such as `lightgbm`.
-- `models/registry.py`: model registration and lookup.
-- `training/`: training runner, output paths, and run artifact contracts.
-- `evaluation/`: metrics, payloads, runner, and metric artifact contracts.
+- `heat/`：商品周销量和属性周热度。
+- `labels/`：趋势标签生成。
+- `features/`：趋势模型样本生成。
+- `splits/`：基于时间的 train/valid/test 切分逻辑。
+- `models/baselines/`：确定性 baseline，例如 `last_week`、`previous_growth` 和 `moving_average`。
+- `models/supervised/`：监督模型，例如 `lightgbm`。
+- `models/registry.py`：模型注册和查找。
+- `training/`：训练 runner、输出路径和 run artifact 契约。
+- `evaluation/`：指标、payload、runner 和指标 artifact 契约。
 
-Do not reintroduce historical root modules such as `fashion_trend.training`, `fashion_trend.evaluation`, `fashion_trend.models`, `fashion_trend.articles`, or `fashion_trend.data_loader`. Do not import through the `fashion_trend.trend` facade when a concrete submodule import is available; architecture tests enforce direct imports.
+不要重新引入历史根模块，例如 `fashion_trend.training`、`fashion_trend.evaluation`、`fashion_trend.models`、`fashion_trend.articles` 或 `fashion_trend.data_loader`。当存在具体子模块导入路径时，不要通过 `fashion_trend.trend` facade 导入；架构测试会强制检查直接导入。
 
-## Build, Test, and Development Commands
+## 构建、测试与开发命令
 
-- `uv sync`: install dependencies from `pyproject.toml` and `uv.lock`.
-- `uv run pytest`: run the full pytest suite with `src` on `PYTHONPATH`.
-- `uv run pytest tests/test_trend_training.py tests/test_trend_lightgbm.py tests/test_trend_evaluation.py`: focused validation for trend training, LightGBM, and evaluation changes.
-- `uv run black --check src tests`: check Python formatting.
-- `uv run isort --check-only src tests`: check import ordering using the Black profile.
-- `uv run python -m compileall -q src`: compile-check package and numbered scripts when import or CLI boundaries change.
+- `uv sync`：根据 `pyproject.toml` 和 `uv.lock` 安装依赖。
+- `uv run pytest`：使用 `src` 作为 `PYTHONPATH` 运行完整 pytest 测试套件。
+- `uv run pytest tests/test_trend_training.py tests/test_trend_lightgbm.py tests/test_trend_evaluation.py`：针对趋势训练、LightGBM 和评价改动的聚焦验证。
+- `uv run black --check src tests`：检查 Python 格式。
+- `uv run isort --check-only src tests`：使用 Black profile 检查 import 排序。
+- `uv run python -m compileall -q src`：在导入或 CLI 边界发生变化时，对包和编号脚本做编译检查。
 
-Run the implemented pipeline in numbered order when validating artifacts:
+验证 artifact 时，按编号顺序运行已实现流水线：
 
 ```sh
 uv run python src/00_download_data.py
@@ -60,7 +60,7 @@ uv run python src/08_build_trend_model_samples.py
 uv run python src/09_split_trend_model_samples.py
 ```
 
-Train and evaluate registered trend models through the shared entrypoints:
+通过共享入口训练和评价已注册的趋势模型：
 
 ```sh
 uv run python src/10_train_trend_model.py --model last_week
@@ -73,7 +73,7 @@ uv run python src/11_eval_trend_model.py --model moving_average
 uv run python src/11_eval_trend_model.py --model lightgbm
 ```
 
-LightGBM tuning runs are run-scoped and should not accidentally replace the stable main result:
+LightGBM 调参 run 是 run-scoped，不应意外替换 stable 主结果：
 
 ```sh
 uv run python src/10_train_trend_model.py --model lightgbm --run-id smoke-lightgbm --no-promote
@@ -81,11 +81,11 @@ uv run python src/11_eval_trend_model.py --model lightgbm --run-id smoke-lightgb
 uv run python src/10_train_trend_model.py --model lightgbm --promote-run smoke-lightgbm
 ```
 
-`--run-id`, `--params`, `--param`, `--promote`, `--no-promote`, and `--promote-run` are LightGBM-only options. Baselines must reject those options rather than silently ignoring them.
+`--run-id`、`--params`、`--param`、`--promote`、`--no-promote` 和 `--promote-run` 只适用于 LightGBM。Baseline 遇到这些选项时必须拒绝，而不是静默忽略。
 
-## Artifact Contracts
+## Artifact 契约
 
-Key data artifacts:
+关键数据 artifact：
 
 - `data/interim/transactions_train_weekly.parquet`
 - `data/interim/articles_clean_mvp.csv`
@@ -102,61 +102,61 @@ Key data artifacts:
 - `data/processed/trend_model_samples_valid.parquet`
 - `data/processed/trend_model_samples_test.parquet`
 
-Baseline and stable model outputs use:
+Baseline 和 stable 模型输出使用：
 
 - `outputs/models/<model>/predictions.csv`
 - `outputs/models/<model>/params.json`
 - `outputs/models/<model>/metadata.json`
 - `outputs/metrics/<model>/trend_metrics.json`
 
-LightGBM stable outputs additionally include `feature_importance.csv` and `model.txt`. LightGBM run outputs use `outputs/models/lightgbm/runs/<run_id>/...` and `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json`.
+LightGBM stable 输出额外包含 `feature_importance.csv` 和 `model.txt`。LightGBM run 输出使用 `outputs/models/lightgbm/runs/<run_id>/...` 和 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json`。
 
-The stable LightGBM directory represents the current main result. Run directories represent preserved experiments. A parameterized or explicit run should default to not promoting. `--promote` publishes model artifacts only and does not run evaluation. `--promote-run` publishes an already evaluated run and must keep stable model artifacts and stable metrics aligned to the same `run_id`.
+LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。带参数或显式 run 的训练默认不 promotion。`--promote` 只发布模型 artifact，不运行评价。`--promote-run` 发布已经评价过的 run，并且必须让 stable 模型 artifact 与 stable metrics 对齐到同一个 `run_id`。
 
-## Coding Style & Architecture Boundaries
+## 编码风格与架构边界
 
-Use Black formatting, isort with `profile = "black"`, and clear snake_case names for modules, functions, variables, and test helpers.
+使用 Black 格式、`profile = "black"` 的 isort，以及清晰的 snake_case 模块名、函数名、变量名和测试 helper 名。
 
-Prefer existing project helpers over new ad hoc utilities:
+优先复用项目已有 helper，不要新增临时工具：
 
-- Use `foundation.paths` and domain `paths.py` modules for path constants.
-- Use `foundation.logging` for CLI logs.
-- Use `foundation.io` and artifact helpers for safe writes and JSON/CSV/parquet IO.
-- Keep validation close to the domain package that owns the contract.
+- 使用 `foundation.paths` 和各领域 `paths.py` 模块维护路径常量。
+- 使用 `foundation.logging` 记录 CLI 日志。
+- 使用 `foundation.io` 和 artifact helper 进行安全写入以及 JSON/CSV/parquet IO。
+- 将校验逻辑放在拥有该契约的领域包附近。
 
-Architecture boundaries are intentionally tested:
+架构边界会被测试强制检查：
 
-- `foundation` must not import business domains.
-- `datasets`, `transactions`, and `catalog` depend only on allowed lower-level utilities.
-- `trend` may depend on stable input domains, but not on `datasets`, `recommendation`, or `reports`.
-- `recommendation` and `reports` may read only public upstream contracts/readers, not core computation modules.
+- `foundation` 不能导入业务领域。
+- `datasets`、`transactions` 和 `catalog` 只能依赖允许的下层工具。
+- `trend` 可以依赖稳定输入领域，但不能依赖 `datasets`、`recommendation` 或 `reports`。
+- `recommendation` 和 `reports` 只能读取上游公开契约和 reader，不能依赖核心计算模块。
 
-When adding functionality, place it in the domain that owns the business fact. Do not make numbered scripts the source of reusable logic.
+新增功能时，将其放在拥有对应业务事实的领域中。不要让编号脚本成为可复用逻辑的来源。
 
-## Testing Guidelines
+## 测试指南
 
-The project uses pytest. Name test files `tests/test_*.py` and align new tests with real pipeline stages: foundation artifacts, article cleaning, attribute graph, article sales, attribute heat, targets, samples, splits, training, LightGBM, evaluation, or architecture boundaries.
+项目使用 pytest。测试文件命名为 `tests/test_*.py`，新增测试应对齐真实流水线阶段：foundation artifact、商品清洗、属性图、商品销量、属性热度、标签、样本、切分、训练、LightGBM、评价或架构边界。
 
-Tests should not require the real H&M dataset unless explicitly called out as artifact validation. Prefer small in-memory fixtures and shared helpers in `tests/trend_samples.py` or `tests/__init__.py`.
+除非明确说明是 artifact 验证，否则测试不应依赖真实 H&M 数据集。优先使用小型内存 fixture，以及 `tests/trend_samples.py` 或 `tests/__init__.py` 中的共享 helper。
 
-For bug fixes, add or update a regression test that fails before the fix. For model or artifact contract changes, validate both happy paths and boundary failures such as invalid model names, invalid `run_id`, missing split columns, unsafe paths, and mismatched prediction/metrics payloads.
+修复 bug 时，添加或更新一个修复前会失败的回归测试。修改模型或 artifact 契约时，同时验证 happy path 和边界失败，例如非法模型名、非法 `run_id`、缺失 split 列、不安全路径，以及 prediction/metrics payload 不匹配。
 
-## Documentation Guidelines
+## 文档指南
 
-Keep `README.md`, `docs/gpt-research/implementation-plan.md`, and relevant `docs/superpowers/specs/` or `docs/superpowers/plans/` aligned with as-built behavior when command syntax, artifact paths, model semantics, or architecture boundaries change.
+当命令语法、artifact 路径、模型语义或架构边界变化时，保持 `README.md`、`docs/gpt-research/implementation-plan.md`，以及相关 `docs/superpowers/specs/` 或 `docs/superpowers/plans/` 与 as-built 行为一致。
 
-Do not leave historical design text implying that implemented modules still live in removed root files. Current trend training and evaluation code lives under `src/fashion_trend/trend/`.
+不要留下暗示已实现模块仍位于已删除根文件中的历史设计文本。当前趋势训练和评价代码位于 `src/fashion_trend/trend/` 下。
 
-## Commit & Pull Request Guidelines
+## Commit 与 Pull Request 指南
 
-Recent history uses Conventional Commit prefixes with concise Chinese summaries, for example `fix(trend): 修正预测校验和 LightGBM 日志` and `docs: 说明 LightGBM run 调参流程`.
+近期历史使用 Conventional Commit 前缀和简洁中文摘要，例如 `fix(trend): 修正预测校验和 LightGBM 日志`、`docs: 说明 LightGBM run 调参流程`。
 
-Keep commits scoped by feature, stage, or contract. Before committing, inspect `git diff`, confirm the change scope, and run the relevant validation commands. Do not commit generated datasets, model outputs, credentials, caches, or unrelated formatting churn.
+按功能、阶段或契约边界保持 commit 粒度。提交前检查 `git diff`，确认改动范围，并运行相关验证命令。不要提交生成的数据集、模型输出、凭据、缓存或无关格式化改动。
 
-Pull requests should describe the changed stage or contract, list validation commands, mention artifact paths when relevant, and call out data or configuration assumptions.
+Pull request 应说明变更的阶段或契约，列出验证命令，在相关时说明 artifact 路径，并指出数据或配置假设。
 
-## Security & Configuration Tips
+## 安全与配置提示
 
-Kaggle credentials, API tokens, `.env` files, raw datasets, generated outputs, model artifacts, and local session files must stay out of commits. Use environment variables or credential files outside the repository for data access.
+Kaggle 凭据、API token、`.env` 文件、原始数据集、生成输出、模型 artifact 和本机会话文件都不能进入提交。使用环境变量或仓库外的凭据文件访问数据。
 
-Do not log secrets or embed credentials in docs, tests, snapshots, metadata, or commit messages.
+不要在日志、文档、测试、快照、metadata 或提交信息中写入敏感信息。
