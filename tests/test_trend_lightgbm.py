@@ -274,6 +274,38 @@ class TestLightGBMTrendModel:
                 stable_params_path
             )
 
+    def test_resolve_lightgbm_config_from_stable_rejects_unreadable_file(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = tmp_path / "params.json"
+        stable_params_path.mkdir()
+
+        with pytest.raises(ValueError, match="stable|params.json") as exc_info:
+            config_module.resolve_lightgbm_config_from_stable_or_default(
+                stable_params_path
+            )
+        assert str(stable_params_path) in str(exc_info.value)
+
+    def test_resolve_lightgbm_config_from_stable_rejects_non_utf8_json(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        stable_params_path = tmp_path / "params.json"
+        stable_params_path.write_bytes(b"\xff\xfe\x00")
+
+        with pytest.raises(ValueError, match="stable|params.json") as exc_info:
+            config_module.resolve_lightgbm_config_from_stable_or_default(
+                stable_params_path
+            )
+        assert str(stable_params_path) in str(exc_info.value)
+
     def test_resolve_lightgbm_config_from_stable_rejects_invalid_payloads(
         self,
         tmp_path: Path,

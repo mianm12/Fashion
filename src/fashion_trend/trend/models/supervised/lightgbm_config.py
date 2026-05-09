@@ -142,7 +142,11 @@ def _read_params_file(params_path: Path) -> dict[str, dict[str, object]]:
 def _read_stable_params_file(params_path: Path) -> dict[str, dict[str, object]]:
     try:
         payload = json.loads(params_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except OSError as exc:
+        raise ValueError(
+            f"LightGBM stable params.json 无法读取: {params_path}"
+        ) from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(
             f"LightGBM stable params.json 不是合法 JSON: {params_path}"
         ) from exc

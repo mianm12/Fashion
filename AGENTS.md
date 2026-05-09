@@ -90,17 +90,18 @@ uv run python src/10_train_trend_model.py --model lightgbm --promote-run smoke-l
 - `data/interim/transactions_train_weekly.parquet`
 - `data/interim/articles_clean_mvp.csv`
 - `data/interim/articles_clean.csv`
-- `data/interim/nodes_article.csv`
-- `data/interim/nodes_attribute.csv`
-- `data/interim/edges_article_attribute.csv`
-- `data/interim/edges_attribute_hierarchy.csv`
-- `data/interim/article_week_sales.csv`
-- `data/interim/attribute_week_heat.csv`
-- `data/interim/attribute_week_target.csv`
-- `data/processed/trend_model_samples.parquet`
-- `data/processed/trend_model_samples_train.parquet`
-- `data/processed/trend_model_samples_valid.parquet`
-- `data/processed/trend_model_samples_test.parquet`
+- `data/processed/graph/nodes_article.csv`
+- `data/processed/graph/nodes_attribute.csv`
+- `data/processed/graph/edges_article_attribute.csv`
+- `data/processed/graph/edges_attribute_hierarchy.csv`
+- `data/processed/trend/article_week_sales.csv`
+- `data/processed/trend/attribute_week_heat.csv`
+- `data/processed/trend/attribute_week_target.csv`
+- `data/processed/features/trend_model_samples.parquet`
+- `data/processed/features/trend_model_samples_train.parquet`
+- `data/processed/features/trend_model_samples_valid.parquet`
+- `data/processed/features/trend_model_samples_test.parquet`
+- `data/processed/features/trend_model_samples_split_metadata.json`
 
 Baseline 和 stable 模型输出使用：
 
