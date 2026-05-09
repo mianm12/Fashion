@@ -2071,6 +2071,50 @@ class TestTrendTraining:
             "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv"
         ) in stdout
 
+    def test_train_trend_model_main_logs_stable_paths_for_promoted_lightgbm(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            assert kwargs == {
+                "run_id": None,
+                "trainer_options": None,
+                "promote": None,
+            }
+            return {
+                "model_name": model_name,
+                "model_type": MODEL_TYPE_SUPERVISED,
+                "run_id": "auto-run",
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": _sample_split_metadata(),
+                "output_dir": "outputs/models/lightgbm/runs/auto-run",
+                "prediction_path": "outputs/models/lightgbm/runs/auto-run/predictions.csv",
+                "params_path": "outputs/models/lightgbm/runs/auto-run/params.json",
+                "stable_output_dir": "outputs/models/lightgbm",
+                "promotion_requested": True,
+            }
+
+        monkeypatch.setattr(
+            train_model,
+            "run_trend_model_training",
+            fake_run_trend_model_training,
+        )
+
+        assert train_model.main(["--model", "lightgbm"]) == 0
+
+        stdout = capsys.readouterr().out
+        assert "run 输出目录: outputs/models/lightgbm/runs/auto-run" in stdout
+        assert "stable 输出目录: outputs/models/lightgbm" in stdout
+        assert "stable 预测输出文件: outputs/models/lightgbm/predictions.csv" in stdout
+
     def test_train_trend_model_main_logs_deferred_output_for_auto_run_id(
         self,
         capsys: pytest.CaptureFixture[str],
@@ -2422,6 +2466,26 @@ class TestTrendTraining:
 
         with pytest.raises(ValueError, match="趋势模型预测 split 与输入不一致"):
             validate_trend_model_predictions(predictions, samples)
+
+    def test_validate_trend_model_predictions_accepts_csv_roundtrip(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        samples = pd.concat(split_frames.values(), ignore_index=True)
+        for column in ("attr_id", "attr_type", "attr_value", "split"):
+            samples[column] = samples[column].astype("string")
+        predictions = predict_last_week(samples)
+        prediction_path = tmp_path / "predictions.csv"
+        write_csv_atomic(predictions, prediction_path)
+
+        read_back_predictions = pd.read_csv(prediction_path)
+
+        validate_trend_model_predictions(read_back_predictions, samples)
 
     def test_validate_trend_model_predictions_rejects_changed_target_growth(
         self,

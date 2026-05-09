@@ -170,9 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"week_range={split_stats['week_min']}..{split_stats['week_max']}",
             source=LOG_SOURCE,
         )
-    log.info(f"输出目录: {metadata['output_dir']}", source=LOG_SOURCE)
-    log.info(f"预测输出文件: {metadata['prediction_path']}", source=LOG_SOURCE)
-    log.info(f"参数输出文件: {metadata['params_path']}", source=LOG_SOURCE)
+    _log_training_output_summary(metadata)
     return 0
 
 
@@ -196,6 +194,37 @@ def _should_defer_lightgbm_run_output_log(args: argparse.Namespace) -> bool:
         and args.run_id is None
         and not args.promote
         and (args.params is not None or bool(args.param) or args.no_promote)
+    )
+
+
+def _log_training_output_summary(metadata: dict[str, object]) -> None:
+    if _is_promoted_lightgbm_run_metadata(metadata):
+        stable_output_dir = Path(str(metadata["stable_output_dir"]))
+        log.info(f"run 输出目录: {metadata['output_dir']}", source=LOG_SOURCE)
+        log.info(f"run 预测输出文件: {metadata['prediction_path']}", source=LOG_SOURCE)
+        log.info(f"run 参数输出文件: {metadata['params_path']}", source=LOG_SOURCE)
+        log.info(f"stable 输出目录: {stable_output_dir}", source=LOG_SOURCE)
+        log.info(
+            f"stable 预测输出文件: {stable_output_dir / 'predictions.csv'}",
+            source=LOG_SOURCE,
+        )
+        log.info(
+            f"stable 参数输出文件: {stable_output_dir / 'params.json'}",
+            source=LOG_SOURCE,
+        )
+        return
+
+    log.info(f"输出目录: {metadata['output_dir']}", source=LOG_SOURCE)
+    log.info(f"预测输出文件: {metadata['prediction_path']}", source=LOG_SOURCE)
+    log.info(f"参数输出文件: {metadata['params_path']}", source=LOG_SOURCE)
+
+
+def _is_promoted_lightgbm_run_metadata(metadata: dict[str, object]) -> bool:
+    return (
+        metadata.get("model_name") == LIGHTGBM_MODEL_NAME
+        and metadata.get("promotion_requested") is True
+        and metadata.get("stable_output_dir") is not None
+        and metadata.get("output_dir") != metadata.get("stable_output_dir")
     )
 
 

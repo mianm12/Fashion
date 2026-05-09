@@ -15,6 +15,8 @@ from fashion_trend.trend.schema import (
     TREND_MODEL_SPLIT_VALUES,
 )
 
+_COPIED_TEXT_COLUMNS = frozenset({"attr_id", "attr_type", "attr_value", "split"})
+
 
 def validate_trend_model_predictions(
     predictions: pd.DataFrame,
@@ -77,12 +79,28 @@ def validate_trend_model_predictions(
         ["week_id", "attr_id"],
         ignore_index=True,
     )
-    prediction_split = sorted_predictions.loc[:, ["week_id", "attr_id", "split"]]
-    sample_split = sorted_samples.loc[:, ["week_id", "attr_id", "split"]]
+    prediction_split = _normalize_prediction_alignment_frame(
+        sorted_predictions,
+        ("week_id", "attr_id", "split"),
+        source_name="趋势模型预测表",
+    )
+    sample_split = _normalize_prediction_alignment_frame(
+        sorted_samples,
+        ("week_id", "attr_id", "split"),
+        source_name="趋势模型输入样本",
+    )
     if not prediction_split.equals(sample_split):
         raise ValueError("趋势模型预测 split 与输入不一致。")
-    prediction_copied_values = sorted_predictions.loc[:, list(copied_sample_columns)]
-    sample_copied_values = sorted_samples.loc[:, list(copied_sample_columns)]
+    prediction_copied_values = _normalize_prediction_alignment_frame(
+        sorted_predictions,
+        copied_sample_columns,
+        source_name="趋势模型预测表",
+    )
+    sample_copied_values = _normalize_prediction_alignment_frame(
+        sorted_samples,
+        copied_sample_columns,
+        source_name="趋势模型输入样本",
+    )
     if not prediction_copied_values.equals(sample_copied_values):
         raise ValueError("趋势模型预测字段与输入不一致。")
 
@@ -96,6 +114,27 @@ def validate_trend_model_predictions(
     if not np.isfinite(finite_numeric_values).all():
         raise ValueError("趋势模型预测表存在非有限数值。")
     validate_pred_share_t1_distribution(sorted_predictions, "趋势模型预测表")
+
+
+def _normalize_prediction_alignment_frame(
+    frame: pd.DataFrame,
+    columns: tuple[str, ...],
+    *,
+    source_name: str,
+) -> pd.DataFrame:
+    normalized = frame.loc[:, list(columns)].copy()
+    for column in columns:
+        if column in _COPIED_TEXT_COLUMNS:
+            normalized[column] = normalized[column].astype("string")
+            continue
+        try:
+            numeric_values = pd.to_numeric(normalized[column], errors="raise")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{source_name} {column} 无法按数值对齐。") from exc
+        if not np.isfinite(numeric_values.to_numpy(dtype=float)).all():
+            raise ValueError(f"{source_name} {column} 存在非有限数值。")
+        normalized[column] = numeric_values.astype("float64")
+    return normalized
 
 
 def derive_normalized_pred_share_t1(
