@@ -46,17 +46,36 @@ def derive_trend_metric_output_paths(
     model_name: str,
     model_output_root: Path = OUTPUT_MODELS_DIR,
     metrics_output_root: Path = OUTPUT_METRICS_DIR,
+    *,
+    run_id: str | None = None,
 ) -> dict[str, Path]:
     """根据模型名推导预测输入路径和趋势评价输出路径。"""
     validate_safe_path_segment(model_name, "model_name")
     prediction_dir = model_output_root / model_name
     output_dir = metrics_output_root / model_name
-    validate_output_parent_dirs(prediction_dir, model_output_root)
-    validate_output_parent_dirs(output_dir, metrics_output_root)
+    if run_id is None:
+        validate_output_parent_dirs(prediction_dir, model_output_root)
+        validate_output_parent_dirs(output_dir, metrics_output_root)
+        return {
+            "output_dir": output_dir,
+            "predictions": prediction_dir / "predictions.csv",
+            "metrics": output_dir / "trend_metrics.json",
+        }
+
+    from fashion_trend.trend.training.run_artifacts import validate_lightgbm_run_id
+
+    if model_name != "lightgbm":
+        raise ValueError("只有 lightgbm 支持 run_id。")
+    validate_lightgbm_run_id(run_id)
+    run_prediction_dir = prediction_dir / "runs" / run_id
+    run_output_dir = output_dir / "runs" / run_id
+    validate_output_parent_dirs(run_prediction_dir, model_output_root)
+    validate_output_parent_dirs(run_output_dir, metrics_output_root)
     return {
-        "output_dir": output_dir,
-        "predictions": prediction_dir / "predictions.csv",
-        "metrics": output_dir / "trend_metrics.json",
+        "output_dir": run_output_dir,
+        "predictions": run_prediction_dir / "predictions.csv",
+        "metrics": run_output_dir / "trend_metrics.json",
+        "evaluations_index": output_dir / "runs" / "evaluations.jsonl",
     }
 
 
@@ -140,6 +159,8 @@ def build_trend_metrics_payload(
     prediction_path: Path,
     output_path: Path,
     k_values: Sequence[int] = TREND_EVALUATION_K_VALUES,
+    *,
+    run_id: str | None = None,
 ) -> dict[str, object]:
     """构建 trend_metrics.json 的内存载荷。
 
@@ -153,6 +174,7 @@ def build_trend_metrics_payload(
     metrics = compute_trend_metrics(predictions, k_values)
     payload: dict[str, object] = {
         "model_name": model_name,
+        "run_id": run_id,
         "prediction_path": str(prediction_path),
         "output_path": str(output_path),
         "evaluated_splits": list(TREND_EVALUATION_SPLITS),

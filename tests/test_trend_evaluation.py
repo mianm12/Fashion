@@ -49,6 +49,36 @@ class TestTrendEvaluation:
         assert paths["predictions"] == Path("outputs/models/last_week/predictions.csv")
         assert paths["metrics"] == Path("outputs/metrics/last_week/trend_metrics.json")
 
+    def test_derive_trend_metric_output_paths_uses_lightgbm_run_id(self) -> None:
+        paths = derive_trend_metric_output_paths(
+            "lightgbm",
+            model_output_root=Path("outputs/models"),
+            metrics_output_root=Path("outputs/metrics"),
+            run_id="depth6-lr005",
+        )
+
+        assert paths["output_dir"] == Path("outputs/metrics/lightgbm/runs/depth6-lr005")
+        assert paths["predictions"] == Path(
+            "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv"
+        )
+        assert paths["metrics"] == Path(
+            "outputs/metrics/lightgbm/runs/depth6-lr005/trend_metrics.json"
+        )
+        assert paths["evaluations_index"] == Path(
+            "outputs/metrics/lightgbm/runs/evaluations.jsonl"
+        )
+
+    def test_derive_trend_metric_output_paths_rejects_run_id_for_baseline(
+        self,
+    ) -> None:
+        with pytest.raises(ValueError, match="lightgbm|run_id"):
+            derive_trend_metric_output_paths(
+                "last_week",
+                model_output_root=Path("outputs/models"),
+                metrics_output_root=Path("outputs/metrics"),
+                run_id="baseline-run",
+            )
+
     @pytest.mark.parametrize(
         "model_name",
         [
@@ -399,6 +429,47 @@ class TestTrendEvaluation:
         assert payload["model_name"] == "lightgbm"
         assert (metrics_output_root / "lightgbm" / "trend_metrics.json").exists()
 
+    def test_run_trend_model_evaluation_writes_lightgbm_run_metrics_and_index(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        predictions = sample_trend_predictions_for_evaluation().copy()
+        predictions["model_name"] = "lightgbm"
+        model_root = tmp_path / "outputs" / "models"
+        metrics_root = tmp_path / "outputs" / "metrics"
+        run_dir = model_root / "lightgbm" / "runs" / "depth6-lr005"
+        write_csv_atomic(predictions, run_dir / "predictions.csv")
+        write_json_atomic(
+            {
+                "model_name": "lightgbm",
+                "run_id": "depth6-lr005",
+                "prediction_path": str(run_dir / "predictions.csv"),
+            },
+            run_dir / "metadata.json",
+        )
+
+        payload = run_trend_model_evaluation(
+            "lightgbm",
+            model_output_root=model_root,
+            metrics_output_root=metrics_root,
+            run_id="depth6-lr005",
+        )
+
+        metrics_path = (
+            metrics_root / "lightgbm" / "runs" / "depth6-lr005" / "trend_metrics.json"
+        )
+        index_path = metrics_root / "lightgbm" / "runs" / "evaluations.jsonl"
+        assert metrics_path.exists()
+        assert payload["run_id"] == "depth6-lr005"
+        assert payload["prediction_path"] == str(run_dir / "predictions.csv")
+        row = json.loads(index_path.read_text(encoding="utf-8").splitlines()[0])
+        assert row["run_id"] == "depth6-lr005"
+        assert isinstance(row["evaluated_at"], str)
+        assert row["evaluated_at"]
+        assert row["selection_metrics"]["split"] == "valid"
+        assert "ndcg_at_10" in row["selection_metrics"]
+        assert set(row["report_metrics"]) == {"valid", "test"}
+
     def test_run_trend_model_evaluation_reads_previous_growth_predictions(
         self,
         tmp_path: Path,
@@ -501,8 +572,12 @@ class TestTrendEvaluation:
         eval_model = importlib.import_module("11_eval_trend_model")
         original_run_trend_model_evaluation = eval_model.run_trend_model_evaluation
 
-        def fake_run_trend_model_evaluation(model_name: str) -> dict[str, object]:
+        def fake_run_trend_model_evaluation(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
             assert model_name == "last_week"
+            assert kwargs == {"run_id": None}
             return {
                 "model_name": "last_week",
                 "evaluated_splits": ["valid", "test"],
@@ -539,3 +614,60 @@ class TestTrendEvaluation:
             eval_model.run_trend_model_evaluation = original_run_trend_model_evaluation
 
         assert exit_code == 0
+
+    def test_eval_trend_model_main_passes_lightgbm_run_id(self) -> None:
+        eval_model = importlib.import_module("11_eval_trend_model")
+        original = eval_model.run_trend_model_evaluation
+        calls: list[dict[str, object]] = []
+
+        def fake_run_trend_model_evaluation(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            calls.append({"model_name": model_name, **kwargs})
+            return {
+                "model_name": "lightgbm",
+                "run_id": "depth6-lr005",
+                "evaluated_splits": ["valid", "test"],
+                "overall": {
+                    "valid": {
+                        "mae": 0.5,
+                        "rmse": 0.7,
+                        "spearman": 0.2,
+                        "precision_at_k": {"10": 0.4},
+                        "recall_at_k": {"10": 0.4},
+                        "ndcg_at_k": {"10": 0.6},
+                    },
+                    "test": {
+                        "mae": 0.6,
+                        "rmse": 0.8,
+                        "spearman": 0.3,
+                        "precision_at_k": {"10": 0.5},
+                        "recall_at_k": {"10": 0.5},
+                        "ndcg_at_k": {"10": 0.7},
+                    },
+                },
+                "groups": {
+                    "valid": {"ranking_groups": 4},
+                    "test": {"ranking_groups": 4},
+                },
+                "output_path": (
+                    "outputs/metrics/lightgbm/runs/depth6-lr005/trend_metrics.json"
+                ),
+            }
+
+        try:
+            eval_model.run_trend_model_evaluation = fake_run_trend_model_evaluation
+            exit_code = eval_model.main(
+                ["--model", "lightgbm", "--run-id", "depth6-lr005"]
+            )
+        finally:
+            eval_model.run_trend_model_evaluation = original
+
+        assert exit_code == 0
+        assert calls == [{"model_name": "lightgbm", "run_id": "depth6-lr005"}]
+
+    def test_eval_trend_model_main_rejects_run_id_for_baseline(self) -> None:
+        eval_model = importlib.import_module("11_eval_trend_model")
+
+        assert eval_model.main(["--model", "last_week", "--run-id", "bad"]) == 2

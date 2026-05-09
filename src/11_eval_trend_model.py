@@ -18,7 +18,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         required=True,
         help="需要评价的趋势模型名称。",
     )
-    return parser.parse_args(argv)
+    parser.add_argument("--run-id", help="需要评价的 LightGBM run id。")
+    args = parser.parse_args(argv)
+    if args.run_id and args.model != "lightgbm":
+        parser.error("--run-id 只支持 --model lightgbm。")
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -44,7 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"输出指标文件: {OUTPUT_METRICS_DIR / args.model / 'trend_metrics.json'}",
             source=LOG_SOURCE,
         )
-        metrics = run_trend_model_evaluation(args.model)
+        metrics = run_trend_model_evaluation(args.model, run_id=args.run_id)
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         log.error(f"处理失败: {exc}", source=LOG_SOURCE)
         return 1
