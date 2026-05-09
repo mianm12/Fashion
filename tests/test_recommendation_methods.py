@@ -11,8 +11,25 @@ from fashion_trend.recommendation.contracts import (
     RECOMMENDATIONS_COLUMNS,
     USER_PROFILE_COLUMNS,
 )
+from fashion_trend.recommendation.evaluation.metrics import evaluate_recommendations
+from fashion_trend.recommendation.evaluation.runner import (
+    build_recommendable_pool_for_windows,
+)
+from fashion_trend.recommendation.experiments.runner import (
+    candidate_strategy_for_method,
+)
+from fashion_trend.recommendation.inputs import (
+    build_evaluation_labels,
+    build_target_users,
+    build_user_profile,
+)
 from fashion_trend.recommendation.methods.base import RecommendationContext
 from fashion_trend.recommendation.registry import get_recommendation_method
+from fashion_trend.recommendation.retrieval.candidates import (
+    build_candidate_items,
+    build_source_frames_for_frames,
+)
+from fashion_trend.recommendation.time_windows import build_recommendation_windows
 
 
 def test_registry_lists_unknown_method_choices() -> None:
@@ -248,3 +265,216 @@ def test_pop_similarity_trend_method_requires_trend_predictions() -> None:
 
     with pytest.raises(FileNotFoundError, match="trend predictions"):
         method.build_recommendations(context)
+
+
+def make_small_transactions() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "customer_id": [
+                "00000000000000000000000000000001",
+                "00000000000000000000000000000001",
+                "00000000000000000000000000000001",
+                "00000000000000000000000000000001",
+                "00000000000000000000000000000002",
+                "00000000000000000000000000000002",
+                "00000000000000000000000000000002",
+                "00000000000000000000000000000003",
+                "00000000000000000000000000000003",
+            ],
+            "article_id": [
+                "0000000001",
+                "0000000002",
+                "0000000003",
+                "0000000004",
+                "0000000002",
+                "0000000004",
+                "0000000005",
+                "0000000006",
+                "0000000001",
+            ],
+            "week_id": [8, 10, 11, 13, 9, 11, 13, 10, 12],
+        }
+    )
+
+
+def make_small_article_attributes() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "article_id": [
+                "0000000001",
+                "0000000002",
+                "0000000003",
+                "0000000004",
+                "0000000005",
+                "0000000006",
+            ],
+            "attr_id": [101, 102, 101, 103, 104, 102],
+            "attr_type": ["product_type_name"] * 6,
+            "attr_value": ["Dress", "Shirt", "Dress", "Skirt", "Pants", "Shirt"],
+        }
+    )
+
+
+def make_small_trend_predictions() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "split": ["valid", "valid", "valid", "test", "test", "test"],
+            "week_id": [10, 10, 10, 12, 12, 12],
+            "attr_id": [101, 102, 103, 101, 102, 104],
+            "attr_type": ["product_type_name"] * 6,
+            "attr_value": ["Dress", "Shirt", "Skirt", "Dress", "Shirt", "Pants"],
+            "pred_target_growth": [0.8, 0.3, 0.1, 0.2, 0.7, 0.9],
+        }
+    )
+
+
+def build_candidates_for_registered_method(
+    method_name: str,
+    transactions: pd.DataFrame,
+    article_attributes: pd.DataFrame,
+    predictions: pd.DataFrame,
+    windows: pd.DataFrame,
+    target_users: pd.DataFrame,
+    profile: pd.DataFrame,
+) -> pd.DataFrame | None:
+    strategy = candidate_strategy_for_method(method_name)
+    if strategy is None:
+        return None
+    return build_candidate_items(
+        strategy=strategy,
+        source_frames=build_source_frames_for_frames(
+            strategy=strategy,
+            transactions=transactions,
+            article_attributes=article_attributes,
+            trend_predictions=predictions,
+            windows=windows,
+            target_users=target_users,
+            user_profile=profile,
+        ),
+    )
+
+
+def test_recommendation_pipeline_small_fixture_runs_without_leakage() -> None:
+    transactions = make_small_transactions()
+    article_attributes = make_small_article_attributes()
+    predictions = make_small_trend_predictions()
+
+    windows = build_recommendation_windows(predictions)
+    target_users = build_target_users(transactions, windows)
+    labels = build_evaluation_labels(transactions, windows, target_users)
+    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+
+    source_frames = build_source_frames_for_frames(
+        strategy="default",
+        transactions=transactions,
+        article_attributes=article_attributes,
+        trend_predictions=predictions,
+        windows=windows,
+        target_users=target_users,
+        user_profile=profile,
+    )
+    candidates = build_candidate_items(strategy="default", source_frames=source_frames)
+    result = get_recommendation_method("pop_similarity_trend").build_recommendations(
+        RecommendationContext(
+            method="pop_similarity_trend",
+            top_k=12,
+            exclude_seen=True,
+            transactions=transactions,
+            article_attributes=article_attributes,
+            windows=windows,
+            target_users=target_users,
+            candidates=candidates,
+            user_profile=profile,
+            trend_predictions=predictions,
+            weights={
+                "pop_score": 0.35,
+                "sim_score": 0.35,
+                "trend_score": 0.25,
+                "recent_score": 0.05,
+            },
+        )
+    )
+    metrics = evaluate_recommendations(
+        result.recommendations,
+        target_users,
+        labels,
+        build_recommendable_pool_for_windows(transactions, windows),
+        top_k=12,
+        strict_missing_users=False,
+    )
+
+    assert metrics["valid"]["user_count"] > 0
+    assert metrics["test"]["user_count"] > 0
+    assert result.recommendations["prediction"].map(type).eq(str).all()
+    assert result.recommendation_items["article_id"].map(type).eq(str).all()
+    assert result.recommendation_items["customer_id"].map(type).eq(str).all()
+    assert result.recommendation_items["rank"].max() <= 12
+    assert not result.recommendation_items.duplicated(
+        ["customer_id", "split", "cutoff_week", "label_week", "article_id"]
+    ).any()
+    merged_seen = result.recommendation_items.merge(
+        transactions,
+        on=["customer_id", "article_id"],
+        how="inner",
+    )
+    assert (
+        merged_seen["week_id"].astype(int) > merged_seen["cutoff_week"].astype(int)
+    ).all()
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "global_popularity",
+        "recent_popularity",
+        "attribute_similarity",
+        "pop_similarity",
+        "pop_similarity_trend",
+    ],
+)
+def test_each_registered_method_builds_recommendations_on_small_fixture(
+    method_name: str,
+) -> None:
+    transactions = make_small_transactions()
+    article_attributes = make_small_article_attributes()
+    predictions = make_small_trend_predictions()
+    windows = build_recommendation_windows(predictions)
+    target_users = build_target_users(transactions, windows)
+    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+    candidates = build_candidates_for_registered_method(
+        method_name,
+        transactions,
+        article_attributes,
+        predictions,
+        windows,
+        target_users,
+        profile,
+    )
+
+    result = get_recommendation_method(method_name).build_recommendations(
+        RecommendationContext(
+            method=method_name,
+            top_k=12,
+            exclude_seen=True,
+            transactions=transactions,
+            article_attributes=article_attributes,
+            windows=windows,
+            target_users=target_users,
+            candidates=candidates,
+            user_profile=profile,
+            trend_predictions=(
+                predictions if method_name == "pop_similarity_trend" else None
+            ),
+            weights=None,
+        )
+    )
+
+    assert set(result.recommendations["method"]) == {method_name}
+    assert set(result.recommendation_items["method"]) == {method_name}
+    assert result.recommendations["prediction"].map(type).eq(str).all()
+    assert result.recommendation_items["article_id"].map(type).eq(str).all()
+    assert result.recommendation_items["customer_id"].map(type).eq(str).all()
+    assert result.recommendation_items["rank"].between(1, 12).all()
+    assert not result.recommendation_items.duplicated(
+        ["customer_id", "split", "cutoff_week", "label_week", "article_id"]
+    ).any()

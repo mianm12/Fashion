@@ -461,6 +461,18 @@ def test_recommendation_imports_only_public_upstream_surfaces() -> None:
     )
 
 
+def test_recommendation_does_not_import_trend_training_or_models() -> None:
+    assert_package_does_not_import(
+        "recommendation",
+        {
+            "fashion_trend.trend.training",
+            "fashion_trend.trend.evaluation.runner",
+            "fashion_trend.trend.models",
+            "fashion_trend.catalog.graph.builders",
+        },
+    )
+
+
 def test_reports_imports_only_public_read_only_surfaces() -> None:
     assert_package_imports_only_allowed_upstream(
         "reports",
