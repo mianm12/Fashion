@@ -227,6 +227,7 @@ class TestLightGBMTrendModel:
                 _sample_lightgbm_samples("train")["target_growth"],
                 _sample_lightgbm_samples("valid").loc[:, ["growth_lag_1"]],
                 _sample_lightgbm_samples("valid")["target_growth"],
+                config=lightgbm_model.resolve_lightgbm_config(),
             )
 
         assert blocked_imports == ["lightgbm"]
@@ -453,7 +454,10 @@ class TestLightGBMTrendModel:
             test_weeks=4,
         )
 
-        def fake_fit(train_features, train_target, valid_features, valid_target):
+        def fake_fit(
+            train_features, train_target, valid_features, valid_target, *, config
+        ):
+            assert config.lightgbm_params["subsample_freq"] == 1
             return _FakeLightGBMModel(train_features.columns.tolist())
 
         monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
@@ -487,6 +491,62 @@ class TestLightGBMTrendModel:
             "feature_importance.csv",
             "model.txt",
         ]
+
+    def test_trainer_uses_context_lightgbm_config(self, monkeypatch) -> None:
+        lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        from fashion_trend.trend.models.base import TrendTrainContext
+        from fashion_trend.trend.splits import build_trend_model_split_frames
+        from tests.trend_samples import sample_trend_model_samples_for_split
+
+        captured: dict[str, object] = {}
+
+        def fake_fit(
+            train_features,
+            train_target,
+            valid_features,
+            valid_target,
+            *,
+            config,
+        ):
+            captured["params"] = dict(config.lightgbm_params)
+            captured["early_stopping"] = dict(config.early_stopping)
+            return _FakeLightGBMModel(train_features.columns.tolist())
+
+        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        config = config_module.resolve_lightgbm_config(
+            cli_params=["learning_rate=0.03", "early_stopping.stopping_rounds=50"]
+        )
+
+        result = lightgbm_model.LightGBMTrendTrainer().train(
+            TrendTrainContext(
+                model_name="lightgbm",
+                split_frames=split_frames,
+                input_paths={
+                    "train": Path("train.parquet"),
+                    "valid": Path("valid.parquet"),
+                    "test": Path("test.parquet"),
+                },
+                output_dir=Path("outputs/models/lightgbm/runs/custom"),
+                trainer_options={"lightgbm_config": config},
+            )
+        )
+
+        assert captured["params"]["learning_rate"] == 0.03
+        assert captured["early_stopping"] == {"stopping_rounds": 50}
+        assert result.params["lightgbm_params"]["learning_rate"] == 0.03
+        assert result.params["early_stopping"] == {"stopping_rounds": 50}
+        assert result.metadata["param_source"]["overrides"] == {
+            "learning_rate": 0.03,
+            "early_stopping.stopping_rounds": 50,
+        }
 
     def test_read_best_score_returns_json_serializable_values(self) -> None:
         lightgbm_model = importlib.import_module(LIGHTGBM_MODULE)
@@ -590,6 +650,7 @@ class TestLightGBMTrendModel:
                 _sample_lightgbm_samples("train")["target_growth"],
                 _sample_lightgbm_samples("valid").loc[:, ["growth_lag_1"]],
                 _sample_lightgbm_samples("valid")["target_growth"],
+                config=lightgbm_model.resolve_lightgbm_config(),
             )
 
 

@@ -30,6 +30,7 @@ class TrendTrainContext:
     input_paths: Mapping[str, Path]
     output_dir: Path
     split_order: tuple[str, ...] = ("train", "valid", "test")
+    trainer_options: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

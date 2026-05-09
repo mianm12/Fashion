@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping
 
@@ -118,6 +119,11 @@ def build_trend_train_metadata(
     result: TrendTrainResult,
     context: TrendTrainContext,
     output_paths: Mapping[str, Path],
+    *,
+    run_id: str | None = None,
+    run_dir: Path | None = None,
+    stable_output_dir: Path | None = None,
+    promotion_requested: bool | None = None,
 ) -> dict[str, object]:
     """构建训练输出 metadata.json 的内存载荷。
 
@@ -167,6 +173,16 @@ def build_trend_train_metadata(
             for artifact in result.artifacts
         ],
     }
+    if run_id is not None:
+        core_metadata["run_id"] = run_id
+        core_metadata["created_at"] = (
+            datetime.now().astimezone().isoformat(timespec="seconds")
+        )
+        core_metadata["run_dir"] = str(run_dir or output_paths["output_dir"])
+        if stable_output_dir is not None:
+            core_metadata["stable_output_dir"] = str(stable_output_dir)
+        if promotion_requested is not None:
+            core_metadata["promotion_requested"] = bool(promotion_requested)
 
     overlapping_keys = sorted(set(core_metadata) & set(result.metadata))
     if overlapping_keys:

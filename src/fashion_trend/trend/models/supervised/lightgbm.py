@@ -18,6 +18,8 @@ from fashion_trend.trend.models.supervised.lightgbm_config import (
     LIGHTGBM_ALLOWED_OBJECTIVES,
     LIGHTGBM_DEFAULT_EARLY_STOPPING,
     LIGHTGBM_DEFAULT_PARAMS,
+    LightGBMTrainingConfig,
+    resolve_lightgbm_config,
 )
 from fashion_trend.trend.predictions import (
     derive_normalized_pred_share_t1,
@@ -127,6 +129,7 @@ class LightGBMTrendTrainer:
         """
 
         split_frames = _copy_context_split_frames(context)
+        config = _resolve_context_config(context)
         train_prepared = prepare_lightgbm_feature_frame(split_frames["train"])
         valid_prepared = prepare_lightgbm_feature_frame(
             split_frames["valid"],
@@ -141,6 +144,7 @@ class LightGBMTrendTrainer:
             _read_target(split_frames["train"]),
             valid_prepared.features,
             _read_target(split_frames["valid"]),
+            config=config,
         )
         prepared_frames = {
             "train": train_prepared,
@@ -174,6 +178,7 @@ class LightGBMTrendTrainer:
             "best_score": _read_best_score(model),
             "target_distribution": describe_target_distribution(split_frames),
             "zero_share_rows": describe_zero_share_rows(split_frames),
+            "param_source": dict(config.param_source),
             "residual_distribution": describe_residual_distribution(
                 {
                     "valid": prediction_frames["valid"],
@@ -185,13 +190,22 @@ class LightGBMTrendTrainer:
             model_name=self.name,
             model_type=self.model_type,
             predictions=predictions,
-            params=_build_lightgbm_params(model),
+            params=_build_lightgbm_params(model, config),
             metadata=metadata,
             artifacts=(
                 TrendArtifact("feature_importance.csv", "csv", feature_importance),
                 TrendArtifact("model.txt", "binary", _dump_model_text(booster)),
             ),
         )
+
+
+def _resolve_context_config(context: TrendTrainContext) -> LightGBMTrainingConfig:
+    config = context.trainer_options.get("lightgbm_config")
+    if config is None:
+        return resolve_lightgbm_config()
+    if not isinstance(config, LightGBMTrainingConfig):
+        raise ValueError("lightgbm_config 必须是 LightGBMTrainingConfig。")
+    return config
 
 
 def _copy_context_split_frames(
@@ -267,6 +281,8 @@ def _fit_lightgbm_model(
     train_target: pd.Series,
     valid_features: pd.DataFrame,
     valid_target: pd.Series,
+    *,
+    config: LightGBMTrainingConfig,
 ):
     """拟合 LightGBM 模型，并把 native 依赖错误限制在 lightgbm 模型路径内。"""
 
@@ -279,7 +295,7 @@ def _fit_lightgbm_model(
             "lightgbm 模型依赖无法导入；请确认 lightgbm 与 native runtime "
             "如 libomp.dylib 已正确安装。"
         ) from exc
-    model = LGBMRegressor(**LIGHTGBM_PARAMS)
+    model = LGBMRegressor(**config.lightgbm_params)
     model.fit(
         train_features,
         train_target,
@@ -288,7 +304,7 @@ def _fit_lightgbm_model(
         categorical_feature=list(LIGHTGBM_CATEGORICAL_FEATURES),
         callbacks=[
             early_stopping(
-                int(LIGHTGBM_EARLY_STOPPING["stopping_rounds"]),
+                int(config.early_stopping["stopping_rounds"]),
                 verbose=False,
             ),
             log_evaluation(period=0),
@@ -348,7 +364,10 @@ def _build_lightgbm_predictions(
     )
 
 
-def _build_lightgbm_params(model) -> dict[str, object]:
+def _build_lightgbm_params(
+    model,
+    config: LightGBMTrainingConfig,
+) -> dict[str, object]:
     return {
         "model_name": LIGHTGBM_MODEL_NAME,
         "model_type": MODEL_TYPE_SUPERVISED,
@@ -357,10 +376,10 @@ def _build_lightgbm_params(model) -> dict[str, object]:
         "categorical_features": list(LIGHTGBM_CATEGORICAL_FEATURES),
         "excluded_columns": list(LIGHTGBM_EXCLUDED_COLUMNS),
         "epsilon": LIGHTGBM_EPSILON,
-        "lightgbm_params": dict(LIGHTGBM_PARAMS),
-        "early_stopping": dict(LIGHTGBM_EARLY_STOPPING),
+        "lightgbm_params": dict(config.lightgbm_params),
+        "early_stopping": dict(config.early_stopping),
         "best_iteration": _read_best_iteration(model),
-        "objective": str(LIGHTGBM_PARAMS["objective"]),
+        "objective": str(config.lightgbm_params["objective"]),
         "allowed_objectives": list(LIGHTGBM_ALLOWED_OBJECTIVES),
     }
 

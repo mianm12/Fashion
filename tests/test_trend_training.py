@@ -56,7 +56,10 @@ from fashion_trend.trend.training import (
     validate_trend_train_result,
     write_trend_model_outputs,
 )
-from tests.trend_samples import sample_trend_model_samples_for_split
+from tests.trend_samples import (
+    sample_trend_model_samples_for_split,
+    sample_trend_predictions_for_evaluation,
+)
 
 
 def _expected_normalized_pred_share(
@@ -501,6 +504,61 @@ class TestTrendTraining:
         with pytest.raises(ValueError, match="week_id"):
             build_trend_train_metadata(result, context, paths)
 
+    def test_build_trend_train_metadata_records_run_context_paths(self) -> None:
+        split_frames = build_trend_model_split_frames(
+            sample_trend_model_samples_for_split(),
+            valid_weeks=4,
+            test_weeks=4,
+        )
+        context = TrendTrainContext(
+            model_name=LIGHTGBM_MODEL_NAME,
+            split_frames=split_frames,
+            input_paths={
+                "train": Path("train.parquet"),
+                "valid": Path("valid.parquet"),
+                "test": Path("test.parquet"),
+            },
+            output_dir=Path("outputs/models/lightgbm/runs/depth6-lr005"),
+        )
+        result = TrendTrainResult(
+            model_name=LIGHTGBM_MODEL_NAME,
+            model_type=MODEL_TYPE_SUPERVISED,
+            predictions=sample_trend_predictions_for_evaluation().assign(
+                model_name="lightgbm"
+            ),
+            params={"model_name": "lightgbm"},
+            metadata={
+                "param_source": {
+                    "default": "builtin",
+                    "params_file": None,
+                    "overrides": {},
+                }
+            },
+        )
+        paths = derive_trend_model_output_paths(
+            LIGHTGBM_MODEL_NAME,
+            Path("outputs/models"),
+            run_id="depth6-lr005",
+        )
+
+        metadata = build_trend_train_metadata(
+            result,
+            context,
+            paths,
+            run_id="depth6-lr005",
+            run_dir=paths["output_dir"],
+            stable_output_dir=paths["stable_output_dir"],
+            promotion_requested=False,
+        )
+
+        assert metadata["run_id"] == "depth6-lr005"
+        assert isinstance(metadata["created_at"], str)
+        assert metadata["created_at"]
+        assert metadata["run_dir"] == "outputs/models/lightgbm/runs/depth6-lr005"
+        assert metadata["stable_output_dir"] == "outputs/models/lightgbm"
+        assert metadata["promotion_requested"] is False
+        assert metadata["prediction_path"].endswith("runs/depth6-lr005/predictions.csv")
+
     @pytest.mark.parametrize(
         "unsafe_path",
         [
@@ -778,7 +836,10 @@ class TestTrendTraining:
             def predict(self, features: pd.DataFrame, num_iteration: int | None = None):
                 return features["growth_lag_1"].astype(float).to_numpy()
 
-        def fake_fit(train_features, train_target, valid_features, valid_target):
+        def fake_fit(
+            train_features, train_target, valid_features, valid_target, *, config
+        ):
+            assert config.lightgbm_params["subsample_freq"] == 1
             return FakeModel()
 
         monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
