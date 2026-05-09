@@ -10,7 +10,14 @@ from fashion_trend.foundation.io import write_text_atomic
 def read_run_id_from_model_metadata(metadata_path: Path) -> str | None:
     if not metadata_path.exists():
         return None
-    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"LightGBM metadata {metadata_path} 不是合法 JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"LightGBM metadata {metadata_path} 顶层必须是 object。")
     run_id = payload.get("run_id")
     return str(run_id) if run_id is not None else None
 
@@ -57,6 +64,7 @@ def validate_lightgbm_run_metrics_payload(
         )
     if payload.get("prediction_path") != str(prediction_path):
         raise ValueError("LightGBM run metrics 的 prediction_path 不指向当前 run。")
+    _validate_trend_metrics_contract(payload)
 
 
 def build_stable_metrics_payload(
@@ -87,3 +95,62 @@ def upsert_lightgbm_evaluation_index(
         for key in sorted(summaries)
     ]
     write_text_atomic("\n".join(lines) + "\n", index_path)
+
+
+def _validate_trend_metrics_contract(payload: dict[str, object]) -> None:
+    evaluated_splits = payload.get("evaluated_splits")
+    if evaluated_splits != ["valid", "test"]:
+        raise ValueError("LightGBM run metrics 的 evaluated_splits 必须是 valid/test。")
+    ranking = _require_mapping(payload, "ranking", "LightGBM run metrics")
+    for key in ("target_column", "prediction_column", "group_by", "k_values"):
+        if key not in ranking:
+            raise ValueError(f"LightGBM run metrics 的 ranking 缺少 {key}。")
+    k_values = ranking["k_values"]
+    if not isinstance(k_values, list) or not k_values:
+        raise ValueError("LightGBM run metrics 的 ranking.k_values 必须是非空列表。")
+    k_keys = {str(k_value) for k_value in k_values}
+    overall = _require_mapping(payload, "overall", "LightGBM run metrics")
+    by_attr_type = _require_mapping(payload, "by_attr_type", "LightGBM run metrics")
+    groups = _require_mapping(payload, "groups", "LightGBM run metrics")
+    for split in ("valid", "test"):
+        split_metrics = _require_mapping(overall, split, "LightGBM run metrics overall")
+        _validate_overall_split_metrics(split_metrics, split=split, k_keys=k_keys)
+        _require_mapping(by_attr_type, split, "LightGBM run metrics by_attr_type")
+        split_groups = _require_mapping(groups, split, "LightGBM run metrics groups")
+        if "ranking_groups" not in split_groups:
+            raise ValueError(
+                f"LightGBM run metrics 的 groups.{split} 缺少 ranking_groups。"
+            )
+
+
+def _validate_overall_split_metrics(
+    split_metrics: dict[str, object],
+    *,
+    split: str,
+    k_keys: set[str],
+) -> None:
+    for key in ("mae", "rmse", "spearman"):
+        if key not in split_metrics:
+            raise ValueError(f"LightGBM run metrics 的 overall.{split} 缺少 {key}。")
+    for key in ("precision_at_k", "recall_at_k", "ndcg_at_k"):
+        ranking_metrics = _require_mapping(
+            split_metrics,
+            key,
+            f"LightGBM run metrics overall.{split}",
+        )
+        missing_k = sorted(k_keys - set(ranking_metrics))
+        if missing_k:
+            raise ValueError(
+                f"LightGBM run metrics 的 overall.{split}.{key} 缺少 k={missing_k}。"
+            )
+
+
+def _require_mapping(
+    payload: dict[str, object],
+    key: str,
+    source: str,
+) -> dict[str, object]:
+    value = payload.get(key)
+    if not isinstance(value, dict):
+        raise ValueError(f"{source} 的 {key} 必须是 object。")
+    return value

@@ -1352,35 +1352,10 @@ class TestTrendTraining:
         )
         (run_dir / "model.txt").write_text("fake model", encoding="utf-8")
         write_json_atomic(
-            {
-                "model_name": "lightgbm",
-                "run_id": "depth6-lr005",
-                "prediction_path": str(run_dir / "predictions.csv"),
-                "output_path": str(run_metrics_dir / "trend_metrics.json"),
-                "evaluated_splits": ["valid", "test"],
-                "overall": {
-                    "valid": {
-                        "mae": 0.5,
-                        "rmse": 0.7,
-                        "spearman": 0.2,
-                        "precision_at_k": {"10": 0.4},
-                        "recall_at_k": {"10": 0.4},
-                        "ndcg_at_k": {"10": 0.6},
-                    },
-                    "test": {
-                        "mae": 0.6,
-                        "rmse": 0.8,
-                        "spearman": 0.3,
-                        "precision_at_k": {"10": 0.5},
-                        "recall_at_k": {"10": 0.5},
-                        "ndcg_at_k": {"10": 0.7},
-                    },
-                },
-                "groups": {
-                    "valid": {"ranking_groups": 4},
-                    "test": {"ranking_groups": 4},
-                },
-            },
+            _sample_lightgbm_metrics_payload(
+                run_dir,
+                run_metrics_dir / "trend_metrics.json",
+            ),
             run_metrics_dir / "trend_metrics.json",
         )
 
@@ -1451,14 +1426,10 @@ class TestTrendTraining:
             run_dir / "metadata.json",
         )
         write_json_atomic(
-            {
-                "model_name": "lightgbm",
-                "run_id": "depth6-lr005",
-                "prediction_path": str(run_dir / "predictions.csv"),
-                "output_path": str(run_metrics_dir / "trend_metrics.json"),
-                "evaluated_splits": ["valid", "test"],
-                "overall": {"valid": {}, "test": {}},
-            },
+            _sample_lightgbm_metrics_payload(
+                run_dir,
+                run_metrics_dir / "trend_metrics.json",
+            ),
             run_metrics_dir / "trend_metrics.json",
         )
 
@@ -1514,6 +1485,37 @@ class TestTrendTraining:
             )
 
         assert json.loads(stable_params_path.read_text(encoding="utf-8")) == {
+            "stable": "old"
+        }
+
+    def test_promote_existing_lightgbm_run_rejects_incomplete_metrics_before_publishing(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        paths = _write_promotable_lightgbm_run(tmp_path)
+        write_json_atomic(
+            {
+                "model_name": "lightgbm",
+                "run_id": "depth6-lr005",
+                "prediction_path": str(paths["run_dir"] / "predictions.csv"),
+            },
+            paths["metrics"],
+        )
+        stable_metrics_path = paths["metrics_root"] / "lightgbm" / "trend_metrics.json"
+        write_json_atomic({"stable": "old"}, stable_metrics_path)
+
+        with pytest.raises(ValueError, match="ranking|overall|evaluated_splits"):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=paths["model_root"],
+                metrics_output_root=paths["metrics_root"],
+            )
+
+        assert json.loads(stable_metrics_path.read_text(encoding="utf-8")) == {
             "stable": "old"
         }
 
@@ -1933,7 +1935,10 @@ class TestTrendTraining:
 
         assert calls == [PREVIOUS_GROWTH_MODEL_NAME]
 
-    def test_train_trend_model_main_passes_lightgbm_run_options(self) -> None:
+    def test_train_trend_model_main_passes_lightgbm_run_options(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         train_model = importlib.import_module("10_train_trend_model")
         calls: list[dict[str, object]] = []
         original = train_model.run_trend_model_training
@@ -1981,6 +1986,11 @@ class TestTrendTraining:
         assert calls[0]["run_id"] == "depth6-lr005"
         assert calls[0]["promote"] is False
         assert "lightgbm_config" in calls[0]["trainer_options"]
+        stdout = capsys.readouterr().out
+        assert (
+            "业务阶段: split 样本 -> "
+            "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv"
+        ) in stdout
 
     @pytest.mark.parametrize(
         "args",
@@ -2444,14 +2454,10 @@ def _write_promotable_lightgbm_run(tmp_path: Path) -> dict[str, Path]:
     )
     (run_dir / "model.txt").write_text("fake model", encoding="utf-8")
     write_json_atomic(
-        {
-            "model_name": "lightgbm",
-            "run_id": "depth6-lr005",
-            "prediction_path": str(run_dir / "predictions.csv"),
-            "output_path": str(run_metrics_dir / "trend_metrics.json"),
-            "evaluated_splits": ["valid", "test"],
-            "overall": {"valid": {}, "test": {}},
-        },
+        _sample_lightgbm_metrics_payload(
+            run_dir,
+            run_metrics_dir / "trend_metrics.json",
+        ),
         run_metrics_dir / "trend_metrics.json",
     )
     return {
@@ -2462,6 +2468,45 @@ def _write_promotable_lightgbm_run(tmp_path: Path) -> dict[str, Path]:
         "params": run_dir / "params.json",
         "metadata": run_dir / "metadata.json",
         "metrics": run_metrics_dir / "trend_metrics.json",
+    }
+
+
+def _sample_lightgbm_metrics_payload(
+    run_dir: Path,
+    metrics_path: Path,
+) -> dict[str, object]:
+    split_metrics = {
+        "mae": 0.5,
+        "rmse": 0.7,
+        "spearman": 0.2,
+        "precision_at_k": {"10": 0.4},
+        "recall_at_k": {"10": 0.4},
+        "ndcg_at_k": {"10": 0.6},
+    }
+    return {
+        "model_name": "lightgbm",
+        "run_id": "depth6-lr005",
+        "prediction_path": str(run_dir / "predictions.csv"),
+        "output_path": str(metrics_path),
+        "evaluated_splits": ["valid", "test"],
+        "ranking": {
+            "target_column": "target_growth",
+            "prediction_column": "pred_target_growth",
+            "group_by": ["week_id", "attr_type"],
+            "k_values": [10],
+        },
+        "overall": {
+            "valid": dict(split_metrics),
+            "test": dict(split_metrics),
+        },
+        "by_attr_type": {
+            "valid": {"colour_group_name": dict(split_metrics)},
+            "test": {"colour_group_name": dict(split_metrics)},
+        },
+        "groups": {
+            "valid": {"ranking_groups": 4},
+            "test": {"ranking_groups": 4},
+        },
     }
 
 

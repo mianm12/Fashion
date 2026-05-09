@@ -18,7 +18,11 @@ from fashion_trend.trend.paths import (
     TREND_MODEL_SAMPLES_VALID_PATH,
 )
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
-from fashion_trend.trend.training import run_artifacts, run_trend_model_training
+from fashion_trend.trend.training import (
+    derive_trend_model_output_paths,
+    run_artifacts,
+    run_trend_model_training,
+)
 
 LOG_SOURCE = "trend-model-train"
 TREND_MODEL_SAMPLE_SPLIT_PATHS = {
@@ -94,6 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 metrics_output_root=OUTPUT_METRICS_DIR,
             )
         else:
+            output_paths = _derive_training_log_paths(args.model, run_id=args.run_id)
             for split_name in TREND_MODEL_SPLIT_VALUES:
                 log.info(
                     f"输入 {split_name} 样本: "
@@ -102,11 +107,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             log.info(
                 "业务阶段: split 样本 -> "
-                f"outputs/models/{args.model}/predictions.csv",
+                f"{_format_path_for_log(output_paths['predictions'])}",
                 source=LOG_SOURCE,
             )
             log.info(
-                f"输出目录: {OUTPUT_MODELS_DIR / args.model}",
+                f"输出目录: {_format_path_for_log(output_paths['output_dir'])}",
                 source=LOG_SOURCE,
             )
             trainer_options = None
@@ -153,6 +158,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     log.info(f"预测输出文件: {metadata['prediction_path']}", source=LOG_SOURCE)
     log.info(f"参数输出文件: {metadata['params_path']}", source=LOG_SOURCE)
     return 0
+
+
+def _derive_training_log_paths(
+    model_name: str,
+    *,
+    run_id: str | None,
+) -> dict[str, Path]:
+    if model_name == LIGHTGBM_MODEL_NAME and run_id:
+        return derive_trend_model_output_paths(
+            model_name,
+            OUTPUT_MODELS_DIR,
+            run_id=run_id,
+        )
+    return derive_trend_model_output_paths(model_name, OUTPUT_MODELS_DIR)
+
+
+def _format_path_for_log(path: Path) -> str:
+    try:
+        return path.relative_to(Path.cwd()).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 if __name__ == "__main__":

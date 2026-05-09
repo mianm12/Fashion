@@ -530,6 +530,27 @@ class TestTrendEvaluation:
                 prediction_path=run_dir / "predictions.csv",
             )
 
+    def test_validate_lightgbm_run_metrics_payload_rejects_missing_contract_fields(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.evaluation.run_artifacts import (
+            validate_lightgbm_run_metrics_payload,
+        )
+
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+
+        with pytest.raises(ValueError, match="ranking|overall|evaluated_splits"):
+            validate_lightgbm_run_metrics_payload(
+                {
+                    "model_name": "lightgbm",
+                    "run_id": "depth6-lr005",
+                    "prediction_path": str(run_dir / "predictions.csv"),
+                },
+                run_id="depth6-lr005",
+                prediction_path=run_dir / "predictions.csv",
+            )
+
     def test_validate_lightgbm_run_metrics_payload_rejects_non_object_payload(
         self,
         tmp_path: Path,
@@ -598,6 +619,21 @@ class TestTrendEvaluation:
                 run_id="depth6-lr005",
                 run_paths=run_paths,
             )
+
+    def test_read_run_id_from_model_metadata_rejects_non_object_payload(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.evaluation.run_artifacts import (
+            read_run_id_from_model_metadata,
+        )
+
+        metadata_path = tmp_path / "outputs" / "models" / "lightgbm" / "metadata.json"
+        metadata_path.parent.mkdir(parents=True)
+        metadata_path.write_text("[]\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="metadata.json.*object"):
+            read_run_id_from_model_metadata(metadata_path)
 
     def test_run_trend_model_evaluation_rejects_missing_predictions(
         self,
