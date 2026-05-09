@@ -508,6 +508,58 @@ class TestTrendEvaluation:
         assert "valid" in payload["overall"]
         assert "test" in payload["overall"]
 
+    def test_validate_lightgbm_run_metrics_payload_rejects_mismatched_run(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.evaluation.run_artifacts import (
+            validate_lightgbm_run_metrics_payload,
+        )
+
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+        payload = {
+            "model_name": "lightgbm",
+            "run_id": "other",
+            "prediction_path": str(run_dir / "predictions.csv"),
+        }
+
+        with pytest.raises(ValueError, match="run_id"):
+            validate_lightgbm_run_metrics_payload(
+                payload,
+                run_id="depth6-lr005",
+                prediction_path=run_dir / "predictions.csv",
+            )
+
+    def test_validate_lightgbm_run_metadata_payload_rejects_mismatched_paths(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training import derive_trend_model_output_paths
+        from fashion_trend.trend.training.run_artifacts import (
+            validate_lightgbm_run_metadata_payload,
+        )
+
+        run_paths = derive_trend_model_output_paths(
+            "lightgbm",
+            tmp_path / "outputs" / "models",
+            run_id="depth6-lr005",
+        )
+        payload = {
+            "model_name": "lightgbm",
+            "run_id": "depth6-lr005",
+            "output_dir": str(run_paths["output_dir"]),
+            "run_dir": str(run_paths["output_dir"]),
+            "prediction_path": str(tmp_path / "wrong" / "predictions.csv"),
+            "params_path": str(run_paths["params"]),
+        }
+
+        with pytest.raises(ValueError, match="prediction_path"):
+            validate_lightgbm_run_metadata_payload(
+                payload,
+                run_id="depth6-lr005",
+                run_paths=run_paths,
+            )
+
     def test_run_trend_model_evaluation_rejects_missing_predictions(
         self,
         tmp_path: Path,

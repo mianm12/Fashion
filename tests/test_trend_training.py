@@ -9,7 +9,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fashion_trend.foundation.io import write_parquet_atomic
+from fashion_trend.foundation.io import (
+    write_csv_atomic,
+    write_json_atomic,
+    write_parquet_atomic,
+)
 from fashion_trend.trend.models.base import (
     MODEL_TYPE_BASELINE,
     MODEL_TYPE_SUPERVISED,
@@ -1303,6 +1307,192 @@ class TestTrendTraining:
         assert stable_model_path.read_text(encoding="utf-8") == "old model\n"
         assert broken_metrics_parent.read_text(encoding="utf-8") == "not a directory\n"
 
+    def test_promote_existing_lightgbm_run_publishes_model_and_metrics(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        model_root = tmp_path / "outputs" / "models"
+        metrics_root = tmp_path / "outputs" / "metrics"
+        run_dir = model_root / "lightgbm" / "runs" / "depth6-lr005"
+        run_metrics_dir = metrics_root / "lightgbm" / "runs" / "depth6-lr005"
+        predictions = sample_trend_predictions_for_evaluation().copy()
+        predictions["model_name"] = "lightgbm"
+        write_csv_atomic(predictions, run_dir / "predictions.csv")
+        write_json_atomic(
+            {"lightgbm_params": {"learning_rate": 0.03}},
+            run_dir / "params.json",
+        )
+        write_json_atomic(
+            {
+                "model_name": "lightgbm",
+                "model_type": "supervised",
+                "run_id": "depth6-lr005",
+                "run_dir": str(run_dir),
+                "output_dir": str(run_dir),
+                "prediction_path": str(run_dir / "predictions.csv"),
+                "params_path": str(run_dir / "params.json"),
+                "rows": len(predictions),
+                "weeks": 5,
+                "attributes": 5,
+                "splits": _sample_split_metadata(),
+                "extra_artifacts": [
+                    {"path": "feature_importance.csv", "kind": "csv"},
+                    {"path": "model.txt", "kind": "binary"},
+                ],
+            },
+            run_dir / "metadata.json",
+        )
+        write_csv_atomic(
+            pd.DataFrame({"feature": ["growth_lag_1"]}),
+            run_dir / "feature_importance.csv",
+        )
+        (run_dir / "model.txt").write_text("fake model", encoding="utf-8")
+        write_json_atomic(
+            {
+                "model_name": "lightgbm",
+                "run_id": "depth6-lr005",
+                "prediction_path": str(run_dir / "predictions.csv"),
+                "output_path": str(run_metrics_dir / "trend_metrics.json"),
+                "evaluated_splits": ["valid", "test"],
+                "overall": {
+                    "valid": {
+                        "mae": 0.5,
+                        "rmse": 0.7,
+                        "spearman": 0.2,
+                        "precision_at_k": {"10": 0.4},
+                        "recall_at_k": {"10": 0.4},
+                        "ndcg_at_k": {"10": 0.6},
+                    },
+                    "test": {
+                        "mae": 0.6,
+                        "rmse": 0.8,
+                        "spearman": 0.3,
+                        "precision_at_k": {"10": 0.5},
+                        "recall_at_k": {"10": 0.5},
+                        "ndcg_at_k": {"10": 0.7},
+                    },
+                },
+                "groups": {
+                    "valid": {"ranking_groups": 4},
+                    "test": {"ranking_groups": 4},
+                },
+            },
+            run_metrics_dir / "trend_metrics.json",
+        )
+
+        stable_metadata = promote_existing_lightgbm_run(
+            "depth6-lr005",
+            model_output_root=model_root,
+            metrics_output_root=metrics_root,
+        )
+
+        stable_model_dir = model_root / "lightgbm"
+        stable_metrics_path = metrics_root / "lightgbm" / "trend_metrics.json"
+        assert (stable_model_dir / "predictions.csv").exists()
+        assert (stable_model_dir / "params.json").exists()
+        assert (stable_model_dir / "metadata.json").exists()
+        assert (stable_model_dir / "feature_importance.csv").exists()
+        assert (stable_model_dir / "model.txt").exists()
+        assert stable_metrics_path.exists()
+        assert stable_metadata["run_id"] == "depth6-lr005"
+        assert stable_metadata["promotion_requested"] is True
+        assert stable_metadata["promotion_mode"] == "promote_run"
+        stable_metrics = json.loads(stable_metrics_path.read_text(encoding="utf-8"))
+        assert stable_metrics["run_id"] == "depth6-lr005"
+        assert stable_metrics["prediction_path"] == str(
+            stable_model_dir / "predictions.csv"
+        )
+        assert stable_metrics["output_path"] == str(stable_metrics_path)
+
+    def test_promote_existing_lightgbm_run_success_index_failure_does_not_mark_failed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from fashion_trend.trend.training import run_artifacts
+        from fashion_trend.trend.training.run_artifacts import (
+            promote_existing_lightgbm_run,
+        )
+
+        model_root = tmp_path / "outputs" / "models"
+        metrics_root = tmp_path / "outputs" / "metrics"
+        run_dir = model_root / "lightgbm" / "runs" / "depth6-lr005"
+        run_metrics_dir = metrics_root / "lightgbm" / "runs" / "depth6-lr005"
+        run_dir.mkdir(parents=True)
+        run_metrics_dir.mkdir(parents=True)
+        (run_dir / "predictions.csv").write_text("predictions\n", encoding="utf-8")
+        (run_dir / "params.json").write_text("{}\n", encoding="utf-8")
+        (run_dir / "feature_importance.csv").write_text("feature\n", encoding="utf-8")
+        (run_dir / "model.txt").write_text("fake model\n", encoding="utf-8")
+        write_json_atomic(
+            {
+                "model_name": "lightgbm",
+                "model_type": "supervised",
+                "run_id": "depth6-lr005",
+                "run_dir": str(run_dir),
+                "output_dir": str(run_dir),
+                "prediction_path": str(run_dir / "predictions.csv"),
+                "params_path": str(run_dir / "params.json"),
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": _sample_split_metadata(),
+                "extra_artifacts": [
+                    {"path": "feature_importance.csv", "kind": "csv"},
+                    {"path": "model.txt", "kind": "binary"},
+                ],
+                "promotion_requested": False,
+            },
+            run_dir / "metadata.json",
+        )
+        write_json_atomic(
+            {
+                "model_name": "lightgbm",
+                "run_id": "depth6-lr005",
+                "prediction_path": str(run_dir / "predictions.csv"),
+                "output_path": str(run_metrics_dir / "trend_metrics.json"),
+                "evaluated_splits": ["valid", "test"],
+                "overall": {"valid": {}, "test": {}},
+            },
+            run_metrics_dir / "trend_metrics.json",
+        )
+
+        def successful_publish(items, staging_root):
+            item = items[0]
+            item.final_path.parent.mkdir(parents=True, exist_ok=True)
+            item.final_path.write_bytes(item.payload)
+
+        monkeypatch.setattr(
+            run_artifacts,
+            "write_promotion_items_atomic",
+            successful_publish,
+        )
+        monkeypatch.setattr(
+            run_artifacts,
+            "upsert_lightgbm_run_index",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                OSError("succeeded index write failed")
+            ),
+        )
+
+        with pytest.raises(OSError, match="succeeded index write failed"):
+            promote_existing_lightgbm_run(
+                "depth6-lr005",
+                model_output_root=model_root,
+                metrics_output_root=metrics_root,
+            )
+
+        assert (model_root / "lightgbm" / "predictions.csv").exists()
+        assert not (model_root / "lightgbm" / "runs" / "index.jsonl").exists()
+        captured = capsys.readouterr()
+        assert "promotion succeeded" in captured.err
+        assert "succeeded index write failed" in captured.err
+
     def test_run_trend_model_training_writes_previous_growth_outputs(
         self,
         tmp_path: Path,
@@ -1782,28 +1972,56 @@ class TestTrendTraining:
 
     def test_train_trend_model_main_promote_run_does_not_call_training_runner(
         self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         train_model = importlib.import_module("10_train_trend_model")
-        original = train_model.run_trend_model_training
-        calls: list[str] = []
+        from fashion_trend.trend.training import run_artifacts
+
+        training_calls: list[str] = []
+        promote_calls: list[str] = []
 
         def fake_run_trend_model_training(
             model_name: str,
             **kwargs,
         ) -> dict[str, object]:
-            calls.append(model_name)
+            training_calls.append(model_name)
             raise AssertionError("--promote-run must not train")
 
-        try:
-            train_model.run_trend_model_training = fake_run_trend_model_training
-            exit_code = train_model.main(
-                ["--model", "lightgbm", "--promote-run", "depth6-lr005"]
-            )
-        finally:
-            train_model.run_trend_model_training = original
+        def fake_promote_existing_lightgbm_run(
+            run_id: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            promote_calls.append(run_id)
+            return {
+                "model_name": "lightgbm",
+                "model_type": MODEL_TYPE_SUPERVISED,
+                "run_id": run_id,
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": _sample_split_metadata(),
+                "output_dir": "outputs/models/lightgbm",
+                "prediction_path": "outputs/models/lightgbm/predictions.csv",
+                "params_path": "outputs/models/lightgbm/params.json",
+            }
 
-        assert exit_code == 1
-        assert calls == []
+        monkeypatch.setattr(
+            train_model,
+            "run_trend_model_training",
+            fake_run_trend_model_training,
+        )
+        monkeypatch.setattr(
+            run_artifacts,
+            "promote_existing_lightgbm_run",
+            fake_promote_existing_lightgbm_run,
+        )
+
+        assert (
+            train_model.main(["--model", "lightgbm", "--promote-run", "depth6-lr005"])
+            == 0
+        )
+        assert training_calls == []
+        assert promote_calls == ["depth6-lr005"]
 
     def test_predict_last_week_uses_current_share(self) -> None:
         split_frames = build_trend_model_split_frames(

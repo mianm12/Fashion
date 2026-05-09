@@ -11,13 +11,14 @@ from fashion_trend.trend.models.supervised.lightgbm_config import (
     resolve_lightgbm_config,
 )
 from fashion_trend.trend.paths import (
+    OUTPUT_METRICS_DIR,
     OUTPUT_MODELS_DIR,
     TREND_MODEL_SAMPLES_TEST_PATH,
     TREND_MODEL_SAMPLES_TRAIN_PATH,
     TREND_MODEL_SAMPLES_VALID_PATH,
 )
 from fashion_trend.trend.schema import TREND_MODEL_SPLIT_VALUES
-from fashion_trend.trend.training import run_trend_model_training
+from fashion_trend.trend.training import run_artifacts, run_trend_model_training
 
 LOG_SOURCE = "trend-model-train"
 TREND_MODEL_SAMPLE_SPLIT_PATHS = {
@@ -87,39 +88,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         log.info(f"模型名称参数: {args.model}", source=LOG_SOURCE)
         if args.promote_run:
-            raise ValueError("--promote-run 会在已评估 run 发布任务中启用。")
-        for split_name in TREND_MODEL_SPLIT_VALUES:
+            metadata = run_artifacts.promote_existing_lightgbm_run(
+                args.promote_run,
+                model_output_root=OUTPUT_MODELS_DIR,
+                metrics_output_root=OUTPUT_METRICS_DIR,
+            )
+        else:
+            for split_name in TREND_MODEL_SPLIT_VALUES:
+                log.info(
+                    f"输入 {split_name} 样本: "
+                    f"{TREND_MODEL_SAMPLE_SPLIT_PATHS[split_name]}",
+                    source=LOG_SOURCE,
+                )
             log.info(
-                f"输入 {split_name} 样本: {TREND_MODEL_SAMPLE_SPLIT_PATHS[split_name]}",
+                "业务阶段: split 样本 -> "
+                f"outputs/models/{args.model}/predictions.csv",
                 source=LOG_SOURCE,
             )
-        log.info(
-            "业务阶段: split 样本 -> " f"outputs/models/{args.model}/predictions.csv",
-            source=LOG_SOURCE,
-        )
-        log.info(
-            f"输出目录: {OUTPUT_MODELS_DIR / args.model}",
-            source=LOG_SOURCE,
-        )
-        trainer_options = None
-        if args.model == LIGHTGBM_MODEL_NAME and (args.params or args.param):
-            trainer_options = {
-                "lightgbm_config": resolve_lightgbm_config(
-                    params_path=args.params,
-                    cli_params=args.param,
-                )
-            }
-        promote = None
-        if args.promote:
-            promote = True
-        elif args.no_promote:
-            promote = False
-        metadata = run_trend_model_training(
-            args.model,
-            run_id=args.run_id,
-            trainer_options=trainer_options,
-            promote=promote,
-        )
+            log.info(
+                f"输出目录: {OUTPUT_MODELS_DIR / args.model}",
+                source=LOG_SOURCE,
+            )
+            trainer_options = None
+            if args.model == LIGHTGBM_MODEL_NAME and (args.params or args.param):
+                trainer_options = {
+                    "lightgbm_config": resolve_lightgbm_config(
+                        params_path=args.params,
+                        cli_params=args.param,
+                    )
+                }
+            promote = None
+            if args.promote:
+                promote = True
+            elif args.no_promote:
+                promote = False
+            metadata = run_trend_model_training(
+                args.model,
+                run_id=args.run_id,
+                trainer_options=trainer_options,
+                promote=promote,
+            )
     except UnknownTrendModelError as exc:
         log.error(str(exc), source=LOG_SOURCE)
         return 1

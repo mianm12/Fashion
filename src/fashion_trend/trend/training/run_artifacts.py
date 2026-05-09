@@ -208,6 +208,149 @@ def publish_lightgbm_run_to_stable(
     return stable_metadata
 
 
+def validate_lightgbm_run_metadata_payload(
+    payload: dict[str, object],
+    *,
+    run_id: str,
+    run_paths: dict[str, Path],
+) -> None:
+    expected_values = {
+        "model_name": "lightgbm",
+        "run_id": run_id,
+        "output_dir": str(run_paths["output_dir"]),
+        "run_dir": str(run_paths["output_dir"]),
+        "prediction_path": str(run_paths["predictions"]),
+        "params_path": str(run_paths["params"]),
+    }
+    for key, expected in expected_values.items():
+        if payload.get(key) != expected:
+            raise ValueError(
+                f"LightGBM run metadata 的 {key} 不匹配: "
+                f"expected={expected}, actual={payload.get(key)}"
+            )
+
+
+def promote_existing_lightgbm_run(
+    run_id: str,
+    *,
+    model_output_root: Path,
+    metrics_output_root: Path,
+) -> dict[str, object]:
+    validate_lightgbm_run_id(run_id)
+    from fashion_trend.trend.evaluation.run_artifacts import (
+        build_stable_metrics_payload,
+        validate_lightgbm_run_metrics_payload,
+    )
+    from fashion_trend.trend.training.outputs import derive_trend_model_output_paths
+
+    run_paths = derive_trend_model_output_paths(
+        "lightgbm",
+        model_output_root,
+        run_id=run_id,
+    )
+    stable_paths = derive_trend_model_output_paths("lightgbm", model_output_root)
+    run_metrics_path = (
+        metrics_output_root / "lightgbm" / "runs" / run_id / "trend_metrics.json"
+    )
+    stable_metrics_path = metrics_output_root / "lightgbm" / "trend_metrics.json"
+    _validate_existing_lightgbm_run_files(
+        [
+            run_paths["predictions"],
+            run_paths["params"],
+            run_paths["metadata"],
+            run_metrics_path,
+        ]
+    )
+    run_metadata = _read_json(run_paths["metadata"])
+    validate_lightgbm_run_metadata_payload(
+        run_metadata,
+        run_id=run_id,
+        run_paths=run_paths,
+    )
+    artifact_paths = _lightgbm_run_artifact_paths(run_metadata, run_paths["output_dir"])
+    _validate_existing_lightgbm_run_files(artifact_paths)
+    run_metrics = _read_json(run_metrics_path)
+    validate_lightgbm_run_metrics_payload(
+        run_metrics,
+        run_id=run_id,
+        prediction_path=run_paths["predictions"],
+    )
+    stable_metadata = dict(run_metadata)
+    stable_metadata["output_dir"] = str(stable_paths["output_dir"])
+    stable_metadata["prediction_path"] = str(stable_paths["predictions"])
+    stable_metadata["params_path"] = str(stable_paths["params"])
+    stable_metadata["stable_output_dir"] = str(stable_paths["output_dir"])
+    stable_metadata["run_dir"] = str(run_paths["output_dir"])
+    stable_metadata["promotion_requested"] = True
+    stable_metadata["promotion_mode"] = "promote_run"
+    stable_metrics = build_stable_metrics_payload(
+        run_metrics,
+        stable_prediction_path=stable_paths["predictions"],
+        stable_metrics_path=stable_metrics_path,
+    )
+    items = [
+        PromotionItem(
+            stable_paths["predictions"], run_paths["predictions"].read_bytes()
+        ),
+        PromotionItem(stable_paths["params"], run_paths["params"].read_bytes()),
+    ]
+    for artifact_path in artifact_paths:
+        items.append(
+            PromotionItem(
+                stable_paths["output_dir"]
+                / artifact_path.relative_to(run_paths["output_dir"]),
+                artifact_path.read_bytes(),
+            )
+        )
+    items.extend(
+        [
+            PromotionItem(stable_paths["metadata"], stable_metadata),
+            PromotionItem(stable_metrics_path, stable_metrics),
+        ]
+    )
+    try:
+        write_promotion_items_atomic(items, stable_paths["output_dir"])
+    except Exception as exc:
+        record_lightgbm_promotion_failure(
+            index_path=run_paths["index"],
+            summary=LightGBMRunSummary(
+                run_id=run_id,
+                created_at=str(run_metadata.get("created_at", "")),
+                run_dir=str(run_paths["output_dir"]),
+                promotion_status="failed",
+                params_path=str(run_paths["params"]),
+                metadata_path=str(run_paths["metadata"]),
+                promotion_error=str(exc),
+            ),
+            run_dir=run_paths["output_dir"],
+            stable_dir=stable_paths["output_dir"],
+            promotion_error=exc,
+        )
+        raise
+
+    try:
+        upsert_lightgbm_run_index(
+            run_paths["index"],
+            LightGBMRunSummary(
+                run_id=run_id,
+                created_at=str(run_metadata.get("created_at", "")),
+                run_dir=str(run_paths["output_dir"]),
+                promotion_status="succeeded",
+                params_path=str(run_paths["params"]),
+                metadata_path=str(run_paths["metadata"]),
+            ),
+        )
+    except Exception as exc:
+        record_lightgbm_index_update_failure(
+            run_dir=run_paths["output_dir"],
+            stable_dir=stable_paths["output_dir"],
+            attempted_status="succeeded",
+            index_error=exc,
+        )
+        raise
+    return stable_metadata
+
+
 def run_metadata_path(run_metadata: dict[str, object], artifact_name: str) -> Path:
     if artifact_name == "predictions":
         return Path(str(run_metadata["prediction_path"]))
@@ -269,3 +412,40 @@ def _remove_promotion_backups(
     for _final_path, backup_path in published_paths:
         if backup_path is not None:
             remove_file_if_exists(backup_path)
+
+
+def _read_json(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_existing_lightgbm_run_files(paths: list[Path]) -> None:
+    for path in paths:
+        if not path.exists():
+            raise FileNotFoundError(f"LightGBM promote-run 缺少产物: {path}")
+        if path.is_dir():
+            raise IsADirectoryError(f"LightGBM promote-run 产物是目录: {path}")
+
+
+def _lightgbm_run_artifact_paths(
+    run_metadata: dict[str, object],
+    run_dir: Path,
+) -> list[Path]:
+    artifact_paths: list[Path] = []
+    extra_artifacts = run_metadata.get("extra_artifacts", [])
+    if not isinstance(extra_artifacts, list):
+        raise ValueError("LightGBM run metadata 的 extra_artifacts 必须是列表。")
+    for item in extra_artifacts:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            raise ValueError("LightGBM run metadata 的 extra_artifacts 路径无效。")
+        relative_path = item["path"]
+        raw_path_parts = relative_path.split("/")
+        artifact_path = Path(relative_path)
+        if (
+            not relative_path
+            or artifact_path.is_absolute()
+            or "." in raw_path_parts
+            or ".." in raw_path_parts
+        ):
+            raise ValueError(f"LightGBM run artifact 路径不安全: {relative_path}")
+        artifact_paths.append(run_dir / artifact_path)
+    return artifact_paths

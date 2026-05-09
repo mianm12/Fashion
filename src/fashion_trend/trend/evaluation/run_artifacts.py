@@ -41,6 +41,34 @@ def build_lightgbm_evaluation_summary(
     }
 
 
+def validate_lightgbm_run_metrics_payload(
+    payload: dict[str, object],
+    *,
+    run_id: str,
+    prediction_path: Path,
+) -> None:
+    if payload.get("model_name") != "lightgbm":
+        raise ValueError("LightGBM run metrics 的 model_name 必须是 lightgbm。")
+    if payload.get("run_id") != run_id:
+        raise ValueError(
+            f"LightGBM run metrics 的 run_id 不匹配: {payload.get('run_id')}"
+        )
+    if payload.get("prediction_path") != str(prediction_path):
+        raise ValueError("LightGBM run metrics 的 prediction_path 不指向当前 run。")
+
+
+def build_stable_metrics_payload(
+    payload: dict[str, object],
+    *,
+    stable_prediction_path: Path,
+    stable_metrics_path: Path,
+) -> dict[str, object]:
+    stable_payload = dict(payload)
+    stable_payload["prediction_path"] = str(stable_prediction_path)
+    stable_payload["output_path"] = str(stable_metrics_path)
+    return stable_payload
+
+
 def upsert_lightgbm_evaluation_index(
     index_path: Path,
     summary: dict[str, object],
