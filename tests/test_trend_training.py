@@ -1437,7 +1437,15 @@ class TestTrendTraining:
         calls: list[str] = []
         original_run_trend_model_training = train_model.run_trend_model_training
 
-        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            assert kwargs == {
+                "run_id": None,
+                "trainer_options": None,
+                "promote": None,
+            }
             calls.append(model_name)
             return {
                 "model_name": LAST_WEEK_MODEL_NAME,
@@ -1488,7 +1496,15 @@ class TestTrendTraining:
         calls: list[str] = []
         original_run_trend_model_training = train_model.run_trend_model_training
 
-        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            assert kwargs == {
+                "run_id": None,
+                "trainer_options": None,
+                "promote": None,
+            }
             calls.append(model_name)
             return {
                 "model_name": MOVING_AVERAGE_MODEL_NAME,
@@ -1539,7 +1555,15 @@ class TestTrendTraining:
         calls: list[str] = []
         original_run_trend_model_training = train_model.run_trend_model_training
 
-        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            assert kwargs == {
+                "run_id": None,
+                "trainer_options": None,
+                "promote": None,
+            }
             calls.append(model_name)
             return {
                 "model_name": LIGHTGBM_MODEL_NAME,
@@ -1590,7 +1614,15 @@ class TestTrendTraining:
         calls: list[str] = []
         original_run_trend_model_training = train_model.run_trend_model_training
 
-        def fake_run_trend_model_training(model_name: str) -> dict[str, object]:
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            assert kwargs == {
+                "run_id": None,
+                "trainer_options": None,
+                "promote": None,
+            }
             calls.append(model_name)
             return {
                 "model_name": PREVIOUS_GROWTH_MODEL_NAME,
@@ -1635,6 +1667,143 @@ class TestTrendTraining:
             train_model.run_trend_model_training = original_run_trend_model_training
 
         assert calls == [PREVIOUS_GROWTH_MODEL_NAME]
+
+    def test_train_trend_model_main_passes_lightgbm_run_options(self) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+        calls: list[dict[str, object]] = []
+        original = train_model.run_trend_model_training
+
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            calls.append({"model_name": model_name, **kwargs})
+            return {
+                "model_name": "lightgbm",
+                "model_type": MODEL_TYPE_SUPERVISED,
+                "run_id": "depth6-lr005",
+                "rows": 40,
+                "weeks": 20,
+                "attributes": 2,
+                "splits": _sample_split_metadata(),
+                "output_dir": "outputs/models/lightgbm/runs/depth6-lr005",
+                "prediction_path": (
+                    "outputs/models/lightgbm/runs/depth6-lr005/predictions.csv"
+                ),
+                "params_path": (
+                    "outputs/models/lightgbm/runs/depth6-lr005/params.json"
+                ),
+            }
+
+        try:
+            train_model.run_trend_model_training = fake_run_trend_model_training
+            exit_code = train_model.main(
+                [
+                    "--model",
+                    "lightgbm",
+                    "--run-id",
+                    "depth6-lr005",
+                    "--param",
+                    "learning_rate=0.03",
+                    "--no-promote",
+                ]
+            )
+        finally:
+            train_model.run_trend_model_training = original
+
+        assert exit_code == 0
+        assert calls[0]["model_name"] == "lightgbm"
+        assert calls[0]["run_id"] == "depth6-lr005"
+        assert calls[0]["promote"] is False
+        assert "lightgbm_config" in calls[0]["trainer_options"]
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["--model", "last_week", "--run-id", "bad"],
+            [
+                "--model",
+                "last_week",
+                "--params",
+                "configs/trend/lightgbm/depth6_lr005.json",
+            ],
+            ["--model", "last_week", "--param", "learning_rate=0.03"],
+            ["--model", "last_week", "--promote"],
+            ["--model", "last_week", "--no-promote"],
+            ["--model", "last_week", "--promote-run", "depth6-lr005"],
+        ],
+    )
+    def test_train_trend_model_main_rejects_lightgbm_only_args_for_baseline(
+        self,
+        args: list[str],
+    ) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+
+        assert train_model.main(args) == 2
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["--model", "lightgbm", "--promote", "--no-promote"],
+            ["--model", "lightgbm", "--promote", "--promote-run", "depth6-lr005"],
+            [
+                "--model",
+                "lightgbm",
+                "--promote-run",
+                "depth6-lr005",
+                "--run-id",
+                "other",
+            ],
+            [
+                "--model",
+                "lightgbm",
+                "--promote-run",
+                "depth6-lr005",
+                "--params",
+                "configs/trend/lightgbm/depth6_lr005.json",
+            ],
+            [
+                "--model",
+                "lightgbm",
+                "--promote-run",
+                "depth6-lr005",
+                "--param",
+                "learning_rate=0.03",
+            ],
+        ],
+    )
+    def test_train_trend_model_main_rejects_invalid_promotion_combinations(
+        self,
+        args: list[str],
+    ) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+
+        assert train_model.main(args) == 2
+
+    def test_train_trend_model_main_promote_run_does_not_call_training_runner(
+        self,
+    ) -> None:
+        train_model = importlib.import_module("10_train_trend_model")
+        original = train_model.run_trend_model_training
+        calls: list[str] = []
+
+        def fake_run_trend_model_training(
+            model_name: str,
+            **kwargs,
+        ) -> dict[str, object]:
+            calls.append(model_name)
+            raise AssertionError("--promote-run must not train")
+
+        try:
+            train_model.run_trend_model_training = fake_run_trend_model_training
+            exit_code = train_model.main(
+                ["--model", "lightgbm", "--promote-run", "depth6-lr005"]
+            )
+        finally:
+            train_model.run_trend_model_training = original
+
+        assert exit_code == 1
+        assert calls == []
 
     def test_predict_last_week_uses_current_share(self) -> None:
         split_frames = build_trend_model_split_frames(
@@ -1916,6 +2085,32 @@ def _write_sample_split_inputs(tmp_path: Path) -> dict[str, Path]:
     for split_name, split_frame in split_frames.items():
         write_parquet_atomic(split_frame, input_paths[split_name])
     return input_paths
+
+
+def _sample_split_metadata() -> dict[str, dict[str, int]]:
+    return {
+        "train": {
+            "rows": 24,
+            "weeks": 12,
+            "attributes": 2,
+            "week_min": 4,
+            "week_max": 15,
+        },
+        "valid": {
+            "rows": 8,
+            "weeks": 4,
+            "attributes": 2,
+            "week_min": 16,
+            "week_max": 19,
+        },
+        "test": {
+            "rows": 8,
+            "weeks": 4,
+            "attributes": 2,
+            "week_min": 20,
+            "week_max": 23,
+        },
+    }
 
 
 class _FakeBooster:

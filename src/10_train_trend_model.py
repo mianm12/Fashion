@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Sequence
 
 from fashion_trend.foundation import logging as log
 from fashion_trend.trend.models.registry import UnknownTrendModelError
+from fashion_trend.trend.models.supervised.lightgbm import LIGHTGBM_MODEL_NAME
+from fashion_trend.trend.models.supervised.lightgbm_config import (
+    resolve_lightgbm_config,
+)
 from fashion_trend.trend.paths import (
     OUTPUT_MODELS_DIR,
     TREND_MODEL_SAMPLES_TEST_PATH,
@@ -30,7 +35,42 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         required=True,
         help="需要训练的趋势模型名称。",
     )
-    return parser.parse_args(argv)
+    parser.add_argument("--run-id", help="LightGBM run id。")
+    parser.add_argument("--params", type=Path, help="LightGBM 参数 JSON 文件。")
+    parser.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        help="LightGBM 参数覆盖，格式为 key=value。",
+    )
+    promotion_group = parser.add_mutually_exclusive_group()
+    promotion_group.add_argument(
+        "--promote",
+        action="store_true",
+        help="训练后发布到 stable。",
+    )
+    promotion_group.add_argument(
+        "--no-promote",
+        action="store_true",
+        help="训练后不发布 stable。",
+    )
+    promotion_group.add_argument("--promote-run", help="发布一个已评估 LightGBM run。")
+    args = parser.parse_args(argv)
+    lightgbm_only_used = any(
+        [
+            args.run_id,
+            args.params,
+            args.param,
+            args.promote,
+            args.no_promote,
+            args.promote_run,
+        ]
+    )
+    if args.model != LIGHTGBM_MODEL_NAME and lightgbm_only_used:
+        parser.error("run、参数和 promotion 选项只支持 --model lightgbm。")
+    if args.promote_run and (args.run_id or args.params or args.param):
+        parser.error("--promote-run 不能与 --run-id、--params 或 --param 组合。")
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -46,6 +86,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         log.info(f"模型名称参数: {args.model}", source=LOG_SOURCE)
+        if args.promote_run:
+            raise ValueError("--promote-run 会在已评估 run 发布任务中启用。")
         for split_name in TREND_MODEL_SPLIT_VALUES:
             log.info(
                 f"输入 {split_name} 样本: {TREND_MODEL_SAMPLE_SPLIT_PATHS[split_name]}",
@@ -59,7 +101,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"输出目录: {OUTPUT_MODELS_DIR / args.model}",
             source=LOG_SOURCE,
         )
-        metadata = run_trend_model_training(args.model)
+        trainer_options = None
+        if args.model == LIGHTGBM_MODEL_NAME and (args.params or args.param):
+            trainer_options = {
+                "lightgbm_config": resolve_lightgbm_config(
+                    params_path=args.params,
+                    cli_params=args.param,
+                )
+            }
+        promote = None
+        if args.promote:
+            promote = True
+        elif args.no_promote:
+            promote = False
+        metadata = run_trend_model_training(
+            args.model,
+            run_id=args.run_id,
+            trainer_options=trainer_options,
+            promote=promote,
+        )
     except UnknownTrendModelError as exc:
         log.error(str(exc), source=LOG_SOURCE)
         return 1
