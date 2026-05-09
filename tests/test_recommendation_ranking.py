@@ -186,7 +186,7 @@ def test_build_ranking_features_uses_cutoff_history_and_bounded_scores() -> None
     article_attributes = pd.DataFrame(
         {
             "article_id": ["0000000001", "0000000002", "0000000003"],
-            "attr_type": ["color", "color", "color"],
+            "attr_type": ["colour_group_name"] * 3,
             "attr_value": ["red", "blue", "green"],
         }
     )
@@ -196,7 +196,7 @@ def test_build_ranking_features_uses_cutoff_history_and_bounded_scores() -> None
             "split": ["valid", "valid"],
             "cutoff_week": [10, 10],
             "label_week": [11, 11],
-            "attr_type": ["color", "color"],
+            "attr_type": ["colour_group_name", "colour_group_name"],
             "attr_value": ["red", "blue"],
             "preference_score": [2.0, 1.0],
         }

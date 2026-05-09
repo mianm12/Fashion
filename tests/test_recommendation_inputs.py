@@ -109,3 +109,66 @@ def test_user_profile_uses_history_before_or_at_cutoff_only() -> None:
     assert "article_id" not in profile.columns
     assert set(profile["attr_value"]) == {"Dress", "Shirt"}
     assert "Shoes" not in set(profile["attr_value"])
+
+
+def test_user_profile_keeps_top_core_attributes_only() -> None:
+    windows = pd.DataFrame(
+        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+    )
+    target_users = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "history_purchase_count": 4,
+                "label_purchase_count": 1,
+            }
+        ]
+    )
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["u1", "u1", "u1", "u1"],
+            "article_id": [
+                "0000000001",
+                "0000000001",
+                "0000000002",
+                "0000000003",
+            ],
+            "week_id": [8, 9, 10, 10],
+        }
+    )
+    article_attributes = pd.DataFrame(
+        [
+            {
+                "article_id": "0000000001",
+                "attr_id": 101,
+                "attr_type": "product_type_name",
+                "attr_value": "Dress",
+            },
+            {
+                "article_id": "0000000002",
+                "attr_id": 102,
+                "attr_type": "colour_group_name",
+                "attr_value": "Black",
+            },
+            {
+                "article_id": "0000000003",
+                "attr_id": 103,
+                "attr_type": "garment_group_name",
+                "attr_value": "Tops",
+            },
+            {
+                "article_id": "0000000003",
+                "attr_id": 999,
+                "attr_type": "detail_desc",
+                "attr_value": "Ignored",
+            },
+        ]
+    )
+
+    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+
+    assert profile["attr_value"].tolist() == ["Dress", "Black", "Tops"]
+    assert "detail_desc" not in set(profile["attr_type"])

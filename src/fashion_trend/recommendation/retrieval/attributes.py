@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+from fashion_trend.recommendation.contracts import (
+    RECOMMENDATION_CORE_ATTR_TYPES,
+    RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
+)
 from fashion_trend.recommendation.retrieval.popularity import SOURCE_COLUMNS
 
 
@@ -18,6 +22,7 @@ def build_attribute_similarity_candidates(
 
     user_profile = _with_string_ids(user_profile)
     article_attributes = _with_string_ids(article_attributes)
+    article_attributes = _limit_articles_per_attribute(article_attributes, top_n)
     target_users = _with_string_ids(target_users)
     frames: list[pd.DataFrame] = []
     for window in windows.to_dict("records"):
@@ -58,7 +63,42 @@ def _profile_for_window(
         mask,
         ["customer_id", "attr_type", "attr_value", "preference_score"],
     ].copy()
-    return profile.merge(window_targets, on="customer_id", how="inner")
+    profile = profile.loc[
+        profile["attr_type"].isin(RECOMMENDATION_CORE_ATTR_TYPES)
+    ].copy()
+    profile = profile.merge(window_targets, on="customer_id", how="inner")
+    return _limit_profile_attributes(profile)
+
+
+def _limit_profile_attributes(profile: pd.DataFrame) -> pd.DataFrame:
+    if profile.empty:
+        return profile
+    sorted_profile = profile.sort_values(
+        ["customer_id", "preference_score", "attr_type", "attr_value"],
+        ascending=[True, False, True, True],
+        kind="mergesort",
+    )
+    return sorted_profile.groupby("customer_id", group_keys=False).head(
+        RECOMMENDATION_PROFILE_TOP_ATTRIBUTES
+    )
+
+
+def _limit_articles_per_attribute(
+    article_attributes: pd.DataFrame,
+    top_n: int,
+) -> pd.DataFrame:
+    attributes = article_attributes.loc[
+        article_attributes["attr_type"].isin(RECOMMENDATION_CORE_ATTR_TYPES),
+        ["article_id", "attr_type", "attr_value"],
+    ].drop_duplicates()
+    sorted_attributes = attributes.sort_values(
+        ["attr_type", "attr_value", "article_id"],
+        kind="mergesort",
+    )
+    return sorted_attributes.groupby(
+        ["attr_type", "attr_value"],
+        group_keys=False,
+    ).head(top_n)
 
 
 def _rank_similarity_matches(matched: pd.DataFrame, top_n: int) -> pd.DataFrame:

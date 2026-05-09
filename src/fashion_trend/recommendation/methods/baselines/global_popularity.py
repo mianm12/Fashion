@@ -4,7 +4,10 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from fashion_trend.recommendation.contracts import RECOMMENDATION_ITEMS_COLUMNS
+from fashion_trend.recommendation.contracts import (
+    RECOMMENDATION_CANDIDATES_PER_SOURCE,
+    RECOMMENDATION_ITEMS_COLUMNS,
+)
 from fashion_trend.recommendation.methods.base import (
     RecommendationContext,
     RecommendationMethod,
@@ -38,7 +41,7 @@ class GlobalPopularityMethod:
             context.transactions,
             context.windows,
             context.target_users,
-            top_n=max(context.top_k * 5, 200),
+            top_n=max(context.top_k, RECOMMENDATION_CANDIDATES_PER_SOURCE),
         )
         candidates = build_candidate_items("popularity", [source])
         return build_baseline_recommendation_result(self, context, candidates)

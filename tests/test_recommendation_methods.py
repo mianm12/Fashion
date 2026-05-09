@@ -24,7 +24,9 @@ from fashion_trend.recommendation.inputs import (
     build_user_profile,
 )
 from fashion_trend.recommendation.methods.base import RecommendationContext
+from fashion_trend.recommendation import paths as recommendation_paths
 from fashion_trend.recommendation.registry import get_recommendation_method
+from fashion_trend.recommendation.runner import run_recommendation_method_by_window
 from fashion_trend.recommendation.retrieval.candidates import (
     build_candidate_items,
     build_source_frames_for_frames,
@@ -265,6 +267,32 @@ def test_pop_similarity_trend_method_requires_trend_predictions() -> None:
 
     with pytest.raises(FileNotFoundError, match="trend predictions"):
         method.build_recommendations(context)
+
+
+def test_window_runner_writes_streamed_method_outputs(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(method_name="global_popularity")
+
+    result = run_recommendation_method_by_window(
+        method_name="global_popularity",
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        windows=context.windows,
+        target_users=context.target_users,
+        exclude_seen=context.exclude_seen,
+    )
+    output_paths = recommendation_paths.method_output_paths("global_popularity")
+
+    assert output_paths.recommendations.exists()
+    assert output_paths.recommendation_items.exists()
+    assert output_paths.params.exists()
+    assert output_paths.metadata.exists()
+    assert tuple(result.recommendations.columns) == RECOMMENDATIONS_COLUMNS
+    assert tuple(result.recommendation_items.columns) == RECOMMENDATION_ITEMS_COLUMNS
+    assert result.metadata["window_count"] == 1
+    assert result.metadata["recommendation_item_rows"] == len(
+        result.recommendation_items
+    )
 
 
 def make_small_transactions() -> pd.DataFrame:

@@ -295,13 +295,21 @@ def _build_similarity_scores(
             :,
             ["customer_id", "article_id"],
         ].drop_duplicates()
-        matched = (
+        candidate_attributes = candidate_pairs.merge(
+            article_attributes.loc[
+                article_attributes["attr_type"].isin(RECOMMENDATION_CORE_ATTR_TYPES),
+                ["article_id", "attr_type", "attr_value"],
+            ].drop_duplicates(),
+            on="article_id",
+            how="inner",
+        )
+        matched = candidate_attributes.merge(
             profile.loc[
-                :,
+                profile["attr_type"].isin(RECOMMENDATION_CORE_ATTR_TYPES),
                 ["customer_id", "attr_type", "attr_value", "preference_score"],
-            ]
-            .merge(article_attributes, on=["attr_type", "attr_value"], how="inner")
-            .merge(candidate_pairs, on=["customer_id", "article_id"], how="inner")
+            ],
+            on=["customer_id", "attr_type", "attr_value"],
+            how="inner",
         )
         if matched.empty:
             continue

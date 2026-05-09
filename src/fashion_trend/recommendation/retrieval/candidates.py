@@ -7,6 +7,7 @@ import pandas as pd
 from fashion_trend.foundation.io import write_parquet_atomic
 from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
+    RECOMMENDATION_CANDIDATES_PER_SOURCE,
     RECOMMENDATION_CANDIDATE_STRATEGIES,
 )
 from fashion_trend.recommendation.paths import candidate_items_path
@@ -91,7 +92,7 @@ def build_source_frames_for_frames(
                 transactions,
                 windows,
                 target_users,
-                top_n=200,
+                top_n=RECOMMENDATION_CANDIDATES_PER_SOURCE,
             )
         )
     if strategy in {"similarity", "default"}:
@@ -105,7 +106,7 @@ def build_source_frames_for_frames(
                 article_attributes,
                 windows,
                 target_users,
-                top_n=200,
+                top_n=RECOMMENDATION_CANDIDATES_PER_SOURCE,
             )
         )
     if strategy in {"trend_union", "default"}:
@@ -119,7 +120,7 @@ def build_source_frames_for_frames(
                 article_attributes,
                 windows,
                 target_users,
-                top_n=200,
+                top_n=RECOMMENDATION_CANDIDATES_PER_SOURCE,
             )
         )
     return frames

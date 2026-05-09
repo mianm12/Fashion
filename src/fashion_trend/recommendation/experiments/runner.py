@@ -35,10 +35,12 @@ from fashion_trend.recommendation.paths import (
     USER_PROFILE_PATH,
     candidate_items_path,
     experiment_dir,
+    method_output_paths,
 )
 from fashion_trend.recommendation.readers import (
     read_candidate_items,
     read_evaluation_labels,
+    read_recommendations,
     read_target_users,
     read_time_windows,
     read_user_profile,
@@ -47,7 +49,7 @@ from fashion_trend.recommendation.registry import get_recommendation_method
 from fashion_trend.recommendation.retrieval.candidates import (
     build_and_write_candidate_items,
 )
-from fashion_trend.recommendation.runner import run_recommendation_method
+from fashion_trend.recommendation.runner import run_recommendation_method_by_window
 
 BASELINE_METHODS = (
     "global_popularity",
@@ -140,12 +142,17 @@ def run_baseline_methods(
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for method_name in BASELINE_METHODS:
+        if method_output_paths(method_name).recommendations.exists():
+            payloads.append(
+                evaluate_method_output_for_experiment(method_name, context, inputs)
+            )
+            continue
         candidates = ensure_or_build_candidates_for_method(
             method_name,
             context,
             inputs,
         )
-        result = run_recommendation_method(
+        run_recommendation_method_by_window(
             method_name=method_name,
             transactions=context.transactions,
             article_attributes=context.article_attributes,
@@ -154,9 +161,10 @@ def run_baseline_methods(
             candidates=candidates,
             user_profile=inputs.user_profile,
             trend_predictions=None,
+            collect_result=False,
         )
         payloads.append(
-            evaluate_result_for_experiment(method_name, result, context, inputs)
+            evaluate_method_output_for_experiment(method_name, context, inputs)
         )
     return payloads
 
@@ -235,10 +243,10 @@ def build_recommendation_result_in_memory(
             exclude_seen=True,
             transactions=context.transactions,
             article_attributes=context.article_attributes,
-            windows=inputs.time_windows,
-            target_users=inputs.target_users,
-            candidates=candidates,
-            user_profile=inputs.user_profile,
+            windows=_filter_split(inputs.time_windows, split_filter),
+            target_users=_filter_split(inputs.target_users, split_filter),
+            candidates=_filter_split(candidates, split_filter),
+            user_profile=_filter_split(inputs.user_profile, split_filter),
             trend_predictions=context.trend_predictions,
             weights=weights,
         )
@@ -260,7 +268,7 @@ def publish_trend_method_with_weights(
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
 ) -> dict[str, Any]:
-    result = run_recommendation_method(
+    run_recommendation_method_by_window(
         method_name=TREND_METHOD,
         transactions=context.transactions,
         article_attributes=context.article_attributes,
@@ -270,8 +278,9 @@ def publish_trend_method_with_weights(
         user_profile=inputs.user_profile,
         trend_predictions=context.trend_predictions,
         weights=weights,
+        collect_result=False,
     )
-    return evaluate_result_for_experiment(TREND_METHOD, result, context, inputs)
+    return evaluate_method_output_for_experiment(TREND_METHOD, context, inputs)
 
 
 def evaluate_result_for_experiment(
@@ -283,6 +292,27 @@ def evaluate_result_for_experiment(
     return run_recommendation_evaluation(
         method=method,
         recommendations=result.recommendations,
+        target_users=inputs.target_users,
+        labels=inputs.evaluation_labels,
+        recommendable_pool=build_recommendable_pool_for_windows(
+            context.transactions,
+            inputs.time_windows,
+        ),
+        input_paths={"experiment": "in_memory"},
+        strict_missing_users=False,
+    )
+
+
+def evaluate_method_output_for_experiment(
+    method: str,
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+) -> dict[str, Any]:
+    return run_recommendation_evaluation(
+        method=method,
+        recommendations=read_recommendations(
+            method_output_paths(method).recommendations
+        ),
         target_users=inputs.target_users,
         labels=inputs.evaluation_labels,
         recommendable_pool=build_recommendable_pool_for_windows(

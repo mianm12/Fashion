@@ -8,6 +8,8 @@ from fashion_trend.foundation.io import write_parquet_atomic
 from fashion_trend.recommendation.contracts import (
     EVALUATION_LABEL_COLUMNS,
     EVALUATION_LABEL_KEY_COLUMNS,
+    RECOMMENDATION_CORE_ATTR_TYPES,
+    RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
     TARGET_USER_COLUMNS,
     TARGET_USER_KEY_COLUMNS,
     TIME_WINDOW_COLUMNS,
@@ -124,6 +126,9 @@ def build_user_profile(
     frames: list[pd.DataFrame] = []
     transactions = _coerce_text_columns(transactions)
     article_attributes = _coerce_text_columns(article_attributes)
+    article_attributes = article_attributes.loc[
+        article_attributes["attr_type"].isin(RECOMMENDATION_CORE_ATTR_TYPES)
+    ].copy()
     target_users = _coerce_text_columns(target_users)
     for window in windows.itertuples(index=False):
         eligible = _users_for_window(target_users, window)
@@ -151,6 +156,7 @@ def build_user_profile(
             label_week=window.label_week,
             preference_score=profile["purchase_count"] / totals,
         )
+        profile = _limit_profile_attributes(profile)
         frames.append(profile.loc[:, list(USER_PROFILE_COLUMNS)])
 
     result = _concat_or_empty(frames, USER_PROFILE_COLUMNS)
@@ -204,6 +210,24 @@ def _concat_or_empty(
     if not frames:
         return pd.DataFrame(columns=list(columns))
     return pd.concat(frames, ignore_index=True).loc[:, list(columns)]
+
+
+def _limit_profile_attributes(profile: pd.DataFrame) -> pd.DataFrame:
+    sorted_profile = profile.sort_values(
+        [
+            "customer_id",
+            "preference_score",
+            "purchase_count",
+            "last_purchase_week",
+            "attr_type",
+            "attr_value",
+        ],
+        ascending=[True, False, False, False, True, True],
+        kind="mergesort",
+    )
+    return sorted_profile.groupby("customer_id", group_keys=False).head(
+        RECOMMENDATION_PROFILE_TOP_ATTRIBUTES
+    )
 
 
 def _coerce_text_columns(dataframe: pd.DataFrame) -> pd.DataFrame:

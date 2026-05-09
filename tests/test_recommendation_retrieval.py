@@ -11,6 +11,9 @@ from fashion_trend.recommendation.retrieval.candidates import (
 from fashion_trend.recommendation.retrieval.popularity import (
     build_popularity_candidates,
 )
+from fashion_trend.recommendation.retrieval.attributes import (
+    build_attribute_similarity_candidates,
+)
 from fashion_trend.recommendation.retrieval.trend import build_trend_candidates
 
 
@@ -140,6 +143,65 @@ def test_trend_strategy_requires_trend_predictions() -> None:
             target_users=sample_targets(),
             user_profile=None,
         )
+
+
+def test_similarity_candidates_use_core_profile_and_limited_article_matches() -> None:
+    user_profile = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "attr_id": 101,
+                "attr_type": "product_type_name",
+                "attr_value": "Dress",
+                "preference_score": 1.0,
+                "purchase_count": 2,
+                "last_purchase_week": 10,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "attr_id": 999,
+                "attr_type": "detail_desc",
+                "attr_value": "Ignored",
+                "preference_score": 9.0,
+                "purchase_count": 9,
+                "last_purchase_week": 10,
+            },
+        ]
+    )
+    article_attributes = pd.DataFrame(
+        {
+            "article_id": [
+                "0000000003",
+                "0000000001",
+                "0000000002",
+                "0000000999",
+            ],
+            "attr_type": [
+                "product_type_name",
+                "product_type_name",
+                "product_type_name",
+                "detail_desc",
+            ],
+            "attr_value": ["Dress", "Dress", "Dress", "Ignored"],
+        }
+    )
+
+    candidates = build_attribute_similarity_candidates(
+        user_profile,
+        article_attributes,
+        sample_window(),
+        sample_targets(),
+        top_n=2,
+    )
+
+    assert candidates["article_id"].tolist() == ["0000000001", "0000000002"]
+    assert set(candidates["source"]) == {"similarity"}
 
 
 def test_trend_candidates_use_cutoff_week_and_core_attributes_only() -> None:
