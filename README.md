@@ -1,6 +1,6 @@
 # Fashion
 
-时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量、属性周热度和基础属性趋势预测 baseline，为后续趋势感知 Top-N 推荐做准备。
+时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量、属性周热度、趋势 baseline、LightGBM 主模型和趋势评价，为后续趋势感知 Top-N 推荐做准备。
 
 ## 研究主线
 
@@ -34,9 +34,9 @@ H&M transactions_train.csv
 | Moving Average baseline | 已实现（运行命令后生成） | `outputs/models/moving_average/predictions.csv`、`params.json`、`metadata.json` |
 | LightGBM 主模型 | 已实现（运行命令后生成） | `outputs/models/lightgbm/predictions.csv`、`params.json`、`metadata.json`、`feature_importance.csv`、`model.txt` |
 | 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json`、`outputs/metrics/lightgbm/trend_metrics.json` |
-| 推荐评价 | 尚未实现 | 后续推荐结果 |
+| 推荐模块与推荐评价 | 尚未实现 | 后续 `outputs/recommendation/recommendation_result.csv`、`recommendation_metrics.json` |
 
-上表中 baseline 和趋势评价的产物是对应训练、评价命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
+上表中 baseline、LightGBM 和趋势评价的产物是对应训练、评价命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
 
 ## 数据集
 
@@ -653,7 +653,7 @@ NDCG@5/10/20
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
-| 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现；后续可考虑更多监督模型、调参或 EWMA 等增强 baseline |
+| 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现并完成首轮 stable 调参；后续可考虑更多监督模型或 EWMA 等增强 baseline |
 | 推荐模块 | Top-12 推荐列表和评价结果 | 将趋势分映射回商品，结合近期热门、用户历史属性偏好和 Item-CF 候选做轻量重排序 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
@@ -669,8 +669,8 @@ NDCG@5/10/20
 - `transactions/`：周级交易表和交易窗口。
 - `catalog/`：商品表清洗和静态属性图。
 - `trend/`：属性热度、标签、样本、时间切分、趋势模型训练和趋势评价。
-- `recommendation/`：候选、重排序、Top-12 和推荐评价。
-- `reports/`：图表、表格和案例导出。
+- `recommendation/`：预留推荐契约、路径和 reader；候选、重排序、Top-12 和推荐评价尚未实现。
+- `reports/`：预留报告输出路径和只读边界；图表、表格和案例导出尚未实现。
 
 当前已实现的 `src/00_*.py` 到 `src/11_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
 

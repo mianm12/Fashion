@@ -8,6 +8,8 @@
 
 大体量数据集和生成产物位于 `data/` 和 `outputs/`。这些内容应视为运行时产物，不应作为源代码文件处理。
 
+运行时依赖以 `pyproject.toml` 为准，当前包含 `kagglehub`、`lightgbm`、`numpy`、`pandas`、`pyarrow` 和 `scikit-learn`。LightGBM 是原生依赖，导入失败时应优先检查本机 native runtime，例如 macOS 上的 `libomp`，不要把缺少 native runtime 误判为 baseline 或 registry 问题。
+
 ## 项目结构与模块组织
 
 `src/00_*.py` 到 `src/11_*.py` 的编号脚本是工作流入口。它们应保持为清晰的编排层：解析参数、按顺序调用包函数、记录日志并返回稳定退出码。核心计算、校验、读取、写入和 artifact 处理应放在 `src/fashion_trend/` 下。
@@ -41,6 +43,7 @@
 - `uv sync`：根据 `pyproject.toml` 和 `uv.lock` 安装依赖。
 - `uv run pytest`：使用 `src` 作为 `PYTHONPATH` 运行完整 pytest 测试套件。
 - `uv run pytest tests/test_trend_training.py tests/test_trend_lightgbm.py tests/test_trend_evaluation.py`：针对趋势训练、LightGBM 和评价改动的聚焦验证。
+- `uv run pytest tests/test_architecture_boundaries.py`：修改包结构、导入路径或 facade 边界时的聚焦验证。
 - `uv run black --check src tests`：检查 Python 格式。
 - `uv run isort --check-only src tests`：使用 Black profile 检查 import 排序。
 - `uv run python -m compileall -q src`：在导入或 CLI 边界发生变化时，对包和编号脚本做编译检查。
@@ -73,6 +76,8 @@ uv run python src/11_eval_trend_model.py --model moving_average
 uv run python src/11_eval_trend_model.py --model lightgbm
 ```
 
+默认运行 `uv run python src/10_train_trend_model.py --model lightgbm` 时，训练参数优先读取 `outputs/models/lightgbm/params.json` 中已经发布的 stable 参数；如果 stable 参数文件不存在，才回退到源码内置默认参数。这条默认训练路径会生成自动 `run_id`，并默认发布到 stable，因此会更新 `outputs/models/lightgbm/`。默认运行 `uv run python src/11_eval_trend_model.py --model lightgbm` 时评价当前 stable 预测，并写入 `outputs/metrics/lightgbm/trend_metrics.json`。
+
 LightGBM 调参 run 是 run-scoped，不应意外替换 stable 主结果：
 
 ```sh
@@ -81,7 +86,7 @@ uv run python src/11_eval_trend_model.py --model lightgbm --run-id smoke-lightgb
 uv run python src/10_train_trend_model.py --model lightgbm --promote-run smoke-lightgbm
 ```
 
-`--run-id`、`--params`、`--param`、`--promote`、`--no-promote` 和 `--promote-run` 只适用于 LightGBM。Baseline 遇到这些选项时必须拒绝，而不是静默忽略。
+`--run-id`、`--params`、`--param`、`--promote`、`--no-promote` 和 `--promote-run` 只适用于 LightGBM。Baseline 遇到这些选项时必须拒绝，而不是静默忽略。带显式 `run_id`、参数文件或 CLI 参数覆盖的实验默认不 promotion；需要保留实验时显式使用 `--no-promote`。`--promote` 只在训练后发布模型 artifact，不会自动运行评价；要让 stable 模型 artifact 与 stable metrics 对齐到同一个已评估 run，应先评价 run，再使用 `--promote-run <run_id>`。
 
 ## Artifact 契约
 
@@ -110,9 +115,18 @@ Baseline 和 stable 模型输出使用：
 - `outputs/models/<model>/metadata.json`
 - `outputs/metrics/<model>/trend_metrics.json`
 
-LightGBM stable 输出额外包含 `feature_importance.csv` 和 `model.txt`。LightGBM run 输出使用 `outputs/models/lightgbm/runs/<run_id>/...` 和 `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json`。
+LightGBM stable 输出额外包含 `feature_importance.csv` 和 `model.txt`。LightGBM run 输出使用：
 
-LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。带参数或显式 run 的训练默认不 promotion。`--promote` 只发布模型 artifact，不运行评价。`--promote-run` 发布已经评价过的 run，并且必须让 stable 模型 artifact 与 stable metrics 对齐到同一个 `run_id`。
+- `outputs/models/lightgbm/runs/<run_id>/predictions.csv`
+- `outputs/models/lightgbm/runs/<run_id>/params.json`
+- `outputs/models/lightgbm/runs/<run_id>/metadata.json`
+- `outputs/models/lightgbm/runs/<run_id>/feature_importance.csv`
+- `outputs/models/lightgbm/runs/<run_id>/model.txt`
+- `outputs/models/lightgbm/runs/index.jsonl`
+- `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json`
+- `outputs/metrics/lightgbm/runs/evaluations.jsonl`
+
+LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。Stable `metadata.json` 和 `trend_metrics.json` 应记录发布来源 `run_id`；`--promote-run` 发布后，stable 核心模型 artifact 与 run artifact 应一致，但 stable metadata 的 `output_dir`、`prediction_path` 和 `params_path` 会改写为 stable 路径，这是预期行为。
 
 ## 编码风格与架构边界
 
