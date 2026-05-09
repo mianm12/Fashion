@@ -609,6 +609,44 @@ class TestTrendEvaluation:
                 prediction_path=run_dir / "predictions.csv",
             )
 
+    @pytest.mark.parametrize(
+        "field_path, bad_value, message",
+        [
+            (("ranking", "target_column"), "wrong_target", "target_column"),
+            (("ranking", "prediction_column"), "wrong_prediction", "prediction_column"),
+            (
+                ("ranking", "group_by"),
+                ["week_id", "attr_type"],
+                "group_by",
+            ),
+            (("ranking", "k_values"), ["10"], "k_values.*正整数"),
+        ],
+    )
+    def test_validate_lightgbm_run_metrics_payload_rejects_invalid_ranking_contract(
+        self,
+        tmp_path: Path,
+        field_path: tuple[str, ...],
+        bad_value: object,
+        message: str,
+    ) -> None:
+        from fashion_trend.trend.evaluation.run_artifacts import (
+            validate_lightgbm_run_metrics_payload,
+        )
+
+        run_dir = tmp_path / "outputs" / "models" / "lightgbm" / "runs" / "depth6-lr005"
+        payload = _sample_lightgbm_run_metrics_payload(run_dir)
+        target = payload
+        for key in field_path[:-1]:
+            target = target[key]
+        target[field_path[-1]] = bad_value
+
+        with pytest.raises(ValueError, match=message):
+            validate_lightgbm_run_metrics_payload(
+                payload,
+                run_id="depth6-lr005",
+                prediction_path=run_dir / "predictions.csv",
+            )
+
     def test_validate_lightgbm_run_metadata_payload_rejects_mismatched_paths(
         self,
         tmp_path: Path,
@@ -872,7 +910,7 @@ def _sample_lightgbm_run_metrics_payload(run_dir: Path) -> dict[str, object]:
         "ranking": {
             "target_column": "target_growth",
             "prediction_column": "pred_target_growth",
-            "group_by": ["week_id", "attr_type"],
+            "group_by": ["split", "week_id", "attr_type"],
             "k_values": [10],
         },
         "overall": {

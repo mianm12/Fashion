@@ -2570,7 +2570,7 @@ def _sample_lightgbm_metrics_payload(
         "ranking": {
             "target_column": "target_growth",
             "prediction_column": "pred_target_growth",
-            "group_by": ["week_id", "attr_type"],
+            "group_by": ["split", "week_id", "attr_type"],
             "k_values": [10],
         },
         "overall": {

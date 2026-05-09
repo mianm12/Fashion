@@ -6,6 +6,11 @@ from datetime import datetime
 from pathlib import Path
 
 from fashion_trend.foundation.io import write_text_atomic
+from fashion_trend.trend.evaluation.metrics import (
+    TREND_EVALUATION_GROUP_COLUMNS,
+    TREND_EVALUATION_PREDICTION_COLUMN,
+    TREND_EVALUATION_TARGET_COLUMN,
+)
 
 
 def read_run_id_from_model_metadata(metadata_path: Path) -> str | None:
@@ -107,9 +112,7 @@ def _validate_trend_metrics_contract(payload: dict[str, object]) -> None:
     for key in ("target_column", "prediction_column", "group_by", "k_values"):
         if key not in ranking:
             raise ValueError(f"LightGBM run metrics 的 ranking 缺少 {key}。")
-    k_values = ranking["k_values"]
-    if not isinstance(k_values, list) or not k_values:
-        raise ValueError("LightGBM run metrics 的 ranking.k_values 必须是非空列表。")
+    k_values = _validate_ranking_contract(ranking)
     k_keys = {str(k_value) for k_value in k_values}
     overall = _require_mapping(payload, "overall", "LightGBM run metrics")
     by_attr_type = _require_mapping(payload, "by_attr_type", "LightGBM run metrics")
@@ -181,6 +184,35 @@ def _validate_split_metric_values(
                 path=f"{source}.{key}.{k}",
                 allow_none=key == "ndcg_at_k",
             )
+
+
+def _validate_ranking_contract(ranking: dict[str, object]) -> list[int]:
+    expected_group_by = list(TREND_EVALUATION_GROUP_COLUMNS)
+    if ranking["target_column"] != TREND_EVALUATION_TARGET_COLUMN:
+        raise ValueError(
+            "LightGBM run metrics 的 ranking.target_column 必须是 "
+            f"{TREND_EVALUATION_TARGET_COLUMN}。"
+        )
+    if ranking["prediction_column"] != TREND_EVALUATION_PREDICTION_COLUMN:
+        raise ValueError(
+            "LightGBM run metrics 的 ranking.prediction_column 必须是 "
+            f"{TREND_EVALUATION_PREDICTION_COLUMN}。"
+        )
+    if ranking["group_by"] != expected_group_by:
+        raise ValueError(
+            f"LightGBM run metrics 的 ranking.group_by 必须是 {expected_group_by}。"
+        )
+    k_values = ranking["k_values"]
+    if not isinstance(k_values, list) or not k_values:
+        raise ValueError(
+            "LightGBM run metrics 的 ranking.k_values 必须是非空正整数列表。"
+        )
+    for value in k_values:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(
+                "LightGBM run metrics 的 ranking.k_values 必须是非空正整数列表。"
+            )
+    return k_values
 
 
 def _require_mapping(
