@@ -55,7 +55,9 @@ def validate_recommendation_windows(windows: pd.DataFrame) -> None:
 
 
 def _sort_windows(windows: pd.DataFrame) -> pd.DataFrame:
-    split_order = {split: index for index, split in enumerate(VALID_RECOMMENDATION_SPLITS)}
+    split_order = {
+        split: index for index, split in enumerate(VALID_RECOMMENDATION_SPLITS)
+    }
     sorted_windows = windows.assign(_split_order=windows["split"].map(split_order))
     sorted_windows = sorted_windows.sort_values(
         ["_split_order", "cutoff_week"],

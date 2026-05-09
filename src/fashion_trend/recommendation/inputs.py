@@ -34,7 +34,9 @@ class RecommendationInputArtifacts:
     user_profile: pd.DataFrame
 
 
-def build_target_users(transactions: pd.DataFrame, windows: pd.DataFrame) -> pd.DataFrame:
+def build_target_users(
+    transactions: pd.DataFrame, windows: pd.DataFrame
+) -> pd.DataFrame:
     """Build eligible recommendation users for each label window."""
     validate_columns(windows, TIME_WINDOW_COLUMNS, "time_windows")
 
@@ -43,16 +45,14 @@ def build_target_users(transactions: pd.DataFrame, windows: pd.DataFrame) -> pd.
     for window in windows.itertuples(index=False):
         history = transactions.loc[transactions["week_id"] <= window.cutoff_week]
         labels = transactions.loc[transactions["week_id"] == window.label_week]
-        history_counts = history.groupby("customer_id").size().rename(
-            "history_purchase_count"
+        history_counts = (
+            history.groupby("customer_id").size().rename("history_purchase_count")
         )
-        label_counts = labels.groupby("customer_id").size().rename(
-            "label_purchase_count"
+        label_counts = (
+            labels.groupby("customer_id").size().rename("label_purchase_count")
         )
         eligible = (
-            pd.concat([history_counts, label_counts], axis=1)
-            .dropna()
-            .reset_index()
+            pd.concat([history_counts, label_counts], axis=1).dropna().reset_index()
         )
         if eligible.empty:
             continue
@@ -133,7 +133,9 @@ def build_user_profile(
     for window in windows.itertuples(index=False):
         eligible = _users_for_window(target_users, window)
         history = transactions.loc[transactions["week_id"] <= window.cutoff_week]
-        history = history.merge(eligible[["customer_id"]], on="customer_id", how="inner")
+        history = history.merge(
+            eligible[["customer_id"]], on="customer_id", how="inner"
+        )
         if history.empty:
             continue
 
@@ -186,7 +188,9 @@ def build_and_write_recommendation_inputs(
     windows = build_recommendation_windows(trend_predictions)
     target_users = build_target_users(transactions, windows)
     labels = build_evaluation_labels(transactions, windows, target_users)
-    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+    profile = build_user_profile(
+        transactions, article_attributes, windows, target_users
+    )
 
     write_parquet_atomic(windows, TIME_WINDOWS_PATH)
     write_parquet_atomic(target_users, TARGET_USERS_PATH)

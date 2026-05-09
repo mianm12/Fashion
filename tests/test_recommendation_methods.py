@@ -5,6 +5,7 @@ from dataclasses import replace
 import pandas as pd
 import pytest
 
+from fashion_trend.recommendation import paths as recommendation_paths
 from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
     RECOMMENDATION_ITEMS_COLUMNS,
@@ -24,13 +25,12 @@ from fashion_trend.recommendation.inputs import (
     build_user_profile,
 )
 from fashion_trend.recommendation.methods.base import RecommendationContext
-from fashion_trend.recommendation import paths as recommendation_paths
 from fashion_trend.recommendation.registry import get_recommendation_method
-from fashion_trend.recommendation.runner import run_recommendation_method_by_window
 from fashion_trend.recommendation.retrieval.candidates import (
     build_candidate_items,
     build_source_frames_for_frames,
 )
+from fashion_trend.recommendation.runner import run_recommendation_method_by_window
 from fashion_trend.recommendation.time_windows import build_recommendation_windows
 
 
@@ -93,9 +93,7 @@ def sample_method_context(
     user_profile: pd.DataFrame | None = None,
     candidates: pd.DataFrame | None = None,
 ) -> RecommendationContext:
-    windows = pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
     target_users = pd.DataFrame(
         [
             {
@@ -239,7 +237,9 @@ def test_pop_similarity_builds_without_trend_predictions() -> None:
     assert result.recommendation_items["trend_score"].eq(0.0).all()
 
 
-def test_pop_similarity_trend_method_builds_recommendations_with_trend_predictions() -> None:
+def test_pop_similarity_trend_method_builds_recommendations_with_trend_predictions() -> (
+    None
+):
     method = get_recommendation_method("pop_similarity_trend")
     context = sample_method_context(method_name="pop_similarity_trend")
     predictions = pd.DataFrame(
@@ -390,7 +390,9 @@ def test_recommendation_pipeline_small_fixture_runs_without_leakage() -> None:
     windows = build_recommendation_windows(predictions)
     target_users = build_target_users(transactions, windows)
     labels = build_evaluation_labels(transactions, windows, target_users)
-    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+    profile = build_user_profile(
+        transactions, article_attributes, windows, target_users
+    )
 
     source_frames = build_source_frames_for_frames(
         strategy="default",
@@ -468,7 +470,9 @@ def test_each_registered_method_builds_recommendations_on_small_fixture(
     predictions = make_small_trend_predictions()
     windows = build_recommendation_windows(predictions)
     target_users = build_target_users(transactions, windows)
-    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+    profile = build_user_profile(
+        transactions, article_attributes, windows, target_users
+    )
     candidates = build_candidates_for_registered_method(
         method_name,
         transactions,

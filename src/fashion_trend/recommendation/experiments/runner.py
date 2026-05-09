@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 from datetime import datetime
-import secrets
 from typing import Any
 
 import pandas as pd
@@ -378,6 +378,4 @@ def run_recommendation_experiment(
 
 
 def _filter_split(dataframe: pd.DataFrame, split: str) -> pd.DataFrame:
-    return dataframe.loc[dataframe["split"].astype(str) == split].reset_index(
-        drop=True
-    )
+    return dataframe.loc[dataframe["split"].astype(str) == split].reset_index(drop=True)

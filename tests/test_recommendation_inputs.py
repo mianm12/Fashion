@@ -10,9 +10,7 @@ from fashion_trend.recommendation.inputs import (
 
 
 def test_target_users_require_history_and_label_purchase() -> None:
-    windows = pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
     transactions = pd.DataFrame(
         {
             "customer_id": ["u1", "u1", "u2", "u3"],
@@ -36,9 +34,7 @@ def test_target_users_require_history_and_label_purchase() -> None:
 
 
 def test_evaluation_labels_deduplicate_articles_per_user_window() -> None:
-    windows = pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
     target_users = pd.DataFrame(
         [
             {
@@ -73,9 +69,7 @@ def test_evaluation_labels_deduplicate_articles_per_user_window() -> None:
 
 
 def test_user_profile_uses_history_before_or_at_cutoff_only() -> None:
-    windows = pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
     target_users = pd.DataFrame(
         [
             {
@@ -104,7 +98,9 @@ def test_user_profile_uses_history_before_or_at_cutoff_only() -> None:
         }
     )
 
-    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+    profile = build_user_profile(
+        transactions, article_attributes, windows, target_users
+    )
 
     assert "article_id" not in profile.columns
     assert set(profile["attr_value"]) == {"Dress", "Shirt"}
@@ -112,9 +108,7 @@ def test_user_profile_uses_history_before_or_at_cutoff_only() -> None:
 
 
 def test_user_profile_keeps_top_core_attributes_only() -> None:
-    windows = pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
     target_users = pd.DataFrame(
         [
             {
@@ -168,7 +162,9 @@ def test_user_profile_keeps_top_core_attributes_only() -> None:
         ]
     )
 
-    profile = build_user_profile(transactions, article_attributes, windows, target_users)
+    profile = build_user_profile(
+        transactions, article_attributes, windows, target_users
+    )
 
     assert profile["attr_value"].tolist() == ["Dress", "Black", "Tops"]
     assert "detail_desc" not in set(profile["attr_type"])

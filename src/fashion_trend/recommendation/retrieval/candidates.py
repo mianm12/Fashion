@@ -7,8 +7,8 @@ import pandas as pd
 from fashion_trend.foundation.io import write_parquet_atomic
 from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
-    RECOMMENDATION_CANDIDATES_PER_SOURCE,
     RECOMMENDATION_CANDIDATE_STRATEGIES,
+    RECOMMENDATION_CANDIDATES_PER_SOURCE,
 )
 from fashion_trend.recommendation.paths import candidate_items_path
 from fashion_trend.recommendation.retrieval.attributes import (

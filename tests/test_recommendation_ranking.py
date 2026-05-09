@@ -14,7 +14,6 @@ from fashion_trend.recommendation.ranking.filters import filter_seen_items
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.ranking.weights import validate_score_weights
 
-
 REQUIRED_WEIGHTS = ("pop_score", "recent_score", "sim_score", "trend_score")
 
 
@@ -220,9 +219,7 @@ def test_build_ranking_features_uses_cutoff_history_and_bounded_scores() -> None
 
 
 def test_trend_score_uses_prediction_week_equal_cutoff_week() -> None:
-    windows = pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
     article_attributes = pd.DataFrame(
         {
             "article_id": ["0000000001", "0000000002"],
@@ -251,9 +248,7 @@ def test_trend_score_uses_prediction_week_equal_cutoff_week() -> None:
 
 
 def test_trend_score_renormalizes_weights_for_matched_attribute_types() -> None:
-    windows = pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
     article_attributes = pd.DataFrame(
         {
             "article_id": ["0000000001"],

@@ -71,8 +71,10 @@ def test_generated_run_id_is_safe_path_segment() -> None:
     run_id = generate_experiment_run_id()
 
     assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{8}", run_id)
-    assert experiment_run_dir("main", run_id).as_posix().endswith(
-        f"/experiments/main/runs/{run_id}"
+    assert (
+        experiment_run_dir("main", run_id)
+        .as_posix()
+        .endswith(f"/experiments/main/runs/{run_id}")
     )
 
 

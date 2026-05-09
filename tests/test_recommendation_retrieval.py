@@ -3,6 +3,9 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from fashion_trend.recommendation.retrieval.attributes import (
+    build_attribute_similarity_candidates,
+)
 from fashion_trend.recommendation.retrieval.candidates import (
     build_candidate_items,
     build_source_frames_for_frames,
@@ -11,16 +14,11 @@ from fashion_trend.recommendation.retrieval.candidates import (
 from fashion_trend.recommendation.retrieval.popularity import (
     build_popularity_candidates,
 )
-from fashion_trend.recommendation.retrieval.attributes import (
-    build_attribute_similarity_candidates,
-)
 from fashion_trend.recommendation.retrieval.trend import build_trend_candidates
 
 
 def sample_window() -> pd.DataFrame:
-    return pd.DataFrame(
-        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
-    )
+    return pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
 
 
 def sample_targets() -> pd.DataFrame:

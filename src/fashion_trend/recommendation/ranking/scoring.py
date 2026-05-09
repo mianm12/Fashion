@@ -5,7 +5,6 @@ import pandas as pd
 
 from fashion_trend.recommendation.ranking.weights import validate_score_weights
 
-
 RANK_GROUP_COLUMNS = ["customer_id", "split", "cutoff_week", "label_week"]
 
 

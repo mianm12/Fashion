@@ -66,7 +66,9 @@ def _build_popularity_candidates(
             continue
         ranked_articles = _rank_articles_by_count(window_transactions, top_n)
         window_targets = _target_users_for_window(target_users, window)
-        frames.append(_cross_join_window_targets(window, window_targets, ranked_articles))
+        frames.append(
+            _cross_join_window_targets(window, window_targets, ranked_articles)
+        )
     return _concat_source_frames(frames)
 
 

@@ -37,9 +37,7 @@ class PopSimilarityTrendMethod:
         context: RecommendationContext,
     ) -> RecommendationResult:
         if context.trend_predictions is None or context.trend_predictions.empty:
-            raise FileNotFoundError(
-                "pop_similarity_trend requires trend predictions"
-            )
+            raise FileNotFoundError("pop_similarity_trend requires trend predictions")
         if context.candidates is None:
             raise FileNotFoundError("pop_similarity_trend requires default candidates")
         return build_baseline_recommendation_result(

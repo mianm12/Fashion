@@ -10,7 +10,6 @@ from fashion_trend.recommendation.contracts import (
     RECOMMENDATION_TREND_ATTR_WEIGHTS,
 )
 
-
 WINDOW_COLUMNS = ["split", "cutoff_week", "label_week"]
 SCORE_COLUMNS = ["pop_score", "recent_score", "sim_score", "trend_score"]
 
@@ -124,11 +123,7 @@ def add_trend_score(
 ) -> pd.DataFrame:
     """Add article trend scores from cutoff-week attribute predictions."""
     result = _with_string_ids(candidates)
-    if (
-        trend_predictions is None
-        or trend_predictions.empty
-        or article_attributes.empty
-    ):
+    if trend_predictions is None or trend_predictions.empty or article_attributes.empty:
         result["trend_score"] = 0.0
         return result
 
@@ -210,12 +205,9 @@ def build_article_trend_scores(
 
     matched["attr_weight"] = matched["attr_type"].map(RECOMMENDATION_TREND_ATTR_WEIGHTS)
     matched["weighted_score"] = matched["attr_trend_score"] * matched["attr_weight"]
-    scores = (
-        matched.groupby([*WINDOW_COLUMNS, "article_id"], as_index=False)
-        .agg(
-            weighted_score=("weighted_score", "sum"),
-            matched_weight=("attr_weight", "sum"),
-        )
+    scores = matched.groupby([*WINDOW_COLUMNS, "article_id"], as_index=False).agg(
+        weighted_score=("weighted_score", "sum"),
+        matched_weight=("attr_weight", "sum"),
     )
     scores["trend_score"] = np.where(
         scores["matched_weight"] > 0.0,
@@ -320,9 +312,7 @@ def _build_similarity_scores(
                     errors="raise",
                 )
             )
-            .groupby(["customer_id", "article_id"], as_index=False)[
-                "preference_score"
-            ]
+            .groupby(["customer_id", "article_id"], as_index=False)["preference_score"]
             .sum()
             .rename(columns={"preference_score": "sim_value"})
         )
