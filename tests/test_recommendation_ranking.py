@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from fashion_trend.recommendation.ranking.features import (
+    build_article_trend_scores,
     build_ranking_features,
     minmax_normalize_by_group,
 )
@@ -216,3 +217,63 @@ def test_build_ranking_features_uses_cutoff_history_and_bounded_scores() -> None
     assert features["trend_score"].tolist() == [0.0, 0.0, 0.0]
     score_columns = ["pop_score", "recent_score", "sim_score", "trend_score"]
     assert features[score_columns].map(lambda value: 0.0 <= value <= 1.0).all().all()
+
+
+def test_trend_score_uses_prediction_week_equal_cutoff_week() -> None:
+    windows = pd.DataFrame(
+        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+    )
+    article_attributes = pd.DataFrame(
+        {
+            "article_id": ["0000000001", "0000000002"],
+            "attr_id": [101, 102],
+            "attr_type": ["product_type_name", "product_type_name"],
+            "attr_value": ["Dress", "Shirt"],
+        }
+    )
+    predictions = pd.DataFrame(
+        {
+            "split": ["valid", "valid", "valid", "valid"],
+            "week_id": [10, 10, 11, 11],
+            "attr_id": [101, 102, 101, 102],
+            "attr_type": ["product_type_name"] * 4,
+            "attr_value": ["Dress", "Shirt", "Dress", "Shirt"],
+            "pred_target_growth": [2.0, 1.0, 0.0, 10.0],
+            "pred_share_t1": [0.0, 10.0, 0.0, 10.0],
+        }
+    )
+
+    scores = build_article_trend_scores(predictions, article_attributes, windows)
+
+    assert scores.loc[
+        scores["article_id"] == "0000000001", "trend_score"
+    ].item() == pytest.approx(1.0)
+
+
+def test_trend_score_renormalizes_weights_for_matched_attribute_types() -> None:
+    windows = pd.DataFrame(
+        [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+    )
+    article_attributes = pd.DataFrame(
+        {
+            "article_id": ["0000000001"],
+            "attr_id": [101],
+            "attr_type": ["product_type_name"],
+            "attr_value": ["Dress"],
+        }
+    )
+    predictions = pd.DataFrame(
+        {
+            "split": ["valid", "valid"],
+            "week_id": [10, 10],
+            "attr_id": [101, 102],
+            "attr_type": ["product_type_name", "product_type_name"],
+            "attr_value": ["Dress", "Shirt"],
+            "pred_target_growth": [2.0, 1.0],
+            "pred_share_t1": [0.0, 10.0],
+        }
+    )
+
+    scores = build_article_trend_scores(predictions, article_attributes, windows)
+
+    assert scores["trend_score"].tolist() == [pytest.approx(1.0)]

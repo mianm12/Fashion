@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 import pytest
 
@@ -44,6 +46,24 @@ def test_pop_similarity_method_contract() -> None:
         "pop_score": 0.45,
         "sim_score": 0.45,
         "recent_score": 0.10,
+    }
+
+
+def test_pop_similarity_trend_uses_default_candidates_and_trend_score() -> None:
+    method = get_recommendation_method("pop_similarity_trend")
+
+    assert method.default_candidate_strategy == "default"
+    assert method.required_features == (
+        "pop_score",
+        "sim_score",
+        "trend_score",
+        "recent_score",
+    )
+    assert method.default_weights == {
+        "pop_score": 0.35,
+        "sim_score": 0.35,
+        "trend_score": 0.25,
+        "recent_score": 0.05,
     }
 
 
@@ -198,3 +218,33 @@ def test_pop_similarity_builds_without_trend_predictions() -> None:
     assert_method_result_shape(result, "pop_similarity")
     assert "trend_score" in result.recommendation_items.columns
     assert result.recommendation_items["trend_score"].eq(0.0).all()
+
+
+def test_pop_similarity_trend_method_builds_recommendations_with_trend_predictions() -> None:
+    method = get_recommendation_method("pop_similarity_trend")
+    context = sample_method_context(method_name="pop_similarity_trend")
+    predictions = pd.DataFrame(
+        {
+            "split": ["valid", "valid"],
+            "week_id": [10, 10],
+            "attr_id": [101, 102],
+            "attr_type": ["product_type_name", "product_type_name"],
+            "attr_value": ["Dress", "Shirt"],
+            "pred_target_growth": [2.0, 1.0],
+        }
+    )
+
+    result = method.build_recommendations(
+        replace(context, trend_predictions=predictions)
+    )
+
+    assert_method_result_shape(result, "pop_similarity_trend")
+    assert result.recommendation_items["trend_score"].max() > 0.0
+
+
+def test_pop_similarity_trend_method_requires_trend_predictions() -> None:
+    method = get_recommendation_method("pop_similarity_trend")
+    context = sample_method_context(method_name="pop_similarity_trend")
+
+    with pytest.raises(FileNotFoundError, match="trend predictions"):
+        method.build_recommendations(context)

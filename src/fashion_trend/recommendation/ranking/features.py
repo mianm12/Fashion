@@ -5,6 +5,11 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
+from fashion_trend.recommendation.contracts import (
+    RECOMMENDATION_CORE_ATTR_TYPES,
+    RECOMMENDATION_TREND_ATTR_WEIGHTS,
+)
+
 
 WINDOW_COLUMNS = ["split", "cutoff_week", "label_week"]
 SCORE_COLUMNS = ["pop_score", "recent_score", "sim_score", "trend_score"]
@@ -127,28 +132,101 @@ def add_trend_score(
         result["trend_score"] = 0.0
         return result
 
-    raw_scores = _build_trend_scores(
-        result,
-        _with_string_ids(article_attributes),
-        trend_predictions.copy(),
+    windows = result.loc[:, WINDOW_COLUMNS].drop_duplicates().reset_index(drop=True)
+    article_scores = build_article_trend_scores(
+        trend_predictions,
+        article_attributes,
+        windows,
     )
-    if raw_scores.empty:
-        result["trend_score"] = 0.0
-        return result
 
     result = result.merge(
-        raw_scores,
+        article_scores,
         on=[*WINDOW_COLUMNS, "article_id"],
         how="left",
     )
-    result["trend_value"] = result["trend_value"].fillna(0.0)
-    result = minmax_normalize_by_group(
-        result,
-        value_column="trend_value",
-        output_column="trend_score",
-        group_columns=WINDOW_COLUMNS,
+    result["trend_score"] = result["trend_score"].fillna(0.0)
+    return result
+
+
+def build_article_trend_scores(
+    predictions: pd.DataFrame,
+    article_attributes: pd.DataFrame,
+    windows: pd.DataFrame,
+) -> pd.DataFrame:
+    """Map cutoff-week attribute trend predictions to normalized article scores."""
+    _require_columns(
+        predictions,
+        ("split", "week_id", "attr_type", "attr_value", "pred_target_growth"),
+        "trend predictions",
     )
-    return result.drop(columns=["trend_value"])
+    _require_columns(
+        article_attributes,
+        ("article_id", "attr_type", "attr_value"),
+        "article attributes",
+    )
+    _require_columns(windows, WINDOW_COLUMNS, "windows")
+
+    output_columns = [*WINDOW_COLUMNS, "article_id", "trend_score"]
+    if predictions.empty or article_attributes.empty or windows.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    prediction_frame = _with_attr_join_ids(predictions)
+    attribute_frame = _with_attr_join_ids(_with_string_ids(article_attributes))
+    window_frame = windows.loc[:, WINDOW_COLUMNS].drop_duplicates().copy()
+
+    prediction_frame = prediction_frame.loc[
+        prediction_frame["attr_type"].isin(RECOMMENDATION_CORE_ATTR_TYPES)
+    ].copy()
+    if prediction_frame.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    window_predictions = window_frame.merge(
+        prediction_frame,
+        left_on=["split", "cutoff_week"],
+        right_on=["split", "week_id"],
+        how="left",
+    )
+    window_predictions = window_predictions.dropna(subset=["pred_target_growth"])
+    if window_predictions.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    window_predictions = minmax_normalize_by_group(
+        window_predictions,
+        value_column="pred_target_growth",
+        output_column="attr_trend_score",
+        group_columns=["split", "cutoff_week", "attr_type"],
+    )
+    join_columns = _attribute_join_columns(window_predictions, attribute_frame)
+    matched = attribute_frame.merge(
+        window_predictions.loc[
+            :,
+            [*WINDOW_COLUMNS, *join_columns, "attr_trend_score"],
+        ],
+        on=join_columns,
+        how="inner",
+    )
+    if matched.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    matched["attr_weight"] = matched["attr_type"].map(RECOMMENDATION_TREND_ATTR_WEIGHTS)
+    matched["weighted_score"] = matched["attr_trend_score"] * matched["attr_weight"]
+    scores = (
+        matched.groupby([*WINDOW_COLUMNS, "article_id"], as_index=False)
+        .agg(
+            weighted_score=("weighted_score", "sum"),
+            matched_weight=("attr_weight", "sum"),
+        )
+    )
+    scores["trend_score"] = np.where(
+        scores["matched_weight"] > 0.0,
+        scores["weighted_score"] / scores["matched_weight"],
+        0.0,
+    )
+    scores["trend_score"] = scores["trend_score"].clip(lower=0.0, upper=1.0)
+    if not np.isfinite(scores["trend_score"].to_numpy(dtype=float)).all():
+        raise ValueError("trend_score contains non-finite values")
+    scores["article_id"] = scores["article_id"].astype(str)
+    return scores.loc[:, output_columns]
 
 
 def _add_article_count_score(
@@ -255,59 +333,34 @@ def _build_similarity_scores(
     return pd.concat(frames, ignore_index=True)
 
 
-def _build_trend_scores(
-    candidates: pd.DataFrame,
+def _require_columns(
+    dataframe: pd.DataFrame,
+    columns: Sequence[str],
+    name: str,
+) -> None:
+    missing = [column for column in columns if column not in dataframe.columns]
+    if missing:
+        raise ValueError(f"{name} missing required columns: {missing}")
+
+
+def _attribute_join_columns(
+    predictions: pd.DataFrame,
     article_attributes: pd.DataFrame,
-    trend_predictions: pd.DataFrame,
-) -> pd.DataFrame:
-    score_column = _trend_prediction_score_column(trend_predictions)
-    prediction_week_column = (
-        "cutoff_week" if "cutoff_week" in trend_predictions.columns else "week_id"
-    )
-    if prediction_week_column not in trend_predictions.columns:
-        return pd.DataFrame(columns=[*WINDOW_COLUMNS, "article_id", "trend_value"])
-
-    frames: list[pd.DataFrame] = []
-    for window in candidates[WINDOW_COLUMNS].drop_duplicates().to_dict("records"):
-        window_predictions = trend_predictions.loc[
-            (trend_predictions["split"] == window["split"])
-            & (
-                pd.to_numeric(
-                    trend_predictions[prediction_week_column],
-                    errors="raise",
-                )
-                == int(window["cutoff_week"])
-            )
-        ].copy()
-        if window_predictions.empty:
-            continue
-        matched = article_attributes.merge(
-            window_predictions.loc[:, ["attr_type", "attr_value", score_column]],
-            on=["attr_type", "attr_value"],
-            how="inner",
-        )
-        if matched.empty:
-            continue
-        scored = (
-            matched.assign(
-                trend_value=pd.to_numeric(matched[score_column], errors="raise")
-            )
-            .groupby("article_id", as_index=False)["trend_value"]
-            .max()
-        )
-        for column in WINDOW_COLUMNS:
-            scored[column] = window[column]
-        frames.append(scored.loc[:, [*WINDOW_COLUMNS, "article_id", "trend_value"]])
-    if not frames:
-        return pd.DataFrame(columns=[*WINDOW_COLUMNS, "article_id", "trend_value"])
-    return pd.concat(frames, ignore_index=True)
+) -> list[str]:
+    columns = ["attr_type", "attr_value"]
+    if "attr_id" in predictions.columns and "attr_id" in article_attributes.columns:
+        return ["attr_id", *columns]
+    return columns
 
 
-def _trend_prediction_score_column(trend_predictions: pd.DataFrame) -> str:
-    for column in ("trend_score", "score", "pred_target_growth"):
-        if column in trend_predictions.columns:
-            return column
-    raise ValueError("trend predictions must contain a score column")
+def _with_attr_join_ids(dataframe: pd.DataFrame) -> pd.DataFrame:
+    result = dataframe.copy()
+    if "attr_id" in result.columns:
+        result["attr_id"] = result["attr_id"].astype(str)
+    for column in ("attr_type", "attr_value"):
+        if column in result.columns:
+            result[column] = result[column].astype(str)
+    return result
 
 
 def _frame_for_window(
