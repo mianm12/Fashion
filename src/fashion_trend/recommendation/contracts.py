@@ -1,4 +1,162 @@
 from __future__ import annotations
 
-# 当前 Top-N 推荐产物契约使用的推荐条数。
 RECOMMENDATION_TOP_K = 12
+RECOMMENDATION_ARTICLE_ID_DTYPE = "string"
+
+VALID_RECOMMENDATION_SPLITS = ("valid", "test")
+RECOMMENDATION_METHODS = (
+    "global_popularity",
+    "recent_popularity",
+    "attribute_similarity",
+    "pop_similarity",
+    "pop_similarity_trend",
+)
+RECOMMENDATION_CANDIDATE_STRATEGIES = (
+    "popularity",
+    "similarity",
+    "trend_union",
+    "default",
+)
+RECOMMENDATION_SCORE_COLUMNS = (
+    "pop_score",
+    "sim_score",
+    "trend_score",
+    "recent_score",
+)
+RECOMMENDATION_CORE_ATTR_TYPES = (
+    "product_type_name",
+    "colour_group_name",
+    "garment_group_name",
+    "product_group_name",
+    "graphical_appearance_name",
+)
+RECOMMENDATION_TREND_ATTR_WEIGHTS = {
+    "product_type_name": 0.35,
+    "colour_group_name": 0.25,
+    "garment_group_name": 0.20,
+    "product_group_name": 0.10,
+    "graphical_appearance_name": 0.10,
+}
+
+TIME_WINDOW_COLUMNS = ("split", "cutoff_week", "label_week")
+TARGET_USER_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "customer_id",
+    "history_purchase_count",
+    "label_purchase_count",
+)
+EVALUATION_LABEL_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "customer_id",
+    "article_id",
+)
+USER_PROFILE_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "customer_id",
+    "attr_id",
+    "attr_type",
+    "attr_value",
+    "preference_score",
+    "purchase_count",
+    "last_purchase_week",
+)
+CANDIDATE_ITEM_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "strategy",
+    "customer_id",
+    "article_id",
+    "candidate_sources",
+    "primary_source",
+    "best_source_rank",
+)
+RECOMMENDATIONS_COLUMNS = (
+    "customer_id",
+    "split",
+    "cutoff_week",
+    "label_week",
+    "method",
+    "prediction",
+)
+RECOMMENDATION_ITEMS_COLUMNS = (
+    "customer_id",
+    "split",
+    "cutoff_week",
+    "label_week",
+    "method",
+    "article_id",
+    "rank",
+    "score",
+    "pop_score",
+    "sim_score",
+    "trend_score",
+    "recent_score",
+    "candidate_sources",
+)
+
+TIME_WINDOW_KEY_COLUMNS = TIME_WINDOW_COLUMNS
+TARGET_USER_KEY_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "customer_id",
+)
+EVALUATION_LABEL_KEY_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "customer_id",
+    "article_id",
+)
+CANDIDATE_ITEM_KEY_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "strategy",
+    "customer_id",
+    "article_id",
+)
+RECOMMENDATIONS_KEY_COLUMNS = (
+    "customer_id",
+    "split",
+    "cutoff_week",
+    "label_week",
+    "method",
+)
+RECOMMENDATION_ITEMS_KEY_COLUMNS = (
+    "customer_id",
+    "split",
+    "cutoff_week",
+    "label_week",
+    "method",
+    "article_id",
+)
+USER_PROFILE_KEY_COLUMNS = (
+    "split",
+    "cutoff_week",
+    "label_week",
+    "customer_id",
+    "attr_id",
+    "attr_type",
+    "attr_value",
+)
+
+RECOMMENDATION_TEXT_COLUMNS = (
+    "split",
+    "customer_id",
+    "article_id",
+    "prediction",
+    "strategy",
+    "method",
+    "candidate_sources",
+    "primary_source",
+    "attr_type",
+    "attr_value",
+)
