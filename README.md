@@ -593,7 +593,10 @@ outputs/metrics/lightgbm/runs/evaluations.jsonl
 ```
 
 调参选择只能读取 `evaluations.jsonl` 的 `selection_metrics`；test 指标只用于最终选中 run 的一次性报告。
-当前内置默认 LightGBM 参数来自已选中的调参 run `tune-20260509-r25-l1-col06-min30`，因此不传 `--params` / `--param` 时会使用 `objective=regression_l1`、`colsample_bytree=0.6` 和 `min_child_samples=30`。
+
+默认运行 `uv run python src/10_train_trend_model.py --model lightgbm` 时，训练参数优先读取 `outputs/models/lightgbm/params.json` 中已经发布的 stable 参数；如果该文件不存在，才使用源码中的 built-in 默认参数。这条默认训练路径仍会自动发布 stable，因此会用本次训练结果覆盖 `outputs/models/lightgbm/`。
+
+显式 `--params` 或 `--param` 会进入自定义实验参数模式，不读取 stable 参数，并继续默认不覆盖 stable 主结果。若只想使用默认参数生成 run 但不覆盖 stable，可显式传入 `--no-promote`。
 
 ### 13. 趋势评价
 
