@@ -132,6 +132,20 @@ class TestLightGBMTrendModel:
             "early_stopping.stopping_rounds": 80,
         }
 
+    def test_resolve_lightgbm_config_rejects_non_utf8_params_file(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        config_module = importlib.import_module(
+            "fashion_trend.trend.models.supervised.lightgbm_config"
+        )
+        params_path = tmp_path / "params.json"
+        params_path.write_bytes(b"\xff\xfe\x00")
+
+        with pytest.raises(ValueError, match="LightGBM|params.json") as exc_info:
+            config_module.resolve_lightgbm_config(params_path=params_path)
+        assert str(params_path) in str(exc_info.value)
+
     def test_resolve_lightgbm_config_from_stable_reads_complete_artifact(
         self,
         tmp_path: Path,

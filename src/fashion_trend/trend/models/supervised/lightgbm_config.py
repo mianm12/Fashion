@@ -121,7 +121,7 @@ def _build_lightgbm_training_config(
 def _read_params_file(params_path: Path) -> dict[str, dict[str, object]]:
     try:
         payload = json.loads(params_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"LightGBM 参数文件不是合法 JSON: {params_path}") from exc
     if not isinstance(payload, dict):
         raise ValueError("LightGBM --params 必须是 JSON object。")
