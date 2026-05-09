@@ -864,7 +864,7 @@ target_growth
 | `subsample`         |          0.8 |
 | `colsample_bytree`  |          0.6 |
 
-当前默认训练参数优先来自 `outputs/models/lightgbm/params.json` 中已经发布的 stable 参数；stable 参数缺失时才使用源码中的 built-in 默认参数。显式 `--params` 或 `--param` 会进入自定义实验参数模式，不读取 stable 参数。
+当前默认训练参数优先来自 `outputs/models/lightgbm/params.json` 中已经发布的 stable 参数；stable 参数文件不存在时才使用源码中的 built-in 默认参数。显式 `--params` 或 `--param` 会进入自定义实验参数模式，不读取 stable 参数。
 
 不要把参数调优作为论文重点。
 本科毕设更重要的是：
