@@ -155,6 +155,7 @@ data/
 
 ```sh
 uv run python src/00_download_data.py
+uv run python src/01_data_check.py
 uv run python src/02_build_weekly_transactions.py
 uv run python src/03_clean_articles.py
 uv run python src/04_build_attribute_graph.py

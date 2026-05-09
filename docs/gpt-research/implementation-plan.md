@@ -65,19 +65,16 @@ H&M 数据集本身提供交易记录、商品元数据和用户元数据，其�
 
 | 任务               | 说明                                                      |
 | ---------------- | ------------------------------------------------------- |
-| 读取三张表            | `transactions_train.csv`、`articles.csv`、`customers.csv` |
-| 检查数据规模           | 交易数、商品数、用户数、日期范围                                        |
-| 检查缺失值            | 尤其是 `articles.csv` 的属性字段                                |
-| 转换日期             | `t_dat` 转为 `datetime`                                   |
-| 统一 article_id 格式 | 注意保留前导 0，可统一转字符串                                        |
+| 定位三张原始表          | `transactions_train.csv`、`articles.csv`、`customers.csv` |
+| 检查原始文件           | 确认 `transactions_train.csv`、`articles.csv`、`customers.csv` 存在且可读 |
+| 打印数据规模           | 输出三张原始 CSV 的行数日志                                               |
 
 H&M 数据集中商品元数据、用户元数据和交易表的关系非常清楚：交易表通过 `article_id` 连接商品表，通过 `customer_id` 连接用户表。([Hugging Face][1])
 
-### 输出文件
+### 当前实现输出
 
 ```text
-data/processed/basic/data_profile.csv
-data/processed/basic/date_range.json
+控制台行数日志；不写入稳定文件产物。
 ```
 
 ---
@@ -1307,10 +1304,6 @@ hm-fashion-trend-rec/
 │   │   └── transactions_train_weekly.parquet
 │   │
 │   ├── processed/
-│   │   ├── basic/
-│   │   │   ├── data_profile.csv
-│   │   │   └── date_range.json
-│   │   │
 │   │   ├── graph/
 │   │   │   ├── nodes_article.csv
 │   │   │   ├── nodes_attribute.csv
@@ -1414,7 +1407,7 @@ hm-fashion-trend-rec/
 
 | 阶段          | 脚本                                  | 产出文件                                                                                                       |
 | ----------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 数据检查        | `01_data_check.py`                  | `data_profile.csv`, `date_range.json`                                                                      |
+| 数据检查        | `01_data_check.py`                  | 控制台行数日志，不写稳定文件产物                                                                      |
 | 周切分         | `02_build_weekly_transactions.py`   | `data/interim/transactions_train_weekly.parquet`                                                           |
 | articles 清洗 | `03_clean_articles.py`              | `articles_clean_mvp.csv`, `articles_clean.csv`                                                             |
 | 属性图构建       | `04_build_attribute_graph.py`       | `nodes_article.csv`, `nodes_attribute.csv`, `edges_article_attribute.csv`, `edges_attribute_hierarchy.csv` |
@@ -1438,12 +1431,12 @@ hm-fashion-trend-rec/
 
 # 17. 从数据处理到实验完成的开发顺序
 
-## 第 1 步：读取数据并生成数据概况
+## 第 1 步：检查原始数据文件
 
 目标：
 
 ```text
-确认数据能正常读取，字段无误，日期范围无误。
+确认三张原始 CSV 存在、可读，并打印行数摘要。
 ```
 
 先写：
@@ -1455,8 +1448,7 @@ src/01_data_check.py
 输出：
 
 ```text
-data_profile.csv
-date_range.json
+控制台行数日志；不写入稳定文件产物。
 ```
 
 ---
@@ -2044,10 +2036,9 @@ LightGBM 主模型和趋势评价均已落地。
 
 功能：
 
-* 读取三张表；
-* 输出行数、列名、缺失率；
-* 输出交易日期范围；
-* 检查 `article_id` 是否能连接。
+* 定位三张原始 CSV；
+* 检查原始 CSV 文件存在且可读；
+* 输出行数日志摘要。
 
 ---
 
