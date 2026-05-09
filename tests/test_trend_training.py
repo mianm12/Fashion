@@ -109,6 +109,18 @@ def _assert_pred_share_t1_distribution(predictions: pd.DataFrame) -> None:
     assert np.isclose(share_totals, 1.0, rtol=0, atol=1e-12).all()
 
 
+def _patch_runner_lightgbm_fit(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_fit,
+) -> None:
+    """Patch the exact LightGBM module globals captured by the runner registry."""
+
+    trainer = run_trend_model_training.__globals__["get_trend_model_trainer"](
+        LIGHTGBM_MODEL_NAME
+    )
+    monkeypatch.setitem(trainer.train.__globals__, "_fit_lightgbm_model", fake_fit)
+
+
 class TestTrendTraining:
     def test_last_week_params_are_stable(self) -> None:
         assert LAST_WEEK_PARAMS == {
@@ -1083,7 +1095,6 @@ class TestTrendTraining:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
         from fashion_trend.trend.models.supervised.lightgbm_config import (
             LIGHTGBM_DEFAULT_PARAMS,
         )
@@ -1102,7 +1113,7 @@ class TestTrendTraining:
             captured["source"] = dict(config.param_source)
             return _FakeLightGBMModel(train_features.columns.tolist())
 
-        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+        _patch_runner_lightgbm_fit(monkeypatch, fake_fit)
         stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
         stable_params = dict(LIGHTGBM_DEFAULT_PARAMS)
         stable_params["learning_rate"] = 0.03
@@ -1146,8 +1157,6 @@ class TestTrendTraining:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
-
         captured: dict[str, object] = {}
 
         def fake_fit(
@@ -1161,7 +1170,7 @@ class TestTrendTraining:
             captured["source"] = dict(config.param_source)
             return _FakeLightGBMModel(train_features.columns.tolist())
 
-        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+        _patch_runner_lightgbm_fit(monkeypatch, fake_fit)
 
         metadata = run_trend_model_training(
             LIGHTGBM_MODEL_NAME,
@@ -1201,7 +1210,6 @@ class TestTrendTraining:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from fashion_trend.trend.models.supervised import lightgbm as lightgbm_model
         from fashion_trend.trend.models.supervised.lightgbm_config import (
             resolve_lightgbm_config,
         )
@@ -1220,7 +1228,7 @@ class TestTrendTraining:
             captured["source"] = dict(config.param_source)
             return _FakeLightGBMModel(train_features.columns.tolist())
 
-        monkeypatch.setattr(lightgbm_model, "_fit_lightgbm_model", fake_fit)
+        _patch_runner_lightgbm_fit(monkeypatch, fake_fit)
         stable_dir = tmp_path / "outputs" / "models" / "lightgbm"
         write_json_atomic({}, stable_dir / "params.json")
 
