@@ -1424,6 +1424,9 @@ hm-fashion-trend-rec/
 | 趋势样本        | `08_build_trend_model_samples.py`   | `trend_model_samples.parquet`                                                                              |
 | baseline 训练 | `10_train_trend_model.py --model <model>` | `outputs/models/<model>/predictions.csv`, `params.json`, `metadata.json`                                   |
 | LightGBM 训练 | 已注册实现：复用 `10_train_trend_model.py --model lightgbm` | `outputs/models/lightgbm/predictions.csv`, `params.json`, `metadata.json`, `feature_importance.csv`, `model.txt` |
+| LightGBM 调参 run | `10_train_trend_model.py --model lightgbm --run-id <run_id> --no-promote` | `outputs/models/lightgbm/runs/<run_id>/...` |
+| LightGBM run 评价 | `11_eval_trend_model.py --model lightgbm --run-id <run_id>` | `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json` |
+| 已评估 run 发布 | `10_train_trend_model.py --model lightgbm --promote-run <run_id>` | 发布到 `outputs/models/lightgbm/` 和 `outputs/metrics/lightgbm/trend_metrics.json` |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
 | 用户画像        | `12_build_user_profile.py`          | `user_profile.parquet`                                                                                     |
 | 候选召回        | `13_build_recommend_candidates.py`  | `candidate_items.parquet`                                                                                  |

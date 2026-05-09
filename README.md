@@ -555,7 +555,7 @@ target_growth
 模型使用 train split 拟合，valid split 做 early stopping，test split 只进入统一趋势评价。
 标准预测产物和可解释产物写入：
 
-```sh
+```text
 outputs/models/lightgbm/predictions.csv
 outputs/models/lightgbm/params.json
 outputs/models/lightgbm/metadata.json
@@ -569,6 +569,30 @@ outputs/models/lightgbm/model.txt
 uv run python src/10_train_trend_model.py --model lightgbm
 uv run python src/11_eval_trend_model.py --model lightgbm
 ```
+
+LightGBM 也支持按 `run_id` 保存调参实验，实验 run 默认不覆盖 stable 主结果：
+
+```sh
+uv run python src/10_train_trend_model.py --model lightgbm --run-id smoke-lightgbm --no-promote
+uv run python src/11_eval_trend_model.py --model lightgbm --run-id smoke-lightgbm
+uv run python src/10_train_trend_model.py --model lightgbm --promote-run smoke-lightgbm
+```
+
+run 级模型和评价产物写入：
+
+```text
+outputs/models/lightgbm/runs/<run_id>/predictions.csv
+outputs/models/lightgbm/runs/<run_id>/params.json
+outputs/models/lightgbm/runs/<run_id>/metadata.json
+outputs/models/lightgbm/runs/<run_id>/feature_importance.csv
+outputs/models/lightgbm/runs/<run_id>/model.txt
+outputs/models/lightgbm/runs/index.jsonl
+outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json
+outputs/metrics/lightgbm/runs/evaluations.jsonl
+```
+
+调参选择只能读取 `evaluations.jsonl` 的 `selection_metrics`；test 指标只用于最终选中 run 的一次性报告。
+本轮默认 LightGBM 参数有意新增 `subsample_freq=1`，因此默认训练结果需要重新跑训练、评价和 baseline 对比后再更新摘要。
 
 ### 13. 趋势评价
 
