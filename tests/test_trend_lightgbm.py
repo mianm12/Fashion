@@ -230,10 +230,11 @@ class TestLightGBMTrendModel:
             encoding="utf-8",
         )
 
-        with pytest.raises(ValueError, match="stable|learning_rate"):
+        with pytest.raises(ValueError, match="stable|learning_rate") as exc_info:
             config_module.resolve_lightgbm_config_from_stable_or_default(
                 stable_params_path
             )
+        assert str(stable_params_path) in str(exc_info.value)
 
     def test_resolve_lightgbm_config_from_stable_rejects_missing_early_stopping_key(
         self,
@@ -314,10 +315,11 @@ class TestLightGBMTrendModel:
             stable_params_path = tmp_path / f"{case_name}.json"
             stable_params_path.write_text(json.dumps(payload), encoding="utf-8")
 
-            with pytest.raises(ValueError, match=error_match):
+            with pytest.raises(ValueError, match=error_match) as exc_info:
                 config_module.resolve_lightgbm_config_from_stable_or_default(
                     stable_params_path
                 )
+            assert str(stable_params_path) in str(exc_info.value)
 
     def test_resolve_lightgbm_config_explicit_param_does_not_use_stable(
         self,

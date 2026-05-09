@@ -83,13 +83,18 @@ def resolve_lightgbm_config_from_stable_or_default(
         )
 
     stable_payload = _read_stable_params_file(stable_params_path)
-    return _build_lightgbm_training_config(
-        lightgbm_params=stable_payload["lightgbm_params"],
-        early_stopping=stable_payload["early_stopping"],
-        default_source="stable",
-        params_file=str(stable_params_path),
-        overrides={},
-    )
+    try:
+        return _build_lightgbm_training_config(
+            lightgbm_params=stable_payload["lightgbm_params"],
+            early_stopping=stable_payload["early_stopping"],
+            default_source="stable",
+            params_file=str(stable_params_path),
+            overrides={},
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"LightGBM stable params.json 参数无效: {stable_params_path}: {exc}"
+        ) from exc
 
 
 def _build_lightgbm_training_config(
@@ -158,7 +163,7 @@ def _read_stable_params_file(params_path: Path) -> dict[str, dict[str, object]]:
     if missing_param_keys:
         raise ValueError(
             "LightGBM stable params.json lightgbm_params 缺少 key: "
-            f"{sorted(missing_param_keys)}"
+            f"{sorted(missing_param_keys)} ({params_path})"
         )
 
     early_stopping = dict(payload["early_stopping"])
