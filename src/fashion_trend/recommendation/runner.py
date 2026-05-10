@@ -10,6 +10,7 @@ from fashion_trend.recommendation.contracts import (
     RECOMMENDATION_TOP_K,
     RECOMMENDATION_TREND_ATTR_WEIGHTS,
 )
+from fashion_trend.recommendation.fingerprints import build_input_fingerprints
 from fashion_trend.recommendation.methods.base import (
     RecommendationContext,
     RecommendationResult,
@@ -168,6 +169,7 @@ def _base_metadata(
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "window_config": _window_config(windows),
         "input_artifacts": dict(input_paths or {}),
+        "input_fingerprints": build_input_fingerprints(input_paths),
     }
     if "trend_score" in required_features:
         metadata["trend_score_config"] = {

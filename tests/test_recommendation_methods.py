@@ -361,6 +361,7 @@ def test_window_runner_writes_streamed_method_outputs(tmp_path, monkeypatch) -> 
     assert params["score_features"] == ["pop_score"]
     assert metadata["generated_at"].endswith("Z")
     assert metadata["input_artifacts"] == {"weekly_transactions": "in_memory"}
+    assert metadata["input_fingerprints"]["weekly_transactions"]["path"] == "in_memory"
     assert metadata["window_config"] == {
         "window_count": 1,
         "splits": ["valid"],

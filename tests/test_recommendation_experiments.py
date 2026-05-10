@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
+from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
+from fashion_trend.recommendation.experiments import runner as experiment_runner
 from fashion_trend.recommendation.experiments.ablation import build_ablation_summary
 from fashion_trend.recommendation.experiments.grid_search import (
     iter_weight_grid,
     select_best_weights,
 )
 from fashion_trend.recommendation.experiments.runner import (
+    RecommendationExperimentContext,
     candidate_strategy_for_method,
     generate_experiment_run_id,
+    run_baseline_methods,
     run_recommendation_experiment,
 )
+from fashion_trend.recommendation.inputs import RecommendationInputArtifacts
 from fashion_trend.recommendation.paths import experiment_run_dir
 
 
@@ -93,6 +100,70 @@ def test_experiment_runner_exposes_force_rebuild_switch() -> None:
 
     assert "force" in signature.parameters
     assert signature.parameters["force"].default is False
+
+
+def test_experiment_rejects_stale_existing_method_output(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("current input", encoding="utf-8")
+    output_dir = tmp_path / "outputs" / "global_popularity"
+    output_dir.mkdir(parents=True)
+    recommendations_path = output_dir / "recommendations.csv"
+    metadata_path = output_dir / "metadata.json"
+    recommendations_path.write_text("existing output", encoding="utf-8")
+    input_paths = {"weekly_transactions": str(input_path)}
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "input_artifacts": input_paths,
+                "input_fingerprints": {
+                    "weekly_transactions": {
+                        "path": str(input_path),
+                        "exists": True,
+                        "size_bytes": 0,
+                        "mtime_ns": 0,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("global_popularity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: SimpleNamespace(
+            recommendations=recommendations_path,
+            metadata=metadata_path,
+        ),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: input_paths,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_method_output_for_experiment",
+        lambda method, context, inputs: {"method": method, "metrics": {}},
+    )
+
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths=input_paths,
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    with pytest.raises(RuntimeError, match="--force"):
+        run_baseline_methods(context, inputs, force=False)
 
 
 @pytest.mark.parametrize("bad", ["", ".", "..", "main/evil", "main\\evil"])

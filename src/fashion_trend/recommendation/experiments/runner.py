@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,6 +21,7 @@ from fashion_trend.recommendation.experiments.grid_search import (
     iter_weight_grid,
     select_best_weights,
 )
+from fashion_trend.recommendation.fingerprints import build_input_fingerprints
 from fashion_trend.recommendation.inputs import (
     RecommendationInputArtifacts,
     build_and_write_recommendation_inputs,
@@ -147,8 +149,10 @@ def run_baseline_methods(
     force: bool = False,
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
+    input_paths = _experiment_input_paths(context)
     for method_name in BASELINE_METHODS:
         if not force and method_output_paths(method_name).recommendations.exists():
+            _validate_method_output_fresh(method_name, input_paths)
             payloads.append(
                 evaluate_method_output_for_experiment(method_name, context, inputs)
             )
@@ -169,7 +173,7 @@ def run_baseline_methods(
             user_profile=inputs.user_profile,
             trend_predictions=None,
             collect_result=False,
-            input_paths=_experiment_input_paths(context),
+            input_paths=input_paths,
         )
         payloads.append(
             evaluate_method_output_for_experiment(method_name, context, inputs)
@@ -391,6 +395,37 @@ def run_recommendation_experiment(
 
 def _filter_split(dataframe: pd.DataFrame, split: str) -> pd.DataFrame:
     return dataframe.loc[dataframe["split"].astype(str) == split].reset_index(drop=True)
+
+
+def _validate_method_output_fresh(
+    method_name: str,
+    input_paths: dict[str, str],
+) -> None:
+    output_paths = method_output_paths(method_name)
+    if not output_paths.metadata.exists():
+        raise RuntimeError(
+            _stale_output_message(method_name, "metadata.json is missing")
+        )
+
+    metadata = json.loads(output_paths.metadata.read_text(encoding="utf-8"))
+    expected_input_artifacts = dict(input_paths)
+    if metadata.get("input_artifacts") != expected_input_artifacts:
+        raise RuntimeError(
+            _stale_output_message(method_name, "input_artifacts changed")
+        )
+
+    expected_fingerprints = build_input_fingerprints(expected_input_artifacts)
+    if metadata.get("input_fingerprints") != expected_fingerprints:
+        raise RuntimeError(
+            _stale_output_message(method_name, "input_fingerprints changed")
+        )
+
+
+def _stale_output_message(method_name: str, reason: str) -> str:
+    return (
+        f"{method_name} recommendation output is stale: {reason}. "
+        "Run src/16_run_recommendation_experiment.py with --force to rebuild."
+    )
 
 
 def _experiment_input_paths(
