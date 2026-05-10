@@ -310,27 +310,42 @@ def write_recommendation_result(result: RecommendationResult) -> None:
     write_json_atomic(result.metadata, output_paths.metadata)
 ```
 
-For `RecommendationResultChunkWriter`, collect item chunks per window and publish one parquet file:
+For `RecommendationResultChunkWriter`, keep the existing memory boundary. Do not collect all item chunks in a list. Write item chunks through `pyarrow.parquet.ParquetWriter` into a temporary parquet file and atomically replace the final path at publish time:
 
 ```python
-self._item_chunks: list[pd.DataFrame] = []
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+
+self.items_tmp = self.output_paths.recommendation_items.with_suffix(".parquet.tmp")
+self._items_writer: pq.ParquetWriter | None = None
 
 def write_chunk(self, result: RecommendationResult) -> None:
     if not self._started:
         raise RuntimeError("chunk writer has not been opened")
     _append_csv_rows(result.recommendations, self.recommendations_tmp)
-    self._item_chunks.append(result.recommendation_items)
+    table = pa.Table.from_pandas(
+        result.recommendation_items.loc[:, list(RECOMMENDATION_ITEMS_COLUMNS)],
+        preserve_index=False,
+    )
+    if self._items_writer is None:
+        self._items_writer = pq.ParquetWriter(self.items_tmp, table.schema)
+    self._items_writer.write_table(table)
 
 def publish(self) -> None:
     if not self._started:
         raise RuntimeError("chunk writer has not been opened")
+    if self._items_writer is not None:
+        self._items_writer.close()
+        self._items_writer = None
     self.recommendations_tmp.replace(self.output_paths.recommendations)
-    items = (
-        pd.concat(self._item_chunks, ignore_index=True)
-        if self._item_chunks
-        else pd.DataFrame(columns=list(RECOMMENDATION_ITEMS_COLUMNS))
-    )
-    write_parquet_atomic(items, self.output_paths.recommendation_items)
+    if not self.items_tmp.exists():
+        empty_table = pa.Table.from_pandas(
+            pd.DataFrame(columns=list(RECOMMENDATION_ITEMS_COLUMNS)),
+            preserve_index=False,
+        )
+        pq.write_table(empty_table, self.items_tmp)
+    self.items_tmp.replace(self.output_paths.recommendation_items)
 ```
 
 Keep CSV chunking for `recommendations.csv`.
@@ -542,28 +557,58 @@ from fashion_trend.foundation.io import write_json_atomic
 from fashion_trend.recommendation.freshness import build_artifact_metadata
 from fashion_trend.recommendation.paths import RECOMMEND_METADATA_PATH
 
-write_json_atomic(
-    build_artifact_metadata(
-        name="recommendation_inputs",
-        input_artifacts={},
-        output_artifacts={
-            "time_windows": str(TIME_WINDOWS_PATH),
-            "target_users": str(TARGET_USERS_PATH),
-            "evaluation_labels": str(EVALUATION_LABELS_PATH),
-            "user_profile": str(USER_PROFILE_PATH),
-        },
-        schema_version=1,
-        algorithm_version="recommendation-inputs-v1",
-        config={"profile_top_attributes": RECOMMENDATION_PROFILE_TOP_ATTRIBUTES},
-        row_counts={
-            "time_windows": len(windows),
-            "target_users": len(target_users),
-            "evaluation_labels": len(labels),
-            "user_profile": len(profile),
-        },
-    ),
-    RECOMMEND_METADATA_PATH,
-)
+
+def build_and_write_recommendation_inputs(
+    transactions: pd.DataFrame,
+    article_attributes: pd.DataFrame,
+    trend_predictions: pd.DataFrame,
+    input_paths: dict[str, str] | None = None,
+) -> RecommendationInputArtifacts:
+    input_artifacts = dict(input_paths or {})
+    write_json_atomic(
+        build_artifact_metadata(
+            name="recommendation_inputs",
+            input_artifacts=input_artifacts,
+            output_artifacts={
+                "time_windows": str(TIME_WINDOWS_PATH),
+                "target_users": str(TARGET_USERS_PATH),
+                "evaluation_labels": str(EVALUATION_LABELS_PATH),
+                "user_profile": str(USER_PROFILE_PATH),
+            },
+            schema_version=1,
+            algorithm_version="recommendation-inputs-v1",
+            config={"profile_top_attributes": RECOMMENDATION_PROFILE_TOP_ATTRIBUTES},
+            row_counts={
+                "time_windows": len(windows),
+                "target_users": len(target_users),
+                "evaluation_labels": len(labels),
+                "user_profile": len(profile),
+            },
+        ),
+        RECOMMEND_METADATA_PATH,
+    )
+    return RecommendationInputArtifacts(windows, target_users, labels, profile)
+```
+
+Update `src/12_build_recommendation_inputs.py` and `ensure_or_build_recommendation_inputs` in `src/fashion_trend/recommendation/experiments/runner.py` so they pass the true upstream inputs:
+
+```python
+input_paths={
+    "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
+    "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
+    "trend_predictions": str(OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"),
+}
+```
+
+Add a test in `tests/test_recommendation_inputs.py` that writes tiny upstream files, calls `build_and_write_recommendation_inputs(transactions=transactions, article_attributes=article_attributes, trend_predictions=trend_predictions, input_paths=input_paths)`, reads `RECOMMEND_METADATA_PATH`, and asserts:
+
+```python
+assert metadata["input_artifacts"] == input_paths
+assert set(metadata["input_fingerprints"]) == {
+    "weekly_transactions",
+    "article_attributes",
+    "trend_predictions",
+}
 ```
 
 - [ ] **Step 5: Update candidate and method freshness callers**
@@ -823,7 +868,11 @@ def build_and_write_feature_cache_for_strategy(
     trend_predictions: pd.DataFrame,
     input_artifacts: dict[str, str],
 ) -> dict[str, object]:
-    manifest: dict[str, object] = {"strategy": strategy, "partitions": [], "row_counts": {}}
+    manifest: dict[str, object] = {
+        "strategy": strategy,
+        "partitions": [],
+        "row_counts": {},
+    }
     for window in candidates[WINDOW_COLUMNS].drop_duplicates().to_dict("records"):
         partition_candidates = _frame_for_window(candidates, window)
         feature_frame = build_ranking_features(
@@ -850,10 +899,37 @@ def build_and_write_feature_cache_for_strategy(
             write_parquet_atomic(frame, output_path)
             manifest["partitions"].append(str(output_path))
             manifest["row_counts"][str(output_path)] = int(len(frame))
-    return manifest
+    metadata = build_artifact_metadata(
+        name="recommendation_feature_cache",
+        input_artifacts=input_artifacts,
+        output_artifacts={
+            "feature_cache_metadata": str(FEATURE_CACHE_METADATA_PATH),
+            **{
+                f"partition_{index:04d}": path
+                for index, path in enumerate(manifest["partitions"])
+            },
+        },
+        schema_version=1,
+        algorithm_version="recommendation-feature-cache-v1",
+        config={
+            "strategy": strategy,
+            "feature_names": list(FEATURE_NAMES),
+            "partition_keys": ["strategy", "split", "cutoff_week"],
+        },
+        row_counts={
+            "candidate_rows": int(len(candidates)),
+            **{
+                f"partition_{index:04d}": int(rows)
+                for index, rows in enumerate(manifest["row_counts"].values())
+            },
+        },
+    )
+    metadata["manifest"] = manifest
+    write_json_atomic(metadata, FEATURE_CACHE_METADATA_PATH)
+    return metadata
 ```
 
-Use `write_parquet_atomic`, `build_ranking_features`, and `feature_cache_partition_path`.
+Use `write_parquet_atomic`, `write_json_atomic`, `build_artifact_metadata`, `FEATURE_CACHE_METADATA_PATH`, `build_ranking_features`, and `feature_cache_partition_path`. Method metadata in Task 5 must reference `FEATURE_CACHE_METADATA_PATH`; `--force-cache` in Task 7 must rebuild this metadata before method freshness is evaluated.
 
 - [ ] **Step 6: Verify cache tests**
 
@@ -891,69 +967,6 @@ git commit -m "feat(recommendation): 增加分区特征缓存"
 Append to `tests/test_recommendation_methods.py`:
 
 ```python
-def test_method_metadata_includes_candidate_and_feature_cache_artifacts(tmp_path, monkeypatch) -> None:
-    candidate_path = tmp_path / "candidate_items.parquet"
-    candidate_metadata = tmp_path / "candidate_metadata.json"
-    cache_metadata = tmp_path / "feature_metadata.json"
-    for path in (candidate_path, candidate_metadata, cache_metadata):
-        path.write_text("x", encoding="utf-8")
-
-    metadata = {
-        "input_artifacts": {
-            "recommendation_inputs": "data/processed/recommend/metadata.json",
-            "candidate_items": str(candidate_path),
-            "candidate_metadata": str(candidate_metadata),
-            "feature_cache_metadata": str(cache_metadata),
-        }
-    }
-
-    assert "candidate_items" in metadata["input_artifacts"]
-    assert "candidate_metadata" in metadata["input_artifacts"]
-    assert "feature_cache_metadata" in metadata["input_artifacts"]
-```
-
-This is a scaffold test. Replace the manual `metadata` construction with a call to the implemented runner metadata helper in Step 4.
-
-- [ ] **Step 2: Run test**
-
-Run:
-
-```sh
-uv run pytest tests/test_recommendation_methods.py::test_method_metadata_includes_candidate_and_feature_cache_artifacts -q
-```
-
-Expected: PASS as scaffold; after Step 4 it must assert real helper output.
-
-- [ ] **Step 3: Add method input artifact helper**
-
-In `src/fashion_trend/recommendation/runner.py` add:
-
-```python
-def method_input_artifacts(
-    *,
-    base_input_paths: dict[str, str],
-    candidate_items: str | None,
-    candidate_metadata: str | None,
-    feature_cache_metadata: str | None,
-    feature_partitions: list[str],
-) -> dict[str, str]:
-    artifacts = dict(base_input_paths)
-    if candidate_items is not None:
-        artifacts["candidate_items"] = candidate_items
-    if candidate_metadata is not None:
-        artifacts["candidate_metadata"] = candidate_metadata
-    if feature_cache_metadata is not None:
-        artifacts["feature_cache_metadata"] = feature_cache_metadata
-    for index, path in enumerate(feature_partitions):
-        artifacts[f"feature_partition_{index:04d}"] = path
-    return artifacts
-```
-
-- [ ] **Step 4: Replace scaffold test with helper assertion**
-
-Update `test_method_metadata_includes_candidate_and_feature_cache_artifacts`:
-
-```python
 from fashion_trend.recommendation.runner import method_input_artifacts
 
 
@@ -980,9 +993,150 @@ def test_method_metadata_includes_candidate_and_feature_cache_artifacts(tmp_path
     }
 ```
 
-- [ ] **Step 5: Wire runner metadata and cache consumption**
+- [ ] **Step 2: Run test**
 
-Modify `_base_metadata` to include:
+Run:
+
+```sh
+uv run pytest tests/test_recommendation_methods.py::test_method_metadata_includes_candidate_and_feature_cache_artifacts -q
+```
+
+Expected: FAIL because `method_input_artifacts` does not exist.
+
+- [ ] **Step 3: Add method input artifact helper**
+
+In `src/fashion_trend/recommendation/runner.py` add:
+
+```python
+def method_input_artifacts(
+    *,
+    base_input_paths: dict[str, str],
+    candidate_items: str | None,
+    candidate_metadata: str | None,
+    feature_cache_metadata: str | None,
+    feature_partitions: list[str],
+) -> dict[str, str]:
+    artifacts = dict(base_input_paths)
+    if candidate_items is not None:
+        artifacts["candidate_items"] = candidate_items
+    if candidate_metadata is not None:
+        artifacts["candidate_metadata"] = candidate_metadata
+    if feature_cache_metadata is not None:
+        artifacts["feature_cache_metadata"] = feature_cache_metadata
+    for index, path in enumerate(feature_partitions):
+        artifacts[f"feature_partition_{index:04d}"] = path
+    return artifacts
+```
+
+- [ ] **Step 4: Add cache readers and cached scoring path**
+
+In `src/fashion_trend/recommendation/runner.py`, add a cache reader that loads only the current method strategy/window partitions and joins precomputed score columns. This path must not call `build_ranking_features`, because that would rebuild scores from transactions/profile/predictions:
+
+```python
+from collections.abc import Sequence
+
+from fashion_trend.recommendation.features.cache import FEATURE_NAMES
+from fashion_trend.recommendation.paths import (
+    FEATURE_CACHE_METADATA_PATH,
+    feature_cache_partition_path,
+)
+from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
+
+
+def build_cached_feature_frame_for_window(
+    *,
+    method_name: str,
+    strategy: str,
+    window: dict[str, object],
+    candidates: pd.DataFrame,
+    required_features: Sequence[str],
+) -> tuple[pd.DataFrame, list[str]]:
+    split = str(window["split"])
+    cutoff_week = int(window["cutoff_week"])
+    feature_frame = candidates.copy()
+    used_partitions: list[str] = []
+    join_specs = {
+        "pop_score": ("popularity_scores", ["split", "cutoff_week", "label_week", "strategy", "article_id"]),
+        "recent_score": ("recent_scores", ["split", "cutoff_week", "label_week", "strategy", "article_id"]),
+        "sim_score": ("similarity_scores", ["split", "cutoff_week", "label_week", "strategy", "customer_id", "article_id"]),
+        "trend_score": ("trend_scores", ["split", "cutoff_week", "label_week", "strategy", "article_id"]),
+    }
+    for score_column in required_features:
+        feature_name, join_columns = join_specs[score_column]
+        path = feature_cache_partition_path(
+            feature_name,
+            strategy=strategy,
+            split=split,
+            cutoff_week=cutoff_week,
+        )
+        scores = pd.read_parquet(path)
+        used_partitions.append(str(path))
+        feature_frame = feature_frame.merge(scores, on=join_columns, how="left")
+        feature_frame[score_column] = feature_frame[score_column].fillna(0.0)
+    feature_frame["method"] = method_name
+    return feature_frame, used_partitions
+```
+
+Add seen filtering from cache:
+
+```python
+def filter_cached_seen_items(
+    candidates: pd.DataFrame,
+    *,
+    strategy: str,
+    window: dict[str, object],
+) -> tuple[pd.DataFrame, str]:
+    path = feature_cache_partition_path(
+        "candidate_seen_flags",
+        strategy=strategy,
+        split=str(window["split"]),
+        cutoff_week=int(window["cutoff_week"]),
+    )
+    seen = pd.read_parquet(path)
+    if seen.empty:
+        return candidates, str(path)
+    marker = seen.loc[
+        :,
+        ["split", "cutoff_week", "label_week", "strategy", "customer_id", "article_id"],
+    ].assign(_seen=True)
+    merged = candidates.merge(
+        marker,
+        on=["split", "cutoff_week", "label_week", "strategy", "customer_id", "article_id"],
+        how="left",
+    )
+    return merged.loc[merged["_seen"].isna()].drop(columns=["_seen"]), str(path)
+```
+
+Update the method-by-window runner so the cached path does this order for each window:
+
+```python
+window_candidates = _optional_frame_for_window(candidates, window)
+if method.default_candidate_strategy is not None:
+    filtered_candidates, seen_partition = filter_cached_seen_items(
+        window_candidates,
+        strategy=method.default_candidate_strategy,
+        window=window,
+    )
+    feature_frame, score_partitions = build_cached_feature_frame_for_window(
+        method_name=method_name,
+        strategy=method.default_candidate_strategy,
+        window=window,
+        candidates=filtered_candidates,
+        required_features=method.required_features,
+    )
+    ranked = rank_candidate_items(
+        feature_frame,
+        weights=dict(weights if weights is not None else method.default_weights),
+        top_k=RECOMMENDATION_TOP_K,
+        required_features=method.required_features,
+    )
+```
+
+Baseline methods with `default_candidate_strategy is None` may keep their existing direct method path until a popularity cache path is added for them. Candidate-based methods (`attribute_similarity`, `pop_similarity`, `pop_similarity_trend`) must use the cached path.
+
+- [ ] **Step 5: Wire runner metadata**
+
+Modify `_base_metadata` or the cached runner metadata construction to include:
 
 ```python
 from fashion_trend.recommendation.freshness import build_artifact_metadata
@@ -1007,7 +1161,7 @@ metadata = build_artifact_metadata(
 )
 ```
 
-Keep `window_config` and `trend_score_config` as additional metadata keys.
+Keep `window_config`, `trend_score_config`, and `used_feature_partitions` as additional metadata keys. `input_artifacts` must include `FEATURE_CACHE_METADATA_PATH`, candidate metadata, and every used feature partition returned by `build_cached_feature_frame_for_window` and `filter_cached_seen_items`.
 
 - [ ] **Step 6: Update `14` CLI input paths**
 
@@ -1133,15 +1287,109 @@ def build_recommendable_pool(
 
 Keep `build_recommendable_pool_for_windows` in `evaluation.runner` as a compatibility wrapper that calls this function.
 
-- [ ] **Step 4: Update experiment evaluation to read cached pool**
+- [ ] **Step 4: Add explicit recommendable pool partition IO**
 
-In `src/fashion_trend/recommendation/experiments/runner.py`, replace repeated `build_recommendable_pool_for_windows(context.transactions, inputs.time_windows)` with:
+In `src/fashion_trend/recommendation/features/cache.py`, add read/write helpers that use the existing feature partition layout with `strategy="all"`:
 
 ```python
-recommendable_pool = ensure_or_build_recommendable_pool_cache(context, inputs, force=force_cache)
+def recommendable_pool_partition_path(split: str, cutoff_week: int) -> Path:
+    return feature_cache_partition_path(
+        "recommendable_pool",
+        strategy="all",
+        split=split,
+        cutoff_week=cutoff_week,
+    )
+
+
+def write_recommendable_pool_cache(
+    *,
+    transactions: pd.DataFrame,
+    windows: pd.DataFrame,
+    input_artifacts: dict[str, str],
+) -> dict[str, object]:
+    partitions: list[str] = []
+    row_counts: dict[str, int] = {}
+    for window in windows.itertuples(index=False):
+        frame = build_recommendable_pool(
+            transactions,
+            pd.DataFrame([window._asdict()]),
+        )
+        path = recommendable_pool_partition_path(
+            split=str(window.split),
+            cutoff_week=int(window.cutoff_week),
+        )
+        write_parquet_atomic(frame, path)
+        partitions.append(str(path))
+        row_counts[str(path)] = int(len(frame))
+    metadata = build_artifact_metadata(
+        name="recommendable_pool_cache",
+        input_artifacts=input_artifacts,
+        output_artifacts={
+            "feature_cache_metadata": str(FEATURE_CACHE_METADATA_PATH),
+            **{
+                f"recommendable_pool_partition_{index:04d}": path
+                for index, path in enumerate(partitions)
+            },
+        },
+        schema_version=1,
+        algorithm_version="recommendable-pool-cache-v1",
+        config={"feature_name": "recommendable_pool", "strategy": "all"},
+        row_counts={
+            f"recommendable_pool_partition_{index:04d}": rows
+            for index, rows in enumerate(row_counts.values())
+        },
+    )
+    metadata["manifest"] = {"partitions": partitions, "row_counts": row_counts}
+    write_json_atomic(metadata, FEATURE_CACHE_METADATA_PATH)
+    return metadata
+
+
+def read_recommendable_pool_cache(windows: pd.DataFrame) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for window in windows.itertuples(index=False):
+        path = recommendable_pool_partition_path(
+            split=str(window.split),
+            cutoff_week=int(window.cutoff_week),
+        )
+        frames.append(pd.read_parquet(path))
+    if not frames:
+        return pd.DataFrame(columns=["split", "cutoff_week", "label_week", "article_id"])
+    return pd.concat(frames, ignore_index=True)
 ```
 
-Implement `ensure_or_build_recommendable_pool_cache` in the same module or import from `features.cache`, returning a DataFrame read from the feature cache partition for the needed split/window.
+In `src/fashion_trend/recommendation/experiments/runner.py`, add this concrete helper:
+
+```python
+def ensure_or_build_recommendable_pool_cache(
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    *,
+    force: bool,
+) -> pd.DataFrame:
+    input_artifacts = {
+        **_experiment_input_paths(context),
+        "recommendation_inputs": str(RECOMMEND_METADATA_PATH),
+    }
+    if force:
+        write_recommendable_pool_cache(
+            transactions=context.transactions,
+            windows=inputs.time_windows,
+            input_artifacts=input_artifacts,
+        )
+    return read_recommendable_pool_cache(inputs.time_windows)
+```
+
+Then replace repeated `build_recommendable_pool_for_windows(context.transactions, inputs.time_windows)` in `evaluate_one_weight_run_on_valid`, `evaluate_result_for_experiment`, and `evaluate_method_output_for_experiment` with:
+
+```python
+recommendable_pool = ensure_or_build_recommendable_pool_cache(
+    context,
+    inputs,
+    force=force_cache or force_rebuild_all,
+)
+```
+
+In `src/15_eval_recommendations.py`, read `read_recommendable_pool_cache(read_time_windows(TIME_WINDOWS_PATH))` instead of rebuilding from transactions when `FEATURE_CACHE_METADATA_PATH` exists; otherwise fail with a message telling the user to run `16 --force-cache` or the feature cache builder. Do not silently rebuild in `15`.
 
 - [ ] **Step 5: Verify evaluation tests**
 
@@ -1217,6 +1465,9 @@ Expected: FAIL because the new signature and `should_rebuild_method` do not exis
 In `src/fashion_trend/recommendation/experiments/runner.py`:
 
 ```python
+from collections.abc import Sequence
+
+
 @dataclass(frozen=True)
 class RebuildDecision:
     rebuild: bool
@@ -1227,7 +1478,7 @@ def should_rebuild_method(
     *,
     method_name: str,
     stale_reason: str | None,
-    force_methods: tuple[str, ...],
+    force_methods: Sequence[str],
     force_cache: bool,
     force_candidates: bool,
     force_rebuild_all: bool,
@@ -1254,7 +1505,7 @@ def run_recommendation_experiment(
     context: RecommendationExperimentContext,
     experiment_id: str = "main",
     force_experiment: bool = False,
-    force_methods: tuple[str, ...] = (),
+    force_methods: Sequence[str] = (),
     force_cache: bool = False,
     force_candidates: bool = False,
     force_rebuild_all: bool = False,
