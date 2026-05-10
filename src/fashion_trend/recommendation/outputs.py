@@ -56,6 +56,15 @@ def build_recommendations_csv(
     ]
 
 
+def format_recommendation_items(ranked: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty:
+        return pd.DataFrame(columns=RECOMMENDATION_ITEMS_COLUMNS)
+    result = ranked.copy()
+    for column in ("customer_id", "article_id", "method", "candidate_sources"):
+        result[column] = result[column].astype("string")
+    return result.loc[:, list(RECOMMENDATION_ITEMS_COLUMNS)].reset_index(drop=True)
+
+
 def write_recommendation_result(result: RecommendationResult) -> None:
     output_paths = recommendation_paths.method_output_paths(
         str(result.params["method"])

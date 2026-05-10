@@ -19,6 +19,7 @@ from fashion_trend.recommendation.experiments.runner import (
     RecommendationExperimentContext,
     candidate_strategy_for_method,
     ensure_or_build_candidate_items,
+    ensure_or_build_feature_cache_for_strategy,
     generate_experiment_run_id,
     run_baseline_methods,
     run_recommendation_experiment,
@@ -432,6 +433,9 @@ def test_attribute_similarity_method_freshness_uses_profile_and_candidates(
         "target_users": available_paths["target_users"],
         "user_profile": available_paths["user_profile"],
         "candidate_items": available_paths["similarity_candidates"],
+        "candidate_metadata": str(
+            (tmp_path / "similarity.parquet").with_name("metadata.json")
+        ),
     }
 
 
@@ -461,8 +465,362 @@ def test_trend_method_freshness_uses_profile_candidates_and_predictions(
         "target_users": available_paths["target_users"],
         "user_profile": available_paths["user_profile"],
         "candidate_items": available_paths["default_candidates"],
+        "candidate_metadata": str(
+            (tmp_path / "default.parquet").with_name("metadata.json")
+        ),
         "trend_predictions": available_paths["trend_predictions"],
     }
+
+
+def test_experiment_reuses_fresh_cached_method_output_with_feature_artifacts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    current_inputs = {
+        "weekly_transactions": str(paths.weekly_transactions),
+        "article_attributes": str(paths.article_attributes),
+        "time_windows": str(paths.time_windows),
+        "target_users": str(paths.target_users),
+        "user_profile": str(paths.user_profile),
+        "default_candidates": str(paths.candidate_items),
+        "default_candidate_metadata": str(paths.candidate_metadata),
+        "feature_cache_metadata": str(paths.feature_cache_metadata),
+    }
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: current_inputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_artifact_paths_for_method_window",
+        lambda **kwargs: paths.feature_artifacts,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_method_output_for_experiment",
+        lambda method, context, inputs: {"method": method, "metrics": {}},
+    )
+
+    payloads = run_baseline_methods(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+            input_paths={},
+        ),
+        RecommendationInputArtifacts(
+            time_windows=pd.DataFrame(),
+            target_users=pd.DataFrame(),
+            evaluation_labels=pd.DataFrame(),
+            user_profile=pd.DataFrame(),
+        ),
+        force=False,
+    )
+
+    assert payloads == [{"method": "pop_similarity", "metrics": {}}]
+
+
+def test_experiment_rejects_cached_method_output_when_feature_cache_changes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    current_inputs = {
+        "weekly_transactions": str(paths.weekly_transactions),
+        "article_attributes": str(paths.article_attributes),
+        "time_windows": str(paths.time_windows),
+        "target_users": str(paths.target_users),
+        "user_profile": str(paths.user_profile),
+        "default_candidates": str(paths.candidate_items),
+        "default_candidate_metadata": str(paths.candidate_metadata),
+        "feature_cache_metadata": str(paths.feature_cache_metadata),
+    }
+    paths.feature_partition.write_text("updated cache", encoding="utf-8")
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: current_inputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_artifact_paths_for_method_window",
+        lambda **kwargs: paths.feature_artifacts,
+    )
+
+    with pytest.raises(RuntimeError, match="input_fingerprints changed"):
+        run_baseline_methods(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+                input_paths={},
+            ),
+            RecommendationInputArtifacts(
+                time_windows=pd.DataFrame(),
+                target_users=pd.DataFrame(),
+                evaluation_labels=pd.DataFrame(),
+                user_profile=pd.DataFrame(),
+            ),
+            force=False,
+        )
+
+
+def test_experiment_rejects_cached_method_output_missing_required_partition(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    metadata = json.loads(paths.method_outputs.metadata.read_text(encoding="utf-8"))
+    metadata["input_artifacts"].pop("feature_partition_0002")
+    paths.method_outputs.metadata.write_text(json.dumps(metadata), encoding="utf-8")
+    current_inputs = {
+        "weekly_transactions": str(paths.weekly_transactions),
+        "article_attributes": str(paths.article_attributes),
+        "time_windows": str(paths.time_windows),
+        "target_users": str(paths.target_users),
+        "user_profile": str(paths.user_profile),
+        "default_candidates": str(paths.candidate_items),
+        "default_candidate_metadata": str(paths.candidate_metadata),
+        "feature_cache_metadata": str(paths.feature_cache_metadata),
+    }
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: current_inputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_artifact_paths_for_method_window",
+        lambda **kwargs: paths.feature_artifacts,
+    )
+
+    with pytest.raises(RuntimeError, match="missing feature partitions"):
+        run_baseline_methods(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+                input_paths={},
+            ),
+            RecommendationInputArtifacts(
+                time_windows=pd.DataFrame(),
+                target_users=pd.DataFrame(),
+                evaluation_labels=pd.DataFrame(),
+                user_profile=pd.DataFrame(),
+            ),
+            force=False,
+        )
+
+
+def test_experiment_rejects_cached_method_output_missing_partition_metadata(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    metadata = json.loads(paths.method_outputs.metadata.read_text(encoding="utf-8"))
+    metadata["input_artifacts"].pop("feature_partition_0003")
+    paths.method_outputs.metadata.write_text(json.dumps(metadata), encoding="utf-8")
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: _cached_method_current_inputs(paths),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_artifact_paths_for_method_window",
+        lambda **kwargs: paths.feature_artifacts,
+    )
+
+    with pytest.raises(RuntimeError, match="missing feature partitions"):
+        run_baseline_methods(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+                input_paths={},
+            ),
+            RecommendationInputArtifacts(
+                time_windows=pd.DataFrame(),
+                target_users=pd.DataFrame(),
+                evaluation_labels=pd.DataFrame(),
+                user_profile=pd.DataFrame(),
+            ),
+            force=False,
+        )
+
+
+def test_experiment_rejects_cached_method_output_missing_window_summaries(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    metadata = json.loads(paths.method_outputs.metadata.read_text(encoding="utf-8"))
+    metadata.pop("window_summaries")
+    paths.method_outputs.metadata.write_text(json.dumps(metadata), encoding="utf-8")
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: _cached_method_current_inputs(paths),
+    )
+
+    with pytest.raises(RuntimeError, match="window_summaries missing"):
+        run_baseline_methods(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+                input_paths={},
+            ),
+            RecommendationInputArtifacts(
+                time_windows=pd.DataFrame(),
+                target_users=pd.DataFrame(),
+                evaluation_labels=pd.DataFrame(),
+                user_profile=pd.DataFrame(),
+            ),
+            force=False,
+        )
+
+
+def test_experiment_rejects_cached_method_output_window_missing_candidate_rows(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    metadata = json.loads(paths.method_outputs.metadata.read_text(encoding="utf-8"))
+    metadata["window_summaries"][0].pop("candidate_rows")
+    paths.method_outputs.metadata.write_text(json.dumps(metadata), encoding="utf-8")
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: _cached_method_current_inputs(paths),
+    )
+
+    with pytest.raises(RuntimeError, match="candidate_rows"):
+        run_baseline_methods(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+                input_paths={},
+            ),
+            RecommendationInputArtifacts(
+                time_windows=pd.DataFrame(),
+                target_users=pd.DataFrame(),
+                evaluation_labels=pd.DataFrame(),
+                user_profile=pd.DataFrame(),
+            ),
+            force=False,
+        )
+
+
+def test_experiment_rejects_invalid_method_metadata_json(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    paths.method_outputs.metadata.write_text("{invalid", encoding="utf-8")
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: _cached_method_current_inputs(paths),
+    )
+
+    with pytest.raises(RuntimeError, match="metadata is invalid"):
+        run_baseline_methods(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+                input_paths={},
+            ),
+            RecommendationInputArtifacts(
+                time_windows=pd.DataFrame(),
+                target_users=pd.DataFrame(),
+                evaluation_labels=pd.DataFrame(),
+                user_profile=pd.DataFrame(),
+            ),
+            force=False,
+        )
+
+
+def test_experiment_rejects_non_object_method_metadata_json(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    paths.method_outputs.metadata.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: _cached_method_current_inputs(paths),
+    )
+
+    with pytest.raises(RuntimeError, match="metadata is invalid"):
+        run_baseline_methods(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+                input_paths={},
+            ),
+            RecommendationInputArtifacts(
+                time_windows=pd.DataFrame(),
+                target_users=pd.DataFrame(),
+                evaluation_labels=pd.DataFrame(),
+                user_profile=pd.DataFrame(),
+            ),
+            force=False,
+        )
 
 
 def test_experiment_rejects_stale_candidate_when_method_output_missing(
@@ -537,6 +895,598 @@ def test_experiment_rejects_stale_candidate_when_method_output_missing(
             inputs,
             force=False,
         )
+
+
+def test_run_baseline_methods_builds_missing_feature_cache_before_cached_method(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _patch_experiment_feature_cache_paths(tmp_path, monkeypatch)
+    candidates = _default_candidates_for_cache_test()
+    context = _cache_build_context(tmp_path)
+    inputs = _cache_build_inputs()
+    observed = {}
+
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_candidates_for_method",
+        lambda *args, **kwargs: candidates,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "run_recommendation_method_by_window",
+        lambda **kwargs: observed.setdefault(
+            "cache_exists",
+            (
+                tmp_path
+                / "features"
+                / "popularity_scores"
+                / "strategy=default"
+                / "split=valid"
+                / "cutoff_week=10"
+                / "part.parquet"
+            ).exists(),
+        ),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_method_output_for_experiment",
+        lambda method, context, inputs: {"method": method, "metrics": {}},
+    )
+
+    payloads = run_baseline_methods(context, inputs, force=True)
+
+    assert payloads == [{"method": "pop_similarity", "metrics": {}}]
+    assert observed["cache_exists"] is True
+
+
+def test_ensure_feature_cache_builds_from_empty_cache(tmp_path, monkeypatch) -> None:
+    _patch_experiment_feature_cache_paths(tmp_path, monkeypatch)
+
+    ensure_or_build_feature_cache_for_strategy(
+        "default",
+        _cache_build_context(tmp_path),
+        _cache_build_inputs(),
+        _default_candidates_for_cache_test(),
+        force=False,
+    )
+
+    assert (
+        tmp_path
+        / "features"
+        / "similarity_scores"
+        / "strategy=default"
+        / "split=valid"
+        / "cutoff_week=10"
+        / "part.parquet"
+    ).exists()
+
+
+@pytest.mark.parametrize("manifest_text", ["{invalid", "[]"])
+def test_ensure_feature_cache_rebuilds_invalid_global_manifest(
+    tmp_path,
+    monkeypatch,
+    manifest_text: str,
+) -> None:
+    _patch_experiment_feature_cache_paths(tmp_path, monkeypatch)
+    manifest_path = tmp_path / "features" / "metadata.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(manifest_text, encoding="utf-8")
+
+    ensure_or_build_feature_cache_for_strategy(
+        "default",
+        _cache_build_context(tmp_path),
+        _cache_build_inputs(),
+        _default_candidates_for_cache_test(),
+        force=False,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert "strategy:default" in manifest["entries"]
+
+
+def test_ensure_feature_cache_rebuilds_manifest_missing_strategy_entry(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _patch_experiment_feature_cache_paths(tmp_path, monkeypatch)
+    manifest_path = tmp_path / "features" / "metadata.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps({"entries": {"strategy:similarity": {}}}),
+        encoding="utf-8",
+    )
+
+    ensure_or_build_feature_cache_for_strategy(
+        "default",
+        _cache_build_context(tmp_path),
+        _cache_build_inputs(),
+        _default_candidates_for_cache_test(),
+        force=False,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert "strategy:default" in manifest["entries"]
+    assert "strategy:similarity" in manifest["entries"]
+
+
+def test_valid_weight_search_uses_cached_feature_partitions(
+    tmp_path, monkeypatch
+) -> None:
+    predictions_path = tmp_path / "predictions.csv"
+    predictions_path.write_text("predictions", encoding="utf-8")
+    cache = _write_trend_method_cache_partitions(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.methods.baselines.global_popularity"
+        ".build_ranking_features",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("valid weight search must use cached features")
+        ),
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(
+            [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+        ),
+        target_users=pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "cutoff_week": 10,
+                    "label_week": 11,
+                    "customer_id": "u1",
+                }
+            ]
+        ),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "cutoff_week": 10,
+                    "label_week": 11,
+                    "customer_id": "u1",
+                }
+            ]
+        ),
+    )
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(
+            {
+                "customer_id": ["u2"],
+                "article_id": ["0000000003"],
+                "week_id": [9],
+            }
+        ),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(
+            {
+                "split": ["valid"],
+                "week_id": [10],
+                "attr_id": [1],
+                "attr_type": ["product_type_name"],
+                "attr_value": ["Dress"],
+                "pred_target_growth": [1.0],
+            }
+        ),
+        input_paths={"trend_predictions": str(predictions_path)},
+        trend_model_source=str(predictions_path),
+    )
+
+    result = experiment_runner.build_recommendation_result_in_memory(
+        method_name="pop_similarity_trend",
+        weights={
+            "pop_score": 0.35,
+            "sim_score": 0.35,
+            "trend_score": 0.25,
+            "recent_score": 0.05,
+        },
+        split_filter="valid",
+        context=context,
+        inputs=inputs,
+        candidates=cache.candidates,
+    )
+
+    assert result.recommendation_items["article_id"].iloc[0] == "0000000001"
+
+
+def _write_cached_method_output_fixture(tmp_path, method: str) -> SimpleNamespace:
+    weekly_transactions = tmp_path / "weekly_transactions.parquet"
+    article_attributes = tmp_path / "article_attributes.csv"
+    time_windows = tmp_path / "time_windows.parquet"
+    target_users = tmp_path / "target_users.parquet"
+    user_profile = tmp_path / "user_profile.parquet"
+    candidate_items = tmp_path / "candidates" / "default" / "candidate_items.parquet"
+    candidate_metadata = candidate_items.with_name("metadata.json")
+    feature_cache_metadata = tmp_path / "features" / "metadata.json"
+    feature_artifacts = [
+        tmp_path / "features" / feature_name / filename
+        for feature_name in (
+            "candidate_seen_flags",
+            "popularity_scores",
+            "recent_scores",
+            "similarity_scores",
+        )
+        for filename in ("part.parquet", "metadata.json")
+    ]
+    for path in (
+        weekly_transactions,
+        article_attributes,
+        time_windows,
+        target_users,
+        user_profile,
+        candidate_items,
+        candidate_metadata,
+        feature_cache_metadata,
+        *feature_artifacts,
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(path.name, encoding="utf-8")
+
+    output_dir = tmp_path / "outputs" / method
+    output_dir.mkdir(parents=True)
+    method_outputs = SimpleNamespace(
+        recommendations=output_dir / "recommendations.csv",
+        recommendation_items=output_dir / "recommendation_items.parquet",
+        params=output_dir / "params.json",
+        metadata=output_dir / "metadata.json",
+    )
+    method_outputs.recommendations.write_text("existing output", encoding="utf-8")
+    pd.DataFrame({"customer_id": ["u1"]}).to_parquet(
+        method_outputs.recommendation_items,
+        index=False,
+    )
+    method_outputs.params.write_text(json.dumps({"method": method}), encoding="utf-8")
+
+    base_inputs = {
+        "weekly_transactions": str(weekly_transactions),
+        "article_attributes": str(article_attributes),
+        "time_windows": str(time_windows),
+        "target_users": str(target_users),
+        "user_profile": str(user_profile),
+        "candidate_items": str(candidate_items),
+        "candidate_metadata": str(candidate_metadata),
+        "feature_cache_metadata": str(feature_cache_metadata),
+        **{
+            f"feature_partition_{index:04d}": str(path)
+            for index, path in enumerate(feature_artifacts)
+        },
+    }
+    method_outputs.metadata.write_text(
+        json.dumps(
+            build_artifact_metadata(
+                name=f"recommendation_method:{method}",
+                input_artifacts=base_inputs,
+                output_artifacts={
+                    "recommendations": str(method_outputs.recommendations),
+                    "recommendation_items": str(method_outputs.recommendation_items),
+                    "params": str(method_outputs.params),
+                    "metadata": str(method_outputs.metadata),
+                },
+                schema_version=1,
+                algorithm_version="recommendation-method-v1",
+                config={
+                    "method": method,
+                    "top_k": 12,
+                    "candidate_strategy": "default",
+                    "exclude_seen": True,
+                    "weights": {
+                        "pop_score": 0.45,
+                        "sim_score": 0.45,
+                        "recent_score": 0.10,
+                    },
+                },
+                row_counts={"recommendation_rows": 1},
+            )
+            | {
+                "window_summaries": [
+                    {
+                        "split": "valid",
+                        "cutoff_week": 10,
+                        "label_week": 11,
+                        "candidate_rows": 1,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return SimpleNamespace(
+        weekly_transactions=weekly_transactions,
+        article_attributes=article_attributes,
+        time_windows=time_windows,
+        target_users=target_users,
+        user_profile=user_profile,
+        candidate_items=candidate_items,
+        candidate_metadata=candidate_metadata,
+        feature_cache_metadata=feature_cache_metadata,
+        feature_partition=feature_artifacts[0],
+        feature_artifacts=[str(path) for path in feature_artifacts],
+        method_outputs=method_outputs,
+    )
+
+
+def _patch_experiment_feature_cache_paths(tmp_path, monkeypatch) -> None:
+    feature_root = tmp_path / "features"
+    manifest_path = feature_root / "metadata.json"
+
+    def partition_path(feature_name, strategy, split, cutoff_week):
+        return (
+            feature_root
+            / feature_name
+            / f"strategy={strategy}"
+            / f"split={split}"
+            / f"cutoff_week={cutoff_week}"
+            / "part.parquet"
+        )
+
+    def partition_metadata_path(feature_name, strategy, split, cutoff_week):
+        return partition_path(
+            feature_name,
+            strategy,
+            split,
+            cutoff_week,
+        ).with_name("metadata.json")
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "FEATURE_CACHE_METADATA_PATH",
+        manifest_path,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_cache_partition_metadata_path",
+        partition_metadata_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.FEATURE_CACHE_METADATA_PATH",
+        manifest_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache."
+        "feature_cache_partition_metadata_path",
+        partition_metadata_path,
+    )
+
+
+def _cache_build_context(tmp_path) -> RecommendationExperimentContext:
+    predictions_path = tmp_path / "predictions.csv"
+    predictions_path.write_text("predictions", encoding="utf-8")
+    return RecommendationExperimentContext(
+        transactions=pd.DataFrame(
+            {
+                "customer_id": ["u1", "u2"],
+                "article_id": ["0000000002", "0000000001"],
+                "week_id": [9, 9],
+            }
+        ),
+        article_attributes=pd.DataFrame(
+            {
+                "article_id": ["0000000001", "0000000002"],
+                "attr_type": ["product_type_name", "product_type_name"],
+                "attr_value": ["Dress", "Shirt"],
+            }
+        ),
+        trend_predictions=pd.DataFrame(
+            {
+                "split": ["valid"],
+                "week_id": [10],
+                "attr_id": [1],
+                "attr_type": ["product_type_name"],
+                "attr_value": ["Dress"],
+                "pred_target_growth": [1.0],
+            }
+        ),
+        input_paths={"trend_predictions": str(predictions_path)},
+        trend_model_source=str(predictions_path),
+    )
+
+
+def _cache_build_inputs() -> RecommendationInputArtifacts:
+    return RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(
+            [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+        ),
+        target_users=pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "cutoff_week": 10,
+                    "label_week": 11,
+                    "customer_id": "u1",
+                }
+            ]
+        ),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "cutoff_week": 10,
+                    "label_week": 11,
+                    "customer_id": "u1",
+                    "attr_type": "product_type_name",
+                    "attr_value": "Dress",
+                    "preference_score": 1.0,
+                }
+            ]
+        ),
+    )
+
+
+def _default_candidates_for_cache_test() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "default",
+                "customer_id": "u1",
+                "article_id": "0000000001",
+                "candidate_sources": "popularity|similarity|trend",
+                "primary_source": "similarity",
+                "best_source_rank": 1,
+            }
+        ],
+        columns=CANDIDATE_ITEM_COLUMNS,
+    )
+
+
+def _cached_method_current_inputs(paths: SimpleNamespace) -> dict[str, str]:
+    return {
+        "weekly_transactions": str(paths.weekly_transactions),
+        "article_attributes": str(paths.article_attributes),
+        "time_windows": str(paths.time_windows),
+        "target_users": str(paths.target_users),
+        "user_profile": str(paths.user_profile),
+        "default_candidates": str(paths.candidate_items),
+        "default_candidate_metadata": str(paths.candidate_metadata),
+        "feature_cache_metadata": str(paths.feature_cache_metadata),
+    }
+
+
+def _write_trend_method_cache_partitions(tmp_path, monkeypatch) -> SimpleNamespace:
+    feature_root = tmp_path / "features"
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "default",
+                "customer_id": "u1",
+                "article_id": "0000000001",
+                "candidate_sources": "popularity|similarity|trend",
+                "primary_source": "trend",
+                "best_source_rank": 1,
+            }
+        ],
+        columns=CANDIDATE_ITEM_COLUMNS,
+    )
+
+    def partition_path(feature_name, strategy, split, cutoff_week):
+        return (
+            feature_root
+            / feature_name
+            / f"strategy={strategy}"
+            / f"split={split}"
+            / f"cutoff_week={cutoff_week}"
+            / "part.parquet"
+        )
+
+    def metadata_path(feature_name, strategy, split, cutoff_week):
+        return partition_path(
+            feature_name,
+            strategy,
+            split,
+            cutoff_week,
+        ).with_name("metadata.json")
+
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_metadata_path",
+        metadata_path,
+    )
+
+    window = {
+        "split": "valid",
+        "cutoff_week": 10,
+        "label_week": 11,
+        "strategy": "default",
+    }
+    score_frames = {
+        "candidate_seen_flags": candidates.iloc[0:0].assign(seen=True),
+        "popularity_scores": candidates.loc[
+            :, ["split", "cutoff_week", "label_week", "strategy", "article_id"]
+        ].assign(pop_score=0.8),
+        "recent_scores": candidates.loc[
+            :, ["split", "cutoff_week", "label_week", "strategy", "article_id"]
+        ].assign(recent_score=0.7),
+        "trend_scores": candidates.loc[
+            :, ["split", "cutoff_week", "label_week", "strategy", "article_id"]
+        ].assign(trend_score=0.9),
+        "similarity_scores": candidates.loc[
+            :,
+            [
+                "split",
+                "cutoff_week",
+                "label_week",
+                "strategy",
+                "customer_id",
+                "article_id",
+            ],
+        ].assign(sim_score=0.6),
+    }
+    for feature_name, frame in score_frames.items():
+        parquet_path = partition_path(
+            feature_name,
+            "default",
+            "valid",
+            10,
+        )
+        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(parquet_path, index=False)
+        metadata_file = metadata_path(
+            feature_name,
+            "default",
+            "valid",
+            10,
+        )
+        metadata_file.write_text(
+            json.dumps(
+                build_artifact_metadata(
+                    name=f"recommendation_feature_cache_{feature_name}",
+                    input_artifacts=_feature_cache_test_input_artifacts(
+                        feature_name,
+                        tmp_path,
+                    ),
+                    output_artifacts={
+                        "partition": str(parquet_path),
+                        "partition_metadata": str(metadata_file),
+                    },
+                    schema_version=1,
+                    algorithm_version="recommendation-feature-cache-v1",
+                    config={
+                        "feature_name": feature_name,
+                        "strategy": "default",
+                        "split": "valid",
+                        "cutoff_week": 10,
+                        "label_week": 11,
+                    },
+                    row_counts={"rows": int(len(frame))},
+                )
+            ),
+            encoding="utf-8",
+        )
+
+    return SimpleNamespace(candidates=candidates, window=window)
+
+
+def _feature_cache_test_input_artifacts(
+    feature_name: str,
+    tmp_path,
+) -> dict[str, str]:
+    input_artifacts = {
+        "candidate_items": str(experiment_runner.candidate_items_path("default")),
+    }
+    if feature_name == "similarity_scores":
+        input_artifacts["user_profile"] = str(experiment_runner.USER_PROFILE_PATH)
+    if feature_name == "trend_scores":
+        input_artifacts["trend_predictions"] = str(tmp_path / "predictions.csv")
+    return input_artifacts
 
 
 @pytest.mark.parametrize("bad", ["", ".", "..", "main/evil", "main\\evil"])

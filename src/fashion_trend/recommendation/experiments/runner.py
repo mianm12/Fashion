@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +25,9 @@ from fashion_trend.recommendation.experiments.grid_search import (
     iter_weight_grid,
     select_best_weights,
 )
+from fashion_trend.recommendation.features.cache import (
+    build_and_write_feature_cache_for_strategy,
+)
 from fashion_trend.recommendation.freshness import (
     assert_fresh_metadata,
 )
@@ -37,12 +41,15 @@ from fashion_trend.recommendation.methods.base import (
 )
 from fashion_trend.recommendation.paths import (
     EVALUATION_LABELS_PATH,
+    FEATURE_CACHE_METADATA_PATH,
     RECOMMEND_METADATA_PATH,
     TARGET_USERS_PATH,
     TIME_WINDOWS_PATH,
     USER_PROFILE_PATH,
     candidate_items_path,
     experiment_dir,
+    feature_cache_partition_metadata_path,
+    feature_cache_partition_path,
     method_output_paths,
 )
 from fashion_trend.recommendation.readers import (
@@ -59,6 +66,8 @@ from fashion_trend.recommendation.retrieval.candidates import (
     candidate_input_paths_for_strategy,
 )
 from fashion_trend.recommendation.runner import (
+    build_cached_recommendation_result_for_window,
+    feature_artifact_paths_for_method_window,
     method_input_paths_for_artifacts,
     run_recommendation_method_by_window,
 )
@@ -152,6 +161,29 @@ def ensure_or_build_candidates_for_method(
     return ensure_or_build_candidate_items(strategy, context, inputs, force=force)
 
 
+def ensure_or_build_feature_cache_for_strategy(
+    strategy: str,
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+    force: bool = False,
+) -> None:
+    input_paths = _feature_cache_input_paths(strategy, context)
+    if not force and _feature_cache_partitions_exist(strategy, candidates):
+        return
+    if not _feature_cache_manifest_can_merge():
+        write_json_atomic({"entries": {}}, FEATURE_CACHE_METADATA_PATH)
+    build_and_write_feature_cache_for_strategy(
+        strategy=strategy,
+        candidates=candidates,
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        user_profile=inputs.user_profile,
+        trend_predictions=context.trend_predictions,
+        input_paths=input_paths,
+    )
+
+
 def run_baseline_methods(
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
@@ -174,6 +206,14 @@ def run_baseline_methods(
             inputs,
             force=force,
         )
+        if candidates is not None:
+            ensure_or_build_feature_cache_for_strategy(
+                str(method.default_candidate_strategy),
+                context,
+                inputs,
+                candidates,
+                force=force,
+            )
         run_recommendation_method_by_window(
             method_name=method_name,
             transactions=context.transactions,
@@ -200,6 +240,13 @@ def evaluate_weight_grid_on_valid(
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
 ) -> list[dict[str, Any]]:
+    ensure_or_build_feature_cache_for_strategy(
+        "default",
+        context,
+        inputs,
+        candidates,
+        force=False,
+    )
     return [
         evaluate_one_weight_run_on_valid(
             grid_index=grid_index,
@@ -261,29 +308,62 @@ def build_recommendation_result_in_memory(
     candidates: pd.DataFrame,
 ) -> RecommendationResult:
     method = get_recommendation_method(method_name)
-    result = method.build_recommendations(
-        RecommendationContext(
+    windows = _filter_split(inputs.time_windows, split_filter)
+    target_users = _filter_split(inputs.target_users, split_filter)
+    filtered_candidates = _filter_split(candidates, split_filter)
+    user_profile = _filter_split(inputs.user_profile, split_filter)
+    input_paths = _method_input_paths(method_name, _experiment_input_paths(context))
+    recommendation_chunks: list[pd.DataFrame] = []
+    item_chunks: list[pd.DataFrame] = []
+    metadata: dict[str, object] = {}
+    for window in windows.loc[:, ["split", "cutoff_week", "label_week"]].to_dict(
+        "records"
+    ):
+        window_candidates = _frame_for_window(filtered_candidates, window)
+        window_context = RecommendationContext(
             method=method_name,
             top_k=RECOMMENDATION_TOP_K,
             exclude_seen=True,
             transactions=context.transactions,
             article_attributes=context.article_attributes,
-            windows=_filter_split(inputs.time_windows, split_filter),
-            target_users=_filter_split(inputs.target_users, split_filter),
-            candidates=_filter_split(candidates, split_filter),
-            user_profile=_filter_split(inputs.user_profile, split_filter),
+            windows=pd.DataFrame(
+                [window], columns=["split", "cutoff_week", "label_week"]
+            ),
+            target_users=_frame_for_window(target_users, window),
+            candidates=window_candidates,
+            user_profile=_frame_for_window(user_profile, window),
             trend_predictions=context.trend_predictions,
             weights=weights,
+            input_paths=input_paths,
+            trend_model_source=context.trend_model_source,
         )
-    )
+        result = build_cached_recommendation_result_for_window(
+            method=method,
+            method_name=method_name,
+            strategy=str(method.default_candidate_strategy),
+            window=window,
+            target_users=window_context.target_users,
+            candidates=window_candidates,
+            context=window_context,
+            weights=dict(weights),
+            backfill_mode="recent",
+        )
+        recommendation_chunks.append(result.recommendations)
+        item_chunks.append(result.recommendation_items)
+        metadata = result.metadata
     return RecommendationResult(
-        recommendations=_filter_split(result.recommendations, split_filter),
-        recommendation_items=_filter_split(
-            result.recommendation_items,
-            split_filter,
-        ),
-        params=result.params,
-        metadata=result.metadata,
+        recommendations=_concat_chunks(recommendation_chunks),
+        recommendation_items=_concat_chunks(item_chunks),
+        params={
+            "method": method_name,
+            "method_type": method.method_type,
+            "top_k": RECOMMENDATION_TOP_K,
+            "exclude_seen": True,
+            "weights": dict(weights),
+            "candidate_strategy": method.default_candidate_strategy,
+            "score_features": list(method.required_features),
+        },
+        metadata=metadata,
     )
 
 
@@ -293,6 +373,13 @@ def publish_trend_method_with_weights(
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
 ) -> dict[str, Any]:
+    ensure_or_build_feature_cache_for_strategy(
+        "default",
+        context,
+        inputs,
+        candidates,
+        force=False,
+    )
     input_paths = _method_input_paths(TREND_METHOD, _experiment_input_paths(context))
     run_recommendation_method_by_window(
         method_name=TREND_METHOD,
@@ -383,6 +470,13 @@ def run_recommendation_experiment(
     )
     if default_candidates is None:
         raise ValueError(f"{TREND_METHOD} requires a candidate strategy")
+    ensure_or_build_feature_cache_for_strategy(
+        "default",
+        context,
+        inputs,
+        default_candidates,
+        force=force,
+    )
 
     search_results = evaluate_weight_grid_on_valid(
         iter_weight_grid(),
@@ -411,6 +505,97 @@ def _filter_split(dataframe: pd.DataFrame, split: str) -> pd.DataFrame:
     return dataframe.loc[dataframe["split"].astype(str) == split].reset_index(drop=True)
 
 
+def _feature_cache_input_paths(
+    strategy: str,
+    context: RecommendationExperimentContext,
+) -> dict[str, str]:
+    available_paths = _experiment_input_paths(context)
+    return {
+        **candidate_input_paths_for_strategy(strategy, available_paths),
+        "candidate_items": str(candidate_items_path(strategy)),
+        "candidate_metadata": str(
+            candidate_items_path(strategy).with_name("metadata.json")
+        ),
+    }
+
+
+def _feature_cache_partitions_exist(
+    strategy: str,
+    candidates: pd.DataFrame,
+) -> bool:
+    if not _feature_cache_manifest_has_strategy(strategy):
+        return False
+    if candidates.empty:
+        return True
+    windows = candidates.loc[
+        :, ["split", "cutoff_week", "label_week"]
+    ].drop_duplicates()
+    for window in windows.to_dict("records"):
+        for feature_name in (
+            "candidate_seen_flags",
+            "popularity_scores",
+            "recent_scores",
+            "similarity_scores",
+            "trend_scores",
+        ):
+            partition = feature_cache_partition_path(
+                feature_name,
+                strategy=strategy,
+                split=str(window["split"]),
+                cutoff_week=int(window["cutoff_week"]),
+            )
+            metadata = feature_cache_partition_metadata_path(
+                feature_name,
+                strategy=strategy,
+                split=str(window["split"]),
+                cutoff_week=int(window["cutoff_week"]),
+            )
+            if not partition.exists() or not metadata.exists():
+                return False
+    return True
+
+
+def _feature_cache_manifest_has_strategy(strategy: str) -> bool:
+    manifest = _read_feature_cache_manifest()
+    if manifest is None:
+        return False
+    entries = manifest.get("entries")
+    return isinstance(entries, dict) and f"strategy:{strategy}" in entries
+
+
+def _feature_cache_manifest_can_merge() -> bool:
+    manifest = _read_feature_cache_manifest()
+    return isinstance(manifest, dict) and isinstance(manifest.get("entries"), dict)
+
+
+def _read_feature_cache_manifest() -> dict[str, object] | None:
+    if not FEATURE_CACHE_METADATA_PATH.exists():
+        return {"entries": {}}
+    try:
+        manifest = json.loads(FEATURE_CACHE_METADATA_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    return manifest
+
+
+def _frame_for_window(frame: pd.DataFrame, window: dict[str, object]) -> pd.DataFrame:
+    mask = (
+        (frame["split"] == window["split"])
+        & (frame["cutoff_week"] == window["cutoff_week"])
+        & (frame["label_week"] == window["label_week"])
+    )
+    return frame.loc[mask].reset_index(drop=True)
+
+
+def _concat_chunks(chunks: list[pd.DataFrame]) -> pd.DataFrame:
+    non_empty_chunks = [chunk for chunk in chunks if not chunk.empty]
+    if not non_empty_chunks:
+        return pd.DataFrame()
+    return pd.concat(non_empty_chunks, ignore_index=True)
+
+
 def _validate_method_output_fresh(
     method_name: str,
     input_paths: dict[str, str],
@@ -428,7 +613,11 @@ def _validate_method_output_fresh(
             )
     assert_fresh_metadata(
         metadata_path=output_paths.metadata,
-        expected_input_artifacts=dict(input_paths),
+        expected_input_artifacts=_expected_method_input_artifacts(
+            method_name,
+            input_paths,
+            output_paths.metadata,
+        ),
         expected_output_artifacts=_method_output_artifacts(method_name),
         expected_schema_version=1,
         expected_algorithm_version="recommendation-method-v1",
@@ -511,8 +700,16 @@ def _experiment_input_paths(
         "target_users": str(TARGET_USERS_PATH),
         "evaluation_labels": str(EVALUATION_LABELS_PATH),
         "user_profile": str(USER_PROFILE_PATH),
+        "recommendation_inputs": str(RECOMMEND_METADATA_PATH),
         "default_candidates": str(candidate_items_path("default")),
+        "default_candidate_metadata": str(
+            candidate_items_path("default").with_name("metadata.json")
+        ),
         "similarity_candidates": str(candidate_items_path("similarity")),
+        "similarity_candidate_metadata": str(
+            candidate_items_path("similarity").with_name("metadata.json")
+        ),
+        "feature_cache_metadata": str(FEATURE_CACHE_METADATA_PATH),
     }
 
 
@@ -521,6 +718,127 @@ def _method_input_paths(
     available_paths: dict[str, str],
 ) -> dict[str, str]:
     return method_input_paths_for_artifacts(method_name, available_paths)
+
+
+def _expected_method_input_artifacts(
+    method_name: str,
+    current_input_paths: dict[str, str],
+    metadata_path,
+) -> dict[str, str]:
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            _stale_output_message(method_name, "metadata is invalid")
+        ) from error
+    if not isinstance(metadata, dict):
+        raise RuntimeError(_stale_output_message(method_name, "metadata is invalid"))
+    stored_input_artifacts = metadata.get("input_artifacts")
+    if not isinstance(stored_input_artifacts, dict):
+        return dict(current_input_paths)
+
+    stored = {str(key): str(value) for key, value in stored_input_artifacts.items()}
+    for key, value in current_input_paths.items():
+        if stored.get(key) != value:
+            raise RuntimeError(
+                _stale_output_message(method_name, f"input_artifacts changed: {key}")
+            )
+
+    method = get_recommendation_method(method_name)
+    if method.default_candidate_strategy is not None:
+        _require_cached_method_input_artifacts(method_name, stored, metadata)
+    return stored
+
+
+def _require_cached_method_input_artifacts(
+    method_name: str,
+    input_artifacts: dict[str, str],
+    metadata: dict[str, object],
+) -> None:
+    required_keys = ("candidate_items", "candidate_metadata", "feature_cache_metadata")
+    for key in required_keys:
+        if key not in input_artifacts:
+            raise RuntimeError(
+                _stale_output_message(method_name, f"input_artifacts missing: {key}")
+            )
+    required_feature_artifacts = _required_feature_artifacts_for_method_metadata(
+        method_name,
+        metadata,
+    )
+    stored_paths = set(input_artifacts.values())
+    missing_paths = [
+        path for path in required_feature_artifacts if path not in stored_paths
+    ]
+    if missing_paths:
+        raise RuntimeError(
+            _stale_output_message(
+                method_name,
+                f"input_artifacts missing feature partitions: {missing_paths[:3]}",
+            )
+        )
+
+
+def _required_feature_artifacts_for_method_metadata(
+    method_name: str,
+    metadata: dict[str, object],
+) -> list[str]:
+    method = get_recommendation_method(method_name)
+    strategy = method.default_candidate_strategy
+    if strategy is None:
+        return []
+    config = metadata.get("config")
+    exclude_seen = True
+    if isinstance(config, dict):
+        exclude_seen = bool(config.get("exclude_seen", True))
+    artifacts: list[str] = []
+    for window in _metadata_windows(method_name, metadata):
+        if int(window.get("candidate_rows", 0)) <= 0:
+            continue
+        artifacts.extend(
+            feature_artifact_paths_for_method_window(
+                method_name=method_name,
+                strategy=str(strategy),
+                window=window,
+                include_seen=exclude_seen,
+            )
+        )
+    return artifacts
+
+
+def _metadata_windows(
+    method_name: str,
+    metadata: dict[str, object],
+) -> list[dict[str, object]]:
+    summaries = metadata.get("window_summaries")
+    if not isinstance(summaries, list):
+        raise RuntimeError(
+            _stale_output_message(method_name, "window_summaries missing")
+        )
+    windows: list[dict[str, object]] = []
+    required_keys = {
+        "split",
+        "cutoff_week",
+        "label_week",
+        "candidate_rows",
+    }
+    for index, summary in enumerate(summaries):
+        if not isinstance(summary, dict):
+            raise RuntimeError(
+                _stale_output_message(
+                    method_name,
+                    f"window_summaries[{index}] is invalid",
+                )
+            )
+        missing = sorted(required_keys - set(summary))
+        if missing:
+            raise RuntimeError(
+                _stale_output_message(
+                    method_name,
+                    f"window_summaries[{index}] missing: {missing}",
+                )
+            )
+        windows.append(summary)
+    return windows
 
 
 def _upstream_input_paths(context: RecommendationExperimentContext) -> dict[str, str]:

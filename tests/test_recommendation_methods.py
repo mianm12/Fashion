@@ -22,6 +22,7 @@ from fashion_trend.recommendation.evaluation.runner import (
 from fashion_trend.recommendation.experiments.runner import (
     candidate_strategy_for_method,
 )
+from fashion_trend.recommendation.freshness import build_artifact_metadata
 from fashion_trend.recommendation.inputs import (
     build_evaluation_labels,
     build_target_users,
@@ -41,7 +42,11 @@ from fashion_trend.recommendation.retrieval.candidates import (
     build_candidate_items,
     build_source_frames_for_frames,
 )
-from fashion_trend.recommendation.runner import run_recommendation_method_by_window
+from fashion_trend.recommendation.runner import (
+    filter_cached_seen_items,
+    method_input_artifacts,
+    run_recommendation_method_by_window,
+)
 from fashion_trend.recommendation.time_windows import build_recommendation_windows
 
 
@@ -95,6 +100,83 @@ def test_pop_similarity_trend_uses_default_candidates_and_trend_score() -> None:
         "trend_score": 0.25,
         "recent_score": 0.05,
     }
+
+
+def test_method_metadata_includes_candidate_and_feature_cache_artifacts(
+    tmp_path,
+) -> None:
+    candidate_path = tmp_path / "candidate_items.parquet"
+    candidate_metadata = tmp_path / "candidate_metadata.json"
+    cache_metadata = tmp_path / "feature_metadata.json"
+    partition = tmp_path / "features" / "part.parquet"
+
+    artifacts = method_input_artifacts(
+        base_input_paths={
+            "recommendation_inputs": "data/processed/recommend/metadata.json"
+        },
+        candidate_items=str(candidate_path),
+        candidate_metadata=str(candidate_metadata),
+        feature_cache_metadata=str(cache_metadata),
+        feature_partitions=[str(partition)],
+    )
+
+    assert artifacts == {
+        "recommendation_inputs": "data/processed/recommend/metadata.json",
+        "candidate_items": str(candidate_path),
+        "candidate_metadata": str(candidate_metadata),
+        "feature_cache_metadata": str(cache_metadata),
+        "feature_partition_0000": str(partition),
+    }
+
+
+def test_filter_cached_seen_items_empty_seen_partition_returns_metadata_path(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    partition_path = tmp_path / "candidate_seen_flags" / "part.parquet"
+    metadata_path = tmp_path / "candidate_seen_flags" / "metadata.json"
+    partition_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        columns=[
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+            "seen",
+        ]
+    ).to_parquet(partition_path, index=False)
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_path",
+        lambda feature_name, strategy, split, cutoff_week: partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_metadata_path",
+        lambda feature_name, strategy, split, cutoff_week: metadata_path,
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "default",
+                "customer_id": "u1",
+                "article_id": "a1",
+            }
+        ]
+    )
+
+    filtered, seen_partition, seen_metadata = filter_cached_seen_items(
+        candidates,
+        strategy="default",
+        window={"split": "valid", "cutoff_week": 10, "label_week": 11},
+    )
+
+    assert filtered.equals(candidates)
+    assert seen_partition == str(partition_path)
+    assert seen_metadata == str(metadata_path)
 
 
 def test_method_output_paths_use_parquet_items() -> None:
@@ -613,6 +695,12 @@ def test_window_runner_writes_streamed_method_outputs(tmp_path, monkeypatch) -> 
 def test_window_runner_records_trend_score_metadata(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
     context = sample_method_context(method_name="pop_similarity_trend")
+    _write_pop_similarity_cache_partitions(
+        tmp_path,
+        monkeypatch,
+        context.candidates,
+        include_trend=True,
+    )
     predictions = pd.DataFrame(
         {
             "split": ["valid"],
@@ -633,6 +721,7 @@ def test_window_runner_records_trend_score_metadata(tmp_path, monkeypatch) -> No
         candidates=context.candidates,
         user_profile=context.user_profile,
         trend_predictions=predictions,
+        input_paths={"trend_predictions": "outputs/models/lightgbm/predictions.csv"},
         trend_model_source="outputs/models/lightgbm/predictions.csv",
     )
     output_paths = recommendation_paths.method_output_paths("pop_similarity_trend")
@@ -643,6 +732,362 @@ def test_window_runner_records_trend_score_metadata(tmp_path, monkeypatch) -> No
     )
     assert "product_type_name" in metadata["trend_score_config"]["core_attr_types"]
     assert metadata["trend_score_config"]["attr_weights"]["product_type_name"] == 0.35
+
+
+def test_cached_trend_method_requires_trend_predictions_in_input_chain(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(method_name="pop_similarity_trend")
+    _write_pop_similarity_cache_partitions(
+        tmp_path,
+        monkeypatch,
+        context.candidates,
+        include_trend=True,
+    )
+
+    with pytest.raises(FileNotFoundError, match="trend predictions"):
+        run_recommendation_method_by_window(
+            method_name="pop_similarity_trend",
+            transactions=context.transactions,
+            article_attributes=context.article_attributes,
+            windows=context.windows,
+            target_users=context.target_users,
+            candidates=context.candidates,
+            user_profile=context.user_profile,
+            trend_predictions=None,
+        )
+
+
+def test_cached_trend_method_rejects_stale_trend_score_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(method_name="pop_similarity_trend")
+    _write_pop_similarity_cache_partitions(
+        tmp_path,
+        monkeypatch,
+        context.candidates,
+        include_trend=True,
+    )
+    predictions = pd.DataFrame(
+        {
+            "split": ["valid"],
+            "week_id": [10],
+            "attr_id": [101],
+            "attr_type": ["product_type_name"],
+            "attr_value": ["Dress"],
+            "pred_target_growth": [2.0],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="trend_predictions"):
+        run_recommendation_method_by_window(
+            method_name="pop_similarity_trend",
+            transactions=context.transactions,
+            article_attributes=context.article_attributes,
+            windows=context.windows,
+            target_users=context.target_users,
+            candidates=context.candidates,
+            user_profile=context.user_profile,
+            trend_predictions=predictions,
+            input_paths={"trend_predictions": "outputs/models/lightgbm/new.csv"},
+        )
+
+
+def test_cached_method_rejects_feature_metadata_missing_required_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(method_name="pop_similarity")
+    _write_pop_similarity_cache_partitions(
+        tmp_path,
+        monkeypatch,
+        context.candidates,
+    )
+    metadata_path = (
+        tmp_path
+        / "features"
+        / "popularity_scores"
+        / "strategy=default"
+        / "split=valid"
+        / "cutoff_week=10"
+        / "metadata.json"
+    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["input_artifacts"] = {}
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="popularity_scores.*candidate_items"):
+        run_recommendation_method_by_window(
+            method_name="pop_similarity",
+            transactions=context.transactions,
+            article_attributes=context.article_attributes,
+            windows=context.windows,
+            target_users=context.target_users,
+            candidates=context.candidates,
+            user_profile=context.user_profile,
+            input_paths={
+                "candidate_items": (
+                    "data/processed/recommend/candidates/default.parquet"
+                ),
+            },
+        )
+
+
+def test_cached_method_rejects_invalid_feature_metadata_json(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(method_name="pop_similarity")
+    _write_pop_similarity_cache_partitions(
+        tmp_path,
+        monkeypatch,
+        context.candidates,
+    )
+    metadata_path = (
+        tmp_path
+        / "features"
+        / "popularity_scores"
+        / "strategy=default"
+        / "split=valid"
+        / "cutoff_week=10"
+        / "metadata.json"
+    )
+    metadata_path.write_text("{invalid", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="metadata is invalid"):
+        run_recommendation_method_by_window(
+            method_name="pop_similarity",
+            transactions=context.transactions,
+            article_attributes=context.article_attributes,
+            windows=context.windows,
+            target_users=context.target_users,
+            candidates=context.candidates,
+            user_profile=context.user_profile,
+            input_paths={
+                "candidate_items": (
+                    "data/processed/recommend/candidates/default.parquet"
+                ),
+            },
+        )
+
+
+def test_window_runner_uses_feature_cache_and_records_used_artifacts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(method_name="pop_similarity")
+    cache_paths = _write_pop_similarity_cache_partitions(
+        tmp_path,
+        monkeypatch,
+        context.candidates,
+    )
+    feature_metadata = tmp_path / "features" / "metadata.json"
+    feature_metadata.parent.mkdir(parents=True, exist_ok=True)
+    feature_metadata.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.methods.baselines.global_popularity"
+        ".build_ranking_features",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("cached runner must not rebuild ranking features")
+        ),
+    )
+
+    result = run_recommendation_method_by_window(
+        method_name="pop_similarity",
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        windows=context.windows,
+        target_users=context.target_users,
+        candidates=context.candidates,
+        user_profile=context.user_profile,
+        input_paths={
+            "candidate_items": "data/processed/recommend/candidates/default.parquet",
+            "candidate_metadata": ("data/processed/recommend/candidates/metadata.json"),
+            "feature_cache_metadata": str(feature_metadata),
+        },
+    )
+
+    output_paths = recommendation_paths.method_output_paths("pop_similarity")
+    metadata = json.loads(output_paths.metadata.read_text(encoding="utf-8"))
+
+    assert tuple(result.recommendation_items.columns) == RECOMMENDATION_ITEMS_COLUMNS
+    assert cache_paths["seen"] in metadata["used_feature_artifacts"]
+    assert cache_paths["seen_metadata"] in metadata["used_feature_artifacts"]
+    assert cache_paths["pop"] in metadata["used_feature_artifacts"]
+    assert cache_paths["recent"] in metadata["used_feature_artifacts"]
+    assert cache_paths["sim"] in metadata["used_feature_artifacts"]
+    assert metadata["input_artifacts"]["feature_cache_metadata"] == str(
+        feature_metadata
+    )
+    assert cache_paths["seen"] in metadata["input_artifacts"].values()
+    assert metadata["window_summaries"][0]["used_feature_artifacts"] == (
+        metadata["used_feature_artifacts"]
+    )
+    assert metadata["underfilled_user_count"] >= metadata["backfilled_user_count"]
+    assert metadata["window_summaries"][0]["still_underfilled_user_count"] >= 0
+
+
+def _write_pop_similarity_cache_partitions(
+    tmp_path,
+    monkeypatch,
+    candidates: pd.DataFrame,
+    *,
+    include_trend: bool = False,
+) -> dict[str, str]:
+    assert candidates is not None
+    base_dir = tmp_path / "features"
+
+    def partition_path(feature_name, strategy, split, cutoff_week):
+        return (
+            base_dir
+            / feature_name
+            / f"strategy={strategy}"
+            / f"split={split}"
+            / f"cutoff_week={cutoff_week}"
+            / "part.parquet"
+        )
+
+    def metadata_path(feature_name, strategy, split, cutoff_week):
+        return partition_path(
+            feature_name,
+            strategy,
+            split,
+            cutoff_week,
+        ).with_name("metadata.json")
+
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_metadata_path",
+        metadata_path,
+    )
+
+    window = candidates.iloc[0]
+    split = str(window["split"])
+    cutoff_week = int(window["cutoff_week"])
+    label_week = int(window["label_week"])
+    strategy = str(window["strategy"])
+    seen = candidates.iloc[[1]].loc[
+        :,
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+    ]
+    _write_cache_partition(
+        partition_path("candidate_seen_flags", strategy, split, cutoff_week),
+        seen.assign(seen=True),
+    )
+
+    article_scores = candidates.loc[
+        :,
+        ["split", "cutoff_week", "label_week", "strategy", "article_id"],
+    ].drop_duplicates()
+    _write_cache_partition(
+        partition_path("popularity_scores", strategy, split, cutoff_week),
+        article_scores.assign(pop_score=[0.8, 0.2]),
+    )
+    _write_cache_partition(
+        partition_path("recent_scores", strategy, split, cutoff_week),
+        article_scores.assign(recent_score=[0.7, 0.1]),
+    )
+    _write_cache_partition(
+        partition_path("similarity_scores", strategy, split, cutoff_week),
+        candidates.loc[
+            :,
+            [
+                "split",
+                "cutoff_week",
+                "label_week",
+                "strategy",
+                "customer_id",
+                "article_id",
+            ],
+        ].assign(sim_score=[0.9, 0.4]),
+    )
+    feature_names = [
+        "candidate_seen_flags",
+        "popularity_scores",
+        "recent_scores",
+        "similarity_scores",
+    ]
+    if include_trend:
+        _write_cache_partition(
+            partition_path("trend_scores", strategy, split, cutoff_week),
+            article_scores.assign(trend_score=[0.6, 0.3]),
+        )
+        feature_names.append("trend_scores")
+    for feature_name in feature_names:
+        partition_file = partition_path(feature_name, strategy, split, cutoff_week)
+        metadata_file = metadata_path(feature_name, strategy, split, cutoff_week)
+        metadata_file.write_text(
+            json.dumps(
+                build_artifact_metadata(
+                    name=f"recommendation_feature_cache_{feature_name}",
+                    input_artifacts=(
+                        {
+                            "candidate_items": (
+                                "data/processed/recommend/candidates/default.parquet"
+                            ),
+                            "trend_predictions": (
+                                "outputs/models/lightgbm/predictions.csv"
+                            ),
+                        }
+                        if feature_name == "trend_scores"
+                        else {
+                            "candidate_items": (
+                                "data/processed/recommend/candidates/default.parquet"
+                            )
+                        }
+                    ),
+                    output_artifacts={
+                        "partition": str(partition_file),
+                        "partition_metadata": str(metadata_file),
+                    },
+                    schema_version=1,
+                    algorithm_version="recommendation-feature-cache-v1",
+                    config={
+                        "feature_name": feature_name,
+                        "strategy": strategy,
+                        "split": split,
+                        "cutoff_week": cutoff_week,
+                        "label_week": label_week,
+                    },
+                    row_counts={"rows": 1},
+                )
+            ),
+            encoding="utf-8",
+        )
+
+    return {
+        "seen": str(
+            partition_path("candidate_seen_flags", strategy, split, cutoff_week)
+        ),
+        "seen_metadata": str(
+            metadata_path("candidate_seen_flags", strategy, split, cutoff_week)
+        ),
+        "pop": str(partition_path("popularity_scores", strategy, split, cutoff_week)),
+        "recent": str(partition_path("recent_scores", strategy, split, cutoff_week)),
+        "sim": str(partition_path("similarity_scores", strategy, split, cutoff_week)),
+    }
+
+
+def _write_cache_partition(path, dataframe: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dataframe.to_parquet(path, index=False)
 
 
 def make_small_transactions() -> pd.DataFrame:

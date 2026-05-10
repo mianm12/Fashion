@@ -7,6 +7,8 @@ from fashion_trend.catalog.readers import read_article_attribute_edges
 from fashion_trend.foundation import logging as log
 from fashion_trend.recommendation.contracts import RECOMMENDATION_METHODS
 from fashion_trend.recommendation.paths import (
+    FEATURE_CACHE_METADATA_PATH,
+    RECOMMEND_METADATA_PATH,
     TARGET_USERS_PATH,
     TIME_WINDOWS_PATH,
     USER_PROFILE_PATH,
@@ -59,6 +61,7 @@ def main() -> int:
         if "sim_score" in method.required_features and USER_PROFILE_PATH.exists():
             user_profile = read_user_profile(USER_PROFILE_PATH)
         available_input_paths = {
+            "recommendation_inputs": str(RECOMMEND_METADATA_PATH),
             "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
             "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
             "time_windows": str(TIME_WINDOWS_PATH),
@@ -68,6 +71,13 @@ def main() -> int:
             available_input_paths["user_profile"] = str(USER_PROFILE_PATH)
         if candidate_path is not None:
             available_input_paths["candidate_items"] = str(candidate_path)
+            available_input_paths["candidate_metadata"] = str(
+                candidate_path.with_name("metadata.json")
+            )
+        if FEATURE_CACHE_METADATA_PATH.exists():
+            available_input_paths["feature_cache_metadata"] = str(
+                FEATURE_CACHE_METADATA_PATH
+            )
         if trend_prediction_path is not None:
             available_input_paths["trend_predictions"] = str(trend_prediction_path)
         input_paths = method_input_paths_for_artifacts(
