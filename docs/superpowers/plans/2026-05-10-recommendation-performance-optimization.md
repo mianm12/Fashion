@@ -772,56 +772,6 @@ def test_feature_cache_manifest_merges_entries_without_overwriting(tmp_path, mon
         "default.parquet"
     ]
 
-
-def test_filter_cached_seen_items_empty_seen_partition_returns_metadata_path(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    partition_path = tmp_path / "candidate_seen_flags" / "part.parquet"
-    metadata_path = tmp_path / "candidate_seen_flags" / "metadata.json"
-    partition_path.parent.mkdir(parents=True)
-    pd.DataFrame(
-        columns=[
-            "split",
-            "cutoff_week",
-            "label_week",
-            "strategy",
-            "customer_id",
-            "article_id",
-            "seen",
-        ]
-    ).to_parquet(partition_path, index=False)
-    monkeypatch.setattr(
-        "fashion_trend.recommendation.runner.feature_cache_partition_path",
-        lambda feature_name, strategy, split, cutoff_week: partition_path,
-    )
-    monkeypatch.setattr(
-        "fashion_trend.recommendation.runner.feature_cache_partition_metadata_path",
-        lambda feature_name, strategy, split, cutoff_week: metadata_path,
-    )
-
-    candidates = pd.DataFrame(
-        [
-            {
-                "split": "valid",
-                "cutoff_week": 10,
-                "label_week": 11,
-                "strategy": "default",
-                "customer_id": "u1",
-                "article_id": "a1",
-            }
-        ]
-    )
-
-    filtered, seen_partition, seen_metadata = filter_cached_seen_items(
-        candidates,
-        strategy="default",
-        window={"split": "valid", "cutoff_week": 10, "label_week": 11},
-    )
-
-    assert filtered.equals(candidates)
-    assert seen_partition == str(partition_path)
-    assert seen_metadata == str(metadata_path)
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -1121,7 +1071,10 @@ git commit -m "feat(recommendation): 增加分区特征缓存"
 **Files:**
 - Modify: `src/fashion_trend/recommendation/runner.py`
 - Modify: `src/fashion_trend/recommendation/methods/base.py`
+- Modify: `src/fashion_trend/recommendation/outputs.py`
+- Create: `src/fashion_trend/recommendation/ranking/backfill.py`
 - Modify: `src/fashion_trend/recommendation/ranking/filters.py`
+- Modify: `src/fashion_trend/recommendation/methods/baselines/global_popularity.py`
 - Modify: `src/14_rerank_recommendations.py`
 - Modify: `tests/test_recommendation_methods.py`
 - Modify: `tests/test_recommendation_freshness.py`
@@ -1131,7 +1084,10 @@ git commit -m "feat(recommendation): 增加分区特征缓存"
 Append to `tests/test_recommendation_methods.py`:
 
 ```python
-from fashion_trend.recommendation.runner import method_input_artifacts
+from fashion_trend.recommendation.runner import (
+    filter_cached_seen_items,
+    method_input_artifacts,
+)
 
 
 def test_method_metadata_includes_candidate_and_feature_cache_artifacts(tmp_path) -> None:
@@ -1155,6 +1111,56 @@ def test_method_metadata_includes_candidate_and_feature_cache_artifacts(tmp_path
         "feature_cache_metadata": str(cache_metadata),
         "feature_partition_0000": str(partition),
     }
+
+
+def test_filter_cached_seen_items_empty_seen_partition_returns_metadata_path(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    partition_path = tmp_path / "candidate_seen_flags" / "part.parquet"
+    metadata_path = tmp_path / "candidate_seen_flags" / "metadata.json"
+    partition_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        columns=[
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+            "seen",
+        ]
+    ).to_parquet(partition_path, index=False)
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_path",
+        lambda feature_name, strategy, split, cutoff_week: partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_metadata_path",
+        lambda feature_name, strategy, split, cutoff_week: metadata_path,
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "default",
+                "customer_id": "u1",
+                "article_id": "a1",
+            }
+        ]
+    )
+
+    filtered, seen_partition, seen_metadata = filter_cached_seen_items(
+        candidates,
+        strategy="default",
+        window={"split": "valid", "cutoff_week": 10, "label_week": 11},
+    )
+
+    assert filtered.equals(candidates)
+    assert seen_partition == str(partition_path)
+    assert seen_metadata == str(metadata_path)
 ```
 
 - [ ] **Step 2: Run test**
@@ -1162,10 +1168,10 @@ def test_method_metadata_includes_candidate_and_feature_cache_artifacts(tmp_path
 Run:
 
 ```sh
-uv run pytest tests/test_recommendation_methods.py::test_method_metadata_includes_candidate_and_feature_cache_artifacts -q
+uv run pytest tests/test_recommendation_methods.py::test_method_metadata_includes_candidate_and_feature_cache_artifacts tests/test_recommendation_methods.py::test_filter_cached_seen_items_empty_seen_partition_returns_metadata_path -q
 ```
 
-Expected: FAIL because `method_input_artifacts` does not exist.
+Expected: FAIL because `method_input_artifacts` and `filter_cached_seen_items` do not exist.
 
 - [ ] **Step 3: Add method input artifact helper**
 
@@ -1467,7 +1473,7 @@ Expected: tests PASS, compileall exits 0, diff check has no output.
 - [ ] **Step 8: Commit**
 
 ```sh
-git add src/fashion_trend/recommendation/runner.py src/fashion_trend/recommendation/methods/base.py src/fashion_trend/recommendation/ranking/filters.py src/14_rerank_recommendations.py tests/test_recommendation_methods.py tests/test_recommendation_freshness.py
+git add src/fashion_trend/recommendation/runner.py src/fashion_trend/recommendation/methods/base.py src/fashion_trend/recommendation/outputs.py src/fashion_trend/recommendation/ranking/backfill.py src/fashion_trend/recommendation/ranking/filters.py src/fashion_trend/recommendation/methods/baselines/global_popularity.py src/14_rerank_recommendations.py tests/test_recommendation_methods.py tests/test_recommendation_freshness.py
 git commit -m "feat(recommendation): 记录方法产物完整输入链路"
 ```
 
