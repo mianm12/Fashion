@@ -72,3 +72,19 @@ def test_assert_fresh_metadata_rejects_changed_candidate_fingerprint(tmp_path) -
 
     stored = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert stored["input_fingerprints"] != build_input_fingerprints(input_artifacts)
+
+
+def test_assert_fresh_metadata_rejects_non_object_metadata(tmp_path) -> None:
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="metadata is invalid"):
+        assert_fresh_metadata(
+            metadata_path=metadata_path,
+            expected_input_artifacts={},
+            expected_output_artifacts={},
+            expected_schema_version=1,
+            expected_algorithm_version="v1",
+            expected_config={},
+            stale_message=lambda reason: f"stale: {reason}",
+        )

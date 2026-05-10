@@ -46,6 +46,8 @@ def assert_fresh_metadata(
         raise RuntimeError(stale_message(f"{metadata_path.name} is missing"))
 
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, dict):
+        raise RuntimeError(stale_message("metadata is invalid"))
     expected_input_artifacts = _json_compatible(dict(expected_input_artifacts))
     expected_output_artifacts = _json_compatible(dict(expected_output_artifacts))
     expected_config = _json_compatible(dict(expected_config))

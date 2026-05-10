@@ -8,6 +8,7 @@ from fashion_trend.recommendation.evaluation.metrics import evaluate_recommendat
 from fashion_trend.recommendation.evaluation.payloads import (
     build_recommendation_metrics_payload,
 )
+from fashion_trend.recommendation.features.cache import build_recommendable_pool
 from fashion_trend.recommendation.paths import method_output_paths
 
 
@@ -38,31 +39,7 @@ def build_recommendable_pool_for_windows(
     transactions: pd.DataFrame,
     windows: pd.DataFrame,
 ) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
-    for window in windows.itertuples(index=False):
-        active = (
-            transactions.loc[
-                transactions["week_id"] <= int(window.cutoff_week),
-                ["article_id"],
-            ]
-            .drop_duplicates()
-            .copy()
-        )
-        active["article_id"] = active["article_id"].astype("string")
-        active = active.assign(
-            split=str(window.split),
-            cutoff_week=int(window.cutoff_week),
-            label_week=int(window.label_week),
-        )
-        frames.append(
-            active.loc[:, ["split", "cutoff_week", "label_week", "article_id"]]
-        )
-
-    if not frames:
-        return pd.DataFrame(
-            columns=["split", "cutoff_week", "label_week", "article_id"]
-        )
-    return pd.concat(frames, ignore_index=True)
+    return build_recommendable_pool(transactions, windows)
 
 
 def input_paths_for_method(method: str) -> dict[str, str]:

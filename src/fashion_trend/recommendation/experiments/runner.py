@@ -17,7 +17,6 @@ from fashion_trend.recommendation.contracts import (
 )
 from fashion_trend.recommendation.evaluation.metrics import evaluate_recommendations
 from fashion_trend.recommendation.evaluation.runner import (
-    build_recommendable_pool_for_windows,
     run_recommendation_evaluation,
 )
 from fashion_trend.recommendation.experiments.ablation import build_ablation_summary
@@ -27,6 +26,9 @@ from fashion_trend.recommendation.experiments.grid_search import (
 )
 from fashion_trend.recommendation.features.cache import (
     build_and_write_feature_cache_for_strategy,
+    read_recommendable_pool_cache,
+    recommendable_pool_cache_fresh,
+    write_recommendable_pool_cache,
 )
 from fashion_trend.recommendation.freshness import (
     assert_fresh_metadata,
@@ -184,6 +186,40 @@ def ensure_or_build_feature_cache_for_strategy(
     )
 
 
+def ensure_or_build_recommendable_pool_cache(
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    *,
+    force: bool,
+) -> pd.DataFrame:
+    input_artifacts = _recommendable_pool_input_artifacts(context)
+    if force or not recommendable_pool_cache_fresh(
+        inputs.time_windows,
+        input_artifacts,
+    ):
+        if not _feature_cache_manifest_can_merge():
+            write_json_atomic({"entries": {}}, FEATURE_CACHE_METADATA_PATH)
+        write_recommendable_pool_cache(
+            transactions=context.transactions,
+            windows=inputs.time_windows,
+            input_artifacts=input_artifacts,
+        )
+    return read_recommendable_pool_cache(inputs.time_windows)
+
+
+def _recommendable_pool_input_artifacts(
+    context: RecommendationExperimentContext,
+) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in {
+            **_experiment_input_paths(context),
+            "recommendation_inputs": str(RECOMMEND_METADATA_PATH),
+        }.items()
+        if key != "feature_cache_metadata"
+    }
+
+
 def run_baseline_methods(
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
@@ -239,6 +275,7 @@ def evaluate_weight_grid_on_valid(
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
+    force: bool = False,
 ) -> list[dict[str, Any]]:
     ensure_or_build_feature_cache_for_strategy(
         "default",
@@ -254,6 +291,7 @@ def evaluate_weight_grid_on_valid(
             context=context,
             inputs=inputs,
             candidates=candidates,
+            force=force,
         )
         for grid_index, weights in enumerate(weight_grid)
     ]
@@ -265,6 +303,7 @@ def evaluate_one_weight_run_on_valid(
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
+    force: bool = False,
 ) -> dict[str, Any]:
     result = build_recommendation_result_in_memory(
         method_name=TREND_METHOD,
@@ -277,10 +316,7 @@ def evaluate_one_weight_run_on_valid(
     target_users = _filter_split(inputs.target_users, "valid")
     labels = _filter_split(inputs.evaluation_labels, "valid")
     recommendable_pool = _filter_split(
-        build_recommendable_pool_for_windows(
-            context.transactions,
-            inputs.time_windows,
-        ),
+        ensure_or_build_recommendable_pool_cache(context, inputs, force=force),
         "valid",
     )
     metrics = evaluate_recommendations(
@@ -372,6 +408,7 @@ def publish_trend_method_with_weights(
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
+    force: bool = False,
 ) -> dict[str, Any]:
     ensure_or_build_feature_cache_for_strategy(
         "default",
@@ -395,7 +432,9 @@ def publish_trend_method_with_weights(
         input_paths=input_paths,
         trend_model_source=context.trend_model_source,
     )
-    return evaluate_method_output_for_experiment(TREND_METHOD, context, inputs)
+    return evaluate_method_output_for_experiment(
+        TREND_METHOD, context, inputs, force=force
+    )
 
 
 def evaluate_result_for_experiment(
@@ -403,15 +442,17 @@ def evaluate_result_for_experiment(
     result: RecommendationResult,
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
+    force: bool = False,
 ) -> dict[str, Any]:
     return run_recommendation_evaluation(
         method=method,
         recommendations=result.recommendations,
         target_users=inputs.target_users,
         labels=inputs.evaluation_labels,
-        recommendable_pool=build_recommendable_pool_for_windows(
-            context.transactions,
-            inputs.time_windows,
+        recommendable_pool=ensure_or_build_recommendable_pool_cache(
+            context,
+            inputs,
+            force=force,
         ),
         input_paths={"experiment": "in_memory"},
         strict_missing_users=False,
@@ -422,6 +463,7 @@ def evaluate_method_output_for_experiment(
     method: str,
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
+    force: bool = False,
 ) -> dict[str, Any]:
     return run_recommendation_evaluation(
         method=method,
@@ -430,9 +472,10 @@ def evaluate_method_output_for_experiment(
         ),
         target_users=inputs.target_users,
         labels=inputs.evaluation_labels,
-        recommendable_pool=build_recommendable_pool_for_windows(
-            context.transactions,
-            inputs.time_windows,
+        recommendable_pool=ensure_or_build_recommendable_pool_cache(
+            context,
+            inputs,
+            force=force,
         ),
         input_paths={"experiment": "in_memory"},
         strict_missing_users=False,
@@ -483,6 +526,7 @@ def run_recommendation_experiment(
         context,
         inputs,
         default_candidates,
+        force=force,
     )
     best_weights = select_best_weights(search_results)
     trend_payload = publish_trend_method_with_weights(
@@ -490,6 +534,7 @@ def run_recommendation_experiment(
         context,
         inputs,
         default_candidates,
+        force=force,
     )
     payload = build_experiment_payload(
         experiment_id,

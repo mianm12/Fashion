@@ -9,7 +9,11 @@ from fashion_trend.recommendation.features.cache import (
     FEATURE_NAMES,
     build_and_write_feature_cache_for_strategy,
     build_candidate_seen_flags,
+    build_recommendable_pool,
+    read_recommendable_pool_cache,
+    recommendable_pool_cache_fresh,
     update_feature_cache_manifest,
+    write_recommendable_pool_cache,
 )
 from fashion_trend.recommendation.paths import (
     FEATURE_CACHE_METADATA_PATH,
@@ -118,6 +122,143 @@ def test_candidate_seen_flags_deduplicates_candidate_keys() -> None:
             "seen": True,
         }
     ]
+
+
+def test_recommendable_pool_uses_cutoff_history_only() -> None:
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
+    transactions = pd.DataFrame(
+        {
+            "article_id": ["a1", "a2"],
+            "week_id": [10, 11],
+        }
+    )
+
+    pool = build_recommendable_pool(transactions, windows)
+
+    assert pool.to_dict("records") == [
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "article_id": "a1",
+        }
+    ]
+
+
+def test_recommendable_pool_cache_round_trips_and_detects_stale_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _patch_recommendable_pool_cache_paths(tmp_path, monkeypatch)
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("v1", encoding="utf-8")
+    windows = pd.DataFrame(
+        [
+            {"split": "valid", "cutoff_week": 10, "label_week": 11},
+            {"split": "test", "cutoff_week": 12, "label_week": 13},
+        ]
+    )
+    transactions = pd.DataFrame(
+        {
+            "article_id": ["0000000001", "0000000002", "0000000003"],
+            "week_id": [9, 11, 13],
+        }
+    )
+    input_artifacts = {"weekly_transactions": str(input_path)}
+
+    write_recommendable_pool_cache(
+        transactions=transactions,
+        windows=windows,
+        input_artifacts=input_artifacts,
+    )
+    result = read_recommendable_pool_cache(windows)
+
+    assert result.to_dict("records") == [
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "article_id": "0000000001",
+        },
+        {
+            "split": "test",
+            "cutoff_week": 12,
+            "label_week": 13,
+            "article_id": "0000000001",
+        },
+        {
+            "split": "test",
+            "cutoff_week": 12,
+            "label_week": 13,
+            "article_id": "0000000002",
+        },
+    ]
+    assert recommendable_pool_cache_fresh(
+        windows=windows,
+        input_artifacts=input_artifacts,
+    )
+
+    input_path.write_text("v2", encoding="utf-8")
+
+    assert not recommendable_pool_cache_fresh(
+        windows=windows,
+        input_artifacts=input_artifacts,
+    )
+
+
+def test_recommendable_pool_cache_non_object_metadata_is_stale(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _patch_recommendable_pool_cache_paths(tmp_path, monkeypatch)
+    windows = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("v1", encoding="utf-8")
+    write_recommendable_pool_cache(
+        transactions=pd.DataFrame({"article_id": ["0000000001"], "week_id": [10]}),
+        windows=windows,
+        input_artifacts={"weekly_transactions": str(input_path)},
+    )
+    metadata_path = (
+        tmp_path
+        / "features"
+        / "recommendable_pool"
+        / "strategy=all"
+        / "split=valid"
+        / "cutoff_week=10"
+        / "metadata.json"
+    )
+    metadata_path.write_text("[]", encoding="utf-8")
+
+    assert not recommendable_pool_cache_fresh(
+        windows=windows,
+        input_artifacts={"weekly_transactions": str(input_path)},
+    )
+
+
+def test_recommendable_pool_cache_manifest_merges_existing_entries(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _patch_recommendable_pool_cache_paths(tmp_path, monkeypatch)
+    manifest_path = tmp_path / "features" / "metadata.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps({"entries": {"strategy:default": {"feature_count": 5}}}),
+        encoding="utf-8",
+    )
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("transactions", encoding="utf-8")
+
+    manifest = write_recommendable_pool_cache(
+        transactions=pd.DataFrame({"article_id": ["0000000001"], "week_id": [10]}),
+        windows=pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}]),
+        input_artifacts={"weekly_transactions": str(input_path)},
+    )
+
+    assert "strategy:default" in manifest["entries"]
+    assert "feature:recommendable_pool:strategy:all" in manifest["entries"]
+    assert json.loads(manifest_path.read_text(encoding="utf-8")) == manifest
 
 
 def test_feature_cache_manifest_merges_entries_without_overwriting(
@@ -423,4 +564,53 @@ def _user_profile() -> pd.DataFrame:
             "attr_value": ["red"],
             "preference_score": [1.0],
         }
+    )
+
+
+def _patch_recommendable_pool_cache_paths(tmp_path, monkeypatch) -> None:
+    feature_root = tmp_path / "features"
+    manifest_path = feature_root / "metadata.json"
+
+    def partition_path(
+        feature_name: str,
+        *,
+        strategy: str,
+        split: str,
+        cutoff_week: int,
+    ):
+        return (
+            feature_root
+            / feature_name
+            / f"strategy={strategy}"
+            / f"split={split}"
+            / f"cutoff_week={int(cutoff_week)}"
+            / "part.parquet"
+        )
+
+    def partition_metadata_path(
+        feature_name: str,
+        *,
+        strategy: str,
+        split: str,
+        cutoff_week: int,
+    ):
+        return partition_path(
+            feature_name,
+            strategy=strategy,
+            split=split,
+            cutoff_week=cutoff_week,
+        ).with_name("metadata.json")
+
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.FEATURE_CACHE_METADATA_PATH",
+        manifest_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache."
+        "feature_cache_partition_metadata_path",
+        partition_metadata_path,
     )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import math
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -9,6 +11,13 @@ from fashion_trend.recommendation.evaluation.metrics import (
     evaluate_recommendations,
     parse_prediction_items,
 )
+from fashion_trend.recommendation.experiments import runner as experiment_runner
+from fashion_trend.recommendation.experiments.runner import (
+    RecommendationExperimentContext,
+    evaluate_result_for_experiment,
+)
+from fashion_trend.recommendation.inputs import RecommendationInputArtifacts
+from fashion_trend.recommendation.methods.base import RecommendationResult
 
 
 def test_missing_recommendation_user_scores_zero_by_default() -> None:
@@ -332,3 +341,90 @@ def test_empty_target_users_fails() -> None:
             pd.DataFrame(),
             top_k=12,
         )
+
+
+def test_experiment_evaluation_reuses_recommendable_pool_cache(monkeypatch) -> None:
+    cached_pool = pd.DataFrame(
+        {
+            "split": ["valid"],
+            "cutoff_week": [10],
+            "label_week": [11],
+            "article_id": ["0000000001"],
+        }
+    )
+    observed = {}
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_recommendable_pool_cache",
+        lambda context, inputs, *, force: cached_pool,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "run_recommendation_evaluation",
+        lambda **kwargs: _capture_recommendable_pool(observed, kwargs),
+    )
+
+    evaluate_result_for_experiment(
+        method="pop_similarity_trend",
+        result=RecommendationResult(
+            recommendations=pd.DataFrame(),
+            recommendation_items=pd.DataFrame(),
+            params={},
+            metadata={},
+        ),
+        context=RecommendationExperimentContext(
+            transactions=pd.DataFrame({"article_id": ["0000000999"], "week_id": [10]}),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        ),
+        inputs=RecommendationInputArtifacts(
+            time_windows=pd.DataFrame(
+                [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+            ),
+            target_users=pd.DataFrame(),
+            evaluation_labels=pd.DataFrame(),
+            user_profile=pd.DataFrame(),
+        ),
+    )
+
+    assert observed["recommendable_pool"] is cached_pool
+
+
+def test_eval_cli_helper_fails_when_recommendable_pool_cache_missing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    eval_module = _load_eval_script_module()
+    monkeypatch.setattr(
+        eval_module,
+        "FEATURE_CACHE_METADATA_PATH",
+        tmp_path / "features" / "metadata.json",
+    )
+
+    with pytest.raises(RuntimeError, match="16_run_recommendation_experiment.py"):
+        eval_module.read_cached_recommendable_pool_for_evaluation(
+            pd.DataFrame(columns=["split", "cutoff_week", "label_week"])
+        )
+
+
+def _capture_recommendable_pool(
+    observed: dict[str, pd.DataFrame],
+    kwargs: dict[str, object],
+) -> dict[str, object]:
+    observed["recommendable_pool"] = kwargs["recommendable_pool"]
+    return {"metrics": {}}
+
+
+def _load_eval_script_module():
+    script_path = (
+        Path(__file__).resolve().parents[1] / "src" / "15_eval_recommendations.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "eval_recommendations_15", script_path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load eval script: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

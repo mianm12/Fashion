@@ -823,6 +823,86 @@ def test_experiment_rejects_non_object_method_metadata_json(
         )
 
 
+def test_recommendable_pool_cache_excludes_feature_manifest_from_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _patch_experiment_feature_cache_paths(tmp_path, monkeypatch)
+    context = _cache_build_context(tmp_path)
+    inputs = _cache_build_inputs()
+
+    first = experiment_runner.ensure_or_build_recommendable_pool_cache(
+        context,
+        inputs,
+        force=False,
+    )
+    manifest = json.loads((tmp_path / "features" / "metadata.json").read_text())
+    entry = manifest["entries"]["feature:recommendable_pool:strategy:all"]
+
+    assert "feature_cache_metadata" not in entry["input_artifacts"]
+
+    def fail_rewrite(*args, **kwargs):
+        raise AssertionError("fresh recommendable_pool cache must not rebuild")
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "write_recommendable_pool_cache",
+        fail_rewrite,
+    )
+
+    second = experiment_runner.ensure_or_build_recommendable_pool_cache(
+        context,
+        inputs,
+        force=False,
+    )
+
+    assert first.to_dict("records") == second.to_dict("records")
+
+
+@pytest.mark.parametrize("manifest_text", ["{invalid", "[]"])
+def test_recommendable_pool_cache_rebuilds_invalid_global_manifest(
+    tmp_path,
+    monkeypatch,
+    manifest_text: str,
+) -> None:
+    _patch_experiment_feature_cache_paths(tmp_path, monkeypatch)
+    manifest_path = tmp_path / "features" / "metadata.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(manifest_text, encoding="utf-8")
+
+    experiment_runner.ensure_or_build_recommendable_pool_cache(
+        _cache_build_context(tmp_path),
+        _cache_build_inputs(),
+        force=False,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert "feature:recommendable_pool:strategy:all" in manifest["entries"]
+
+
+def test_recommendable_pool_cache_preserves_valid_global_manifest_entries(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _patch_experiment_feature_cache_paths(tmp_path, monkeypatch)
+    manifest_path = tmp_path / "features" / "metadata.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps({"entries": {"strategy:default": {"feature_count": 5}}}),
+        encoding="utf-8",
+    )
+
+    experiment_runner.ensure_or_build_recommendable_pool_cache(
+        _cache_build_context(tmp_path),
+        _cache_build_inputs(),
+        force=False,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert "strategy:default" in manifest["entries"]
+    assert "feature:recommendable_pool:strategy:all" in manifest["entries"]
+
+
 def test_experiment_rejects_stale_candidate_when_method_output_missing(
     tmp_path,
     monkeypatch,
