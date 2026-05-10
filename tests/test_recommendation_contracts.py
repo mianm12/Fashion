@@ -299,6 +299,11 @@ def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
     assert str(read_recommendation_items["article_id"].dtype) == "string"
     assert read_recommendation_items.loc[0, "customer_id"] == "0000001"
     assert read_recommendation_items.loc[0, "article_id"] == "0000123"
+    legacy_read_recommendations = readers.read_recommendation_result(
+        recommendations_path
+    )
+    assert str(legacy_read_recommendations["customer_id"].dtype) == "string"
+    assert legacy_read_recommendations.loc[0, "customer_id"] == "0000001"
 
     mismatch_dir = tmp_path / "recent_popularity"
     mismatch_dir.mkdir()
@@ -306,6 +311,8 @@ def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
     recommendations.to_csv(mismatch_path, index=False)
     with pytest.raises(ValueError, match="method"):
         readers.read_recommendations(mismatch_path)
+    with pytest.raises(ValueError, match="method"):
+        readers.read_recommendation_result(mismatch_path)
 
     duplicate_path = method_dir / "duplicate_recommendation_items.csv"
     pd.concat([recommendation_items, recommendation_items], ignore_index=True).to_csv(

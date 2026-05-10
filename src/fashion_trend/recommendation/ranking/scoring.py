@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 
@@ -12,11 +14,12 @@ def rank_candidate_items(
     feature_frame: pd.DataFrame,
     weights: dict[str, float],
     top_k: int,
+    required_features: Sequence[str],
 ) -> pd.DataFrame:
     """Score and rank candidates with deterministic tie-breaking."""
     if top_k <= 0:
         raise ValueError("top_k must be positive")
-    validated_weights = validate_score_weights(weights, tuple(weights))
+    validated_weights = validate_score_weights(weights, required_features)
     missing_features = set(validated_weights) - set(feature_frame.columns)
     if missing_features:
         raise ValueError(f"missing ranking feature columns: {sorted(missing_features)}")

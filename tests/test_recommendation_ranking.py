@@ -129,10 +129,33 @@ def test_rank_candidate_items_uses_stable_tie_break_and_top_k() -> None:
             "trend_score": 0.0,
         },
         top_k=2,
+        required_features=REQUIRED_WEIGHTS,
     )
 
     assert ranked["article_id"].tolist() == ["0000000010", "0000000020"]
     assert ranked["rank"].tolist() == [1, 2]
+
+
+def test_rank_candidate_items_rejects_weights_outside_required_features() -> None:
+    candidates = pd.DataFrame(
+        {
+            "customer_id": ["u1"],
+            "split": ["valid"],
+            "cutoff_week": [10],
+            "label_week": [11],
+            "article_id": ["0000000010"],
+            "pop_score": [0.5],
+            "recent_score": [0.5],
+        }
+    )
+
+    with pytest.raises(ValueError, match="keys"):
+        rank_candidate_items(
+            candidates,
+            weights={"pop_score": 0.5, "recent_score": 0.5},
+            top_k=1,
+            required_features=("pop_score",),
+        )
 
 
 def test_filter_seen_items_uses_history_at_or_before_cutoff() -> None:

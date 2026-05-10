@@ -72,7 +72,12 @@ def build_baseline_recommendation_result(
     feature_frame["method"] = context.method
     if context.exclude_seen:
         feature_frame = filter_seen_items(feature_frame, context.transactions)
-    ranked = rank_candidate_items(feature_frame, weights, context.top_k)
+    ranked = rank_candidate_items(
+        feature_frame,
+        weights,
+        context.top_k,
+        method.required_features,
+    )
     ranked = _append_backfill_items(
         context,
         candidates,
