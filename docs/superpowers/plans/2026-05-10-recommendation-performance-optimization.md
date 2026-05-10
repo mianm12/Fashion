@@ -550,7 +550,7 @@ In `src/fashion_trend/recommendation/paths.py`:
 RECOMMEND_METADATA_PATH = RECOMMEND_DIR / "metadata.json"
 ```
 
-In `src/fashion_trend/recommendation/inputs.py`, after writing four parquet inputs:
+In `src/fashion_trend/recommendation/inputs.py`, keep the existing build body. Only change the function signature to accept `input_paths`, then insert the metadata write block after the four existing `write_parquet_atomic` calls and before the return:
 
 ```python
 from fashion_trend.foundation.io import write_json_atomic
@@ -564,6 +564,20 @@ def build_and_write_recommendation_inputs(
     trend_predictions: pd.DataFrame,
     input_paths: dict[str, str] | None = None,
 ) -> RecommendationInputArtifacts:
+    windows = build_recommendation_windows(trend_predictions)
+    target_users = build_target_users(transactions, windows)
+    labels = build_evaluation_labels(transactions, windows, target_users)
+    profile = build_user_profile(
+        transactions,
+        article_attributes,
+        windows,
+        target_users,
+    )
+    write_parquet_atomic(windows, TIME_WINDOWS_PATH)
+    write_parquet_atomic(target_users, TARGET_USERS_PATH)
+    write_parquet_atomic(labels, EVALUATION_LABELS_PATH)
+    write_parquet_atomic(profile, USER_PROFILE_PATH)
+
     input_artifacts = dict(input_paths or {})
     write_json_atomic(
         build_artifact_metadata(
@@ -681,6 +695,7 @@ import pandas as pd
 from fashion_trend.recommendation.features.cache import (
     FEATURE_NAMES,
     build_candidate_seen_flags,
+    update_feature_cache_manifest,
 )
 from fashion_trend.recommendation.paths import feature_cache_partition_path
 
@@ -731,6 +746,31 @@ def test_candidate_seen_flags_only_contains_seen_candidate_pairs() -> None:
             "seen": True,
         }
     ]
+
+
+def test_feature_cache_manifest_merges_entries_without_overwriting(tmp_path, monkeypatch) -> None:
+    manifest_path = tmp_path / "features" / "metadata.json"
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.FEATURE_CACHE_METADATA_PATH",
+        manifest_path,
+    )
+
+    first = update_feature_cache_manifest(
+        manifest_key="strategy:default",
+        payload={"manifest": {"partitions": ["default.parquet"]}},
+    )
+    second = update_feature_cache_manifest(
+        manifest_key="feature:recommendable_pool:strategy:all",
+        payload={"manifest": {"partitions": ["pool.parquet"]}},
+    )
+
+    assert set(second["entries"]) == {
+        "strategy:default",
+        "feature:recommendable_pool:strategy:all",
+    }
+    assert first["entries"]["strategy:default"]["manifest"]["partitions"] == [
+        "default.parquet"
+    ]
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -770,6 +810,47 @@ def feature_cache_partition_path(
         / f"cutoff_week={int(cutoff_week)}"
         / "part.parquet"
     )
+
+
+def feature_cache_partition_metadata_path(
+    feature_name: str,
+    *,
+    strategy: str,
+    split: str,
+    cutoff_week: int,
+) -> Path:
+    return feature_cache_partition_path(
+        feature_name,
+        strategy=strategy,
+        split=split,
+        cutoff_week=cutoff_week,
+    ).with_name("metadata.json")
+```
+
+`FEATURE_CACHE_METADATA_PATH` is the global manifest. It must not be overwritten by a single feature or strategy. Each partition writes its own sibling metadata file through `feature_cache_partition_metadata_path`, and the global manifest stores references to all partition metadata files.
+
+Add a manifest merge helper in `src/fashion_trend/recommendation/features/cache.py` and use it for every feature writer:
+
+```python
+def update_feature_cache_manifest(
+    *,
+    manifest_key: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    if FEATURE_CACHE_METADATA_PATH.exists():
+        current = json.loads(FEATURE_CACHE_METADATA_PATH.read_text(encoding="utf-8"))
+    else:
+        current = {
+            "name": "recommendation_feature_cache_manifest",
+            "schema_version": 1,
+            "algorithm_version": "recommendation-feature-cache-manifest-v1",
+            "entries": {},
+        }
+    entries = dict(current.get("entries", {}))
+    entries[manifest_key] = payload
+    current["entries"] = entries
+    write_json_atomic(current, FEATURE_CACHE_METADATA_PATH)
+    return current
 ```
 
 - [ ] **Step 4: Implement candidate-scoped seen flags**
@@ -871,6 +952,7 @@ def build_and_write_feature_cache_for_strategy(
     manifest: dict[str, object] = {
         "strategy": strategy,
         "partitions": [],
+        "partition_metadata": [],
         "row_counts": {},
     }
     for window in candidates[WINDOW_COLUMNS].drop_duplicates().to_dict("records"):
@@ -897,10 +979,35 @@ def build_and_write_feature_cache_for_strategy(
                 cutoff_week=int(window["cutoff_week"]),
             )
             write_parquet_atomic(frame, output_path)
+            partition_metadata_path = feature_cache_partition_metadata_path(
+                feature_name,
+                strategy=strategy,
+                split=str(window["split"]),
+                cutoff_week=int(window["cutoff_week"]),
+            )
+            partition_metadata = build_artifact_metadata(
+                name=f"recommendation_feature_cache:{feature_name}",
+                input_artifacts=input_artifacts,
+                output_artifacts={
+                    "partition": str(output_path),
+                    "partition_metadata": str(partition_metadata_path),
+                },
+                schema_version=1,
+                algorithm_version="recommendation-feature-cache-v1",
+                config={
+                    "feature_name": feature_name,
+                    "strategy": strategy,
+                    "split": str(window["split"]),
+                    "cutoff_week": int(window["cutoff_week"]),
+                },
+                row_counts={"rows": int(len(frame))},
+            )
+            write_json_atomic(partition_metadata, partition_metadata_path)
             manifest["partitions"].append(str(output_path))
+            manifest["partition_metadata"].append(str(partition_metadata_path))
             manifest["row_counts"][str(output_path)] = int(len(frame))
-    metadata = build_artifact_metadata(
-        name="recommendation_feature_cache",
+    global_manifest = build_artifact_metadata(
+        name="recommendation_feature_cache_manifest",
         input_artifacts=input_artifacts,
         output_artifacts={
             "feature_cache_metadata": str(FEATURE_CACHE_METADATA_PATH),
@@ -908,9 +1015,13 @@ def build_and_write_feature_cache_for_strategy(
                 f"partition_{index:04d}": path
                 for index, path in enumerate(manifest["partitions"])
             },
+            **{
+                f"partition_metadata_{index:04d}": path
+                for index, path in enumerate(manifest["partition_metadata"])
+            },
         },
         schema_version=1,
-        algorithm_version="recommendation-feature-cache-v1",
+        algorithm_version="recommendation-feature-cache-manifest-v1",
         config={
             "strategy": strategy,
             "feature_names": list(FEATURE_NAMES),
@@ -924,12 +1035,14 @@ def build_and_write_feature_cache_for_strategy(
             },
         },
     )
-    metadata["manifest"] = manifest
-    write_json_atomic(metadata, FEATURE_CACHE_METADATA_PATH)
-    return metadata
+    global_manifest["manifest"] = manifest
+    return update_feature_cache_manifest(
+        manifest_key=f"strategy:{strategy}",
+        payload=global_manifest,
+    )
 ```
 
-Use `write_parquet_atomic`, `write_json_atomic`, `build_artifact_metadata`, `FEATURE_CACHE_METADATA_PATH`, `build_ranking_features`, and `feature_cache_partition_path`. Method metadata in Task 5 must reference `FEATURE_CACHE_METADATA_PATH`; `--force-cache` in Task 7 must rebuild this metadata before method freshness is evaluated.
+Use `write_parquet_atomic`, `write_json_atomic`, `build_artifact_metadata`, `FEATURE_CACHE_METADATA_PATH`, `feature_cache_partition_metadata_path`, `update_feature_cache_manifest`, `build_ranking_features`, and `feature_cache_partition_path`. Method metadata in Task 5 must reference both `FEATURE_CACHE_METADATA_PATH` and every partition metadata file used by the method; `--force-cache` in Task 7 must rebuild the partition metadata and then merge-refresh the global manifest before method freshness is evaluated.
 
 - [ ] **Step 6: Verify cache tests**
 
@@ -1039,8 +1152,15 @@ from fashion_trend.recommendation.features.cache import FEATURE_NAMES
 from fashion_trend.recommendation.paths import (
     FEATURE_CACHE_METADATA_PATH,
     feature_cache_partition_path,
+    feature_cache_partition_metadata_path,
 )
+from fashion_trend.recommendation.outputs import build_recommendations_csv
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
+from fashion_trend.recommendation.methods.base import RecommendationResult
+from fashion_trend.recommendation.methods.baselines.global_popularity import (
+    _append_backfill_items,
+    _format_recommendation_items,
+)
 
 
 def build_cached_feature_frame_for_window(
@@ -1055,6 +1175,7 @@ def build_cached_feature_frame_for_window(
     cutoff_week = int(window["cutoff_week"])
     feature_frame = candidates.copy()
     used_partitions: list[str] = []
+    used_partition_metadata: list[str] = []
     join_specs = {
         "pop_score": ("popularity_scores", ["split", "cutoff_week", "label_week", "strategy", "article_id"]),
         "recent_score": ("recent_scores", ["split", "cutoff_week", "label_week", "strategy", "article_id"]),
@@ -1071,10 +1192,20 @@ def build_cached_feature_frame_for_window(
         )
         scores = pd.read_parquet(path)
         used_partitions.append(str(path))
+        used_partition_metadata.append(
+            str(
+                feature_cache_partition_metadata_path(
+                    feature_name,
+                    strategy=strategy,
+                    split=split,
+                    cutoff_week=cutoff_week,
+                )
+            )
+        )
         feature_frame = feature_frame.merge(scores, on=join_columns, how="left")
         feature_frame[score_column] = feature_frame[score_column].fillna(0.0)
     feature_frame["method"] = method_name
-    return feature_frame, used_partitions
+    return feature_frame, [*used_partitions, *used_partition_metadata]
 ```
 
 Add seen filtering from cache:
@@ -1085,7 +1216,7 @@ def filter_cached_seen_items(
     *,
     strategy: str,
     window: dict[str, object],
-) -> tuple[pd.DataFrame, str]:
+) -> tuple[pd.DataFrame, str, str]:
     path = feature_cache_partition_path(
         "candidate_seen_flags",
         strategy=strategy,
@@ -1104,31 +1235,111 @@ def filter_cached_seen_items(
         on=["split", "cutoff_week", "label_week", "strategy", "customer_id", "article_id"],
         how="left",
     )
-    return merged.loc[merged["_seen"].isna()].drop(columns=["_seen"]), str(path)
+    metadata_path = feature_cache_partition_metadata_path(
+        "candidate_seen_flags",
+        strategy=strategy,
+        split=str(window["split"]),
+        cutoff_week=int(window["cutoff_week"]),
+    )
+    return (
+        merged.loc[merged["_seen"].isna()].drop(columns=["_seen"]),
+        str(path),
+        str(metadata_path),
+    )
 ```
 
-Update the method-by-window runner so the cached path does this order for each window:
+Add a full cached result builder. It must return `RecommendationResult`, format `recommendation_items`, build `recommendations.csv`, and preserve backfill behavior:
 
 ```python
-window_candidates = _optional_frame_for_window(candidates, window)
-if method.default_candidate_strategy is not None:
-    filtered_candidates, seen_partition = filter_cached_seen_items(
-        window_candidates,
-        strategy=method.default_candidate_strategy,
+BACKFILL_MODE_BY_METHOD = {
+    "global_popularity": "popularity",
+    "recent_popularity": "recent",
+    "attribute_similarity": "recent",
+    "pop_similarity": "recent",
+    "pop_similarity_trend": "recent",
+}
+
+
+def build_cached_recommendation_result_for_window(
+    *,
+    method,
+    method_name: str,
+    strategy: str,
+    window: dict[str, object],
+    target_users: pd.DataFrame,
+    candidates: pd.DataFrame,
+    context: RecommendationContext,
+    weights: dict[str, float],
+    backfill_mode: str | None,
+) -> RecommendationResult:
+    used_feature_artifacts: list[str] = []
+    filtered_candidates, seen_partition, seen_metadata = filter_cached_seen_items(
+        candidates,
+        strategy=strategy,
         window=window,
     )
-    feature_frame, score_partitions = build_cached_feature_frame_for_window(
+    used_feature_artifacts.extend([seen_partition, seen_metadata])
+    feature_frame, score_artifacts = build_cached_feature_frame_for_window(
         method_name=method_name,
-        strategy=method.default_candidate_strategy,
+        strategy=strategy,
         window=window,
         candidates=filtered_candidates,
         required_features=method.required_features,
     )
+    used_feature_artifacts.extend(score_artifacts)
     ranked = rank_candidate_items(
         feature_frame,
-        weights=dict(weights if weights is not None else method.default_weights),
-        top_k=RECOMMENDATION_TOP_K,
+        weights=weights,
+        top_k=context.top_k,
         required_features=method.required_features,
+    )
+    ranked = _append_backfill_items(
+        context,
+        candidates,
+        ranked,
+        weights,
+        backfill_mode,
+    )
+    recommendation_items = _format_recommendation_items(ranked)
+    recommendations = build_recommendations_csv(recommendation_items, context.top_k)
+    return RecommendationResult(
+        recommendations=recommendations,
+        recommendation_items=recommendation_items,
+        params={
+            "method": method_name,
+            "method_type": method.method_type,
+            "top_k": context.top_k,
+            "exclude_seen": context.exclude_seen,
+            "weights": dict(weights),
+            "candidate_strategy": strategy,
+            "score_features": list(method.required_features),
+        },
+        metadata={
+            "method": method_name,
+            "candidate_rows": int(len(candidates)),
+            "recommendation_rows": int(len(recommendations)),
+            "recommendation_item_rows": int(len(recommendation_items)),
+            "used_feature_artifacts": used_feature_artifacts,
+            "backfill_mode": backfill_mode,
+        },
+    )
+```
+
+Update the method-by-window runner so the cached path calls the full builder:
+
+```python
+window_candidates = _optional_frame_for_window(candidates, window)
+if method.default_candidate_strategy is not None:
+    result = build_cached_recommendation_result_for_window(
+        method=method,
+        method_name=method_name,
+        strategy=method.default_candidate_strategy,
+        window=window,
+        target_users=_frame_for_window(target_users, window),
+        candidates=window_candidates,
+        context=context,
+        weights=dict(weights if weights is not None else method.default_weights),
+        backfill_mode=BACKFILL_MODE_BY_METHOD.get(method_name),
     )
 ```
 
@@ -1309,6 +1520,7 @@ def write_recommendable_pool_cache(
 ) -> dict[str, object]:
     partitions: list[str] = []
     row_counts: dict[str, int] = {}
+    partition_metadata_paths: list[str] = []
     for window in windows.itertuples(index=False):
         frame = build_recommendable_pool(
             transactions,
@@ -1319,10 +1531,35 @@ def write_recommendable_pool_cache(
             cutoff_week=int(window.cutoff_week),
         )
         write_parquet_atomic(frame, path)
+        metadata_path = feature_cache_partition_metadata_path(
+            "recommendable_pool",
+            strategy="all",
+            split=str(window.split),
+            cutoff_week=int(window.cutoff_week),
+        )
+        partition_metadata = build_artifact_metadata(
+            name="recommendable_pool_cache",
+            input_artifacts=input_artifacts,
+            output_artifacts={
+                "partition": str(path),
+                "partition_metadata": str(metadata_path),
+            },
+            schema_version=1,
+            algorithm_version="recommendable-pool-cache-v1",
+            config={
+                "feature_name": "recommendable_pool",
+                "strategy": "all",
+                "split": str(window.split),
+                "cutoff_week": int(window.cutoff_week),
+            },
+            row_counts={"rows": int(len(frame))},
+        )
+        write_json_atomic(partition_metadata, metadata_path)
         partitions.append(str(path))
+        partition_metadata_paths.append(str(metadata_path))
         row_counts[str(path)] = int(len(frame))
-    metadata = build_artifact_metadata(
-        name="recommendable_pool_cache",
+    global_manifest = build_artifact_metadata(
+        name="recommendation_feature_cache_manifest",
         input_artifacts=input_artifacts,
         output_artifacts={
             "feature_cache_metadata": str(FEATURE_CACHE_METADATA_PATH),
@@ -1330,18 +1567,30 @@ def write_recommendable_pool_cache(
                 f"recommendable_pool_partition_{index:04d}": path
                 for index, path in enumerate(partitions)
             },
+            **{
+                f"recommendable_pool_metadata_{index:04d}": path
+                for index, path in enumerate(partition_metadata_paths)
+            },
         },
         schema_version=1,
-        algorithm_version="recommendable-pool-cache-v1",
+        algorithm_version="recommendation-feature-cache-manifest-v1",
         config={"feature_name": "recommendable_pool", "strategy": "all"},
         row_counts={
             f"recommendable_pool_partition_{index:04d}": rows
             for index, rows in enumerate(row_counts.values())
         },
     )
-    metadata["manifest"] = {"partitions": partitions, "row_counts": row_counts}
-    write_json_atomic(metadata, FEATURE_CACHE_METADATA_PATH)
-    return metadata
+    global_manifest["manifest"] = {
+        "feature_name": "recommendable_pool",
+        "strategy": "all",
+        "partitions": partitions,
+        "partition_metadata": partition_metadata_paths,
+        "row_counts": row_counts,
+    }
+    return update_feature_cache_manifest(
+        manifest_key="feature:recommendable_pool:strategy:all",
+        payload=global_manifest,
+    )
 
 
 def read_recommendable_pool_cache(windows: pd.DataFrame) -> pd.DataFrame:
@@ -1355,6 +1604,64 @@ def read_recommendable_pool_cache(windows: pd.DataFrame) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame(columns=["split", "cutoff_week", "label_week", "article_id"])
     return pd.concat(frames, ignore_index=True)
+
+
+def recommendable_pool_cache_exists(windows: pd.DataFrame) -> bool:
+    return all(
+        recommendable_pool_partition_path(
+            split=str(window.split),
+            cutoff_week=int(window.cutoff_week),
+        ).exists()
+        and feature_cache_partition_metadata_path(
+            "recommendable_pool",
+            strategy="all",
+            split=str(window.split),
+            cutoff_week=int(window.cutoff_week),
+        ).exists()
+        for window in windows.itertuples(index=False)
+    )
+
+
+def recommendable_pool_cache_fresh(
+    *,
+    windows: pd.DataFrame,
+    input_artifacts: dict[str, str],
+) -> bool:
+    if not recommendable_pool_cache_exists(windows):
+        return False
+    for window in windows.itertuples(index=False):
+        metadata_path = feature_cache_partition_metadata_path(
+            "recommendable_pool",
+            strategy="all",
+            split=str(window.split),
+            cutoff_week=int(window.cutoff_week),
+        )
+        try:
+            assert_fresh_metadata(
+                metadata_path,
+                expected_input_artifacts=input_artifacts,
+                expected_output_artifacts={
+                    "partition": str(
+                        recommendable_pool_partition_path(
+                            split=str(window.split),
+                            cutoff_week=int(window.cutoff_week),
+                        )
+                    ),
+                    "partition_metadata": str(metadata_path),
+                },
+                expected_schema_version=1,
+                expected_algorithm_version="recommendable-pool-cache-v1",
+                expected_config={
+                    "feature_name": "recommendable_pool",
+                    "strategy": "all",
+                    "split": str(window.split),
+                    "cutoff_week": int(window.cutoff_week),
+                },
+                stale_message=lambda reason: reason,
+            )
+        except RuntimeError:
+            return False
+    return True
 ```
 
 In `src/fashion_trend/recommendation/experiments/runner.py`, add this concrete helper:
@@ -1370,7 +1677,10 @@ def ensure_or_build_recommendable_pool_cache(
         **_experiment_input_paths(context),
         "recommendation_inputs": str(RECOMMEND_METADATA_PATH),
     }
-    if force:
+    if force or not recommendable_pool_cache_fresh(
+        windows=inputs.time_windows,
+        input_artifacts=input_artifacts,
+    ):
         write_recommendable_pool_cache(
             transactions=context.transactions,
             windows=inputs.time_windows,
@@ -1671,6 +1981,7 @@ Only run after tests pass and only from existing downloaded data:
 ```sh
 uv run python src/12_build_recommendation_inputs.py
 uv run python src/13_build_recommend_candidates.py --strategy popularity
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-cache
 uv run python src/14_rerank_recommendations.py --method global_popularity
 uv run python src/15_eval_recommendations.py --method global_popularity
 uv run python src/16_run_recommendation_experiment.py --experiment main --force-experiment
