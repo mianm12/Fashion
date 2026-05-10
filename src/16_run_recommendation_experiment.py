@@ -9,6 +9,7 @@ from fashion_trend.recommendation.experiments.runner import (
     RecommendationExperimentContext,
     run_recommendation_experiment,
 )
+from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 from fashion_trend.transactions.paths import WEEKLY_TRANSACTIONS_PATH
 from fashion_trend.transactions.readers import read_weekly_transactions
 from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
@@ -26,6 +27,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    timer = StageTimer("experiment", details={"experiment": args.experiment})
     try:
         trend_prediction_path = OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
         payload = run_recommendation_experiment(
@@ -53,6 +55,7 @@ def main() -> int:
         f"推荐实验已写出: {payload['experiment_path']}",
         source=LOG_SOURCE,
     )
+    log.info(format_stage_log(timer.finish()), source=LOG_SOURCE)
     return 0
 
 

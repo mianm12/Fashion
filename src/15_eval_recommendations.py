@@ -14,6 +14,7 @@ from fashion_trend.recommendation.paths import (
     TIME_WINDOWS_PATH,
     method_output_paths,
 )
+from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 from fashion_trend.recommendation.readers import (
     read_evaluation_labels,
     read_recommendations,
@@ -36,6 +37,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     try:
         args = parse_args()
+        timer = StageTimer("evaluation", details={"method": args.method})
         output_paths = method_output_paths(args.method)
         input_paths = {
             "recommendations": str(output_paths.recommendations),
@@ -44,9 +46,10 @@ def main() -> int:
             "time_windows": str(TIME_WINDOWS_PATH),
             "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
         }
+        recommendations = read_recommendations(output_paths.recommendations)
         payload = run_recommendation_evaluation(
             method=args.method,
-            recommendations=read_recommendations(output_paths.recommendations),
+            recommendations=recommendations,
             target_users=read_target_users(TARGET_USERS_PATH),
             labels=read_evaluation_labels(EVALUATION_LABELS_PATH),
             recommendable_pool=build_recommendable_pool_for_windows(
@@ -64,6 +67,8 @@ def main() -> int:
         f"推荐评价完成: method={args.method}, splits={sorted(payload['metrics'])}",
         source=LOG_SOURCE,
     )
+    timer.rows = len(recommendations)
+    log.info(format_stage_log(timer.finish()), source=LOG_SOURCE)
     return 0
 
 

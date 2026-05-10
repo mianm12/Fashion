@@ -25,6 +25,32 @@ from fashion_trend.recommendation.experiments.runner import (
 )
 from fashion_trend.recommendation.inputs import RecommendationInputArtifacts
 from fashion_trend.recommendation.paths import experiment_run_dir
+from fashion_trend.recommendation.perf import StageTimer, format_stage_log
+
+
+def test_stage_timer_records_elapsed_and_rows() -> None:
+    timer = StageTimer("feature_cache", rows=123, details={"name": "sim_score"})
+
+    payload = timer.finish()
+
+    assert payload["stage"] == "feature_cache"
+    assert payload["rows"] == 123
+    assert payload["name"] == "sim_score"
+    assert payload["elapsed_seconds"] >= 0.0
+
+
+def test_format_stage_log_keeps_stage_first_and_payload_order() -> None:
+    payload = {
+        "stage": "evaluation",
+        "elapsed_seconds": 1.25,
+        "method": "m",
+        "rows": 10,
+    }
+
+    assert (
+        format_stage_log(payload)
+        == "stage=evaluation elapsed_seconds=1.25 method=m rows=10"
+    )
 
 
 def test_weight_grid_contains_only_valid_normalized_weights() -> None:

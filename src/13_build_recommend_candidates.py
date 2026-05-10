@@ -11,6 +11,7 @@ from fashion_trend.recommendation.paths import (
     TIME_WINDOWS_PATH,
     USER_PROFILE_PATH,
 )
+from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 from fashion_trend.recommendation.readers import (
     read_target_users,
     read_time_windows,
@@ -41,6 +42,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """Build strategy-scoped recommendation candidate items."""
     args = parse_args()
+    timer = StageTimer("candidate_build", details={"strategy": args.strategy})
     try:
         article_attributes = None
         user_profile = None
@@ -81,6 +83,7 @@ def main() -> int:
         return 1
 
     log.info(f"推荐候选已写出: {output_path}", source=LOG_SOURCE)
+    log.info(format_stage_log(timer.finish()), source=LOG_SOURCE)
     return 0
 
 

@@ -12,6 +12,7 @@ from fashion_trend.recommendation.paths import (
     USER_PROFILE_PATH,
     candidate_items_path,
 )
+from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 from fashion_trend.recommendation.readers import (
     read_candidate_items,
     read_target_users,
@@ -39,6 +40,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     try:
         args = parse_args()
+        timer = StageTimer("method", details={"method": args.method})
         method = get_recommendation_method(args.method)
         candidates = None
         candidate_path = None
@@ -94,6 +96,8 @@ def main() -> int:
         f"method={args.method}, rows={result.metadata['recommendation_rows']}",
         source=LOG_SOURCE,
     )
+    timer.rows = int(result.metadata["recommendation_rows"])
+    log.info(format_stage_log(timer.finish()), source=LOG_SOURCE)
     return 0
 
 

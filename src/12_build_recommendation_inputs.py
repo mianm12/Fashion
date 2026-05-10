@@ -4,6 +4,7 @@ from fashion_trend.catalog.paths import GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH
 from fashion_trend.catalog.readers import read_article_attribute_edges
 from fashion_trend.foundation import logging as log
 from fashion_trend.recommendation.inputs import build_and_write_recommendation_inputs
+from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 from fashion_trend.transactions.paths import WEEKLY_TRANSACTIONS_PATH
 from fashion_trend.transactions.readers import read_weekly_transactions
 from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
@@ -14,6 +15,7 @@ LOG_SOURCE = "recommendation-inputs"
 
 def main() -> int:
     """Build recommendation time windows and model input artifacts."""
+    timer = StageTimer("input_build")
     try:
         artifacts = build_and_write_recommendation_inputs(
             transactions=read_weekly_transactions(WEEKLY_TRANSACTIONS_PATH),
@@ -44,6 +46,16 @@ def main() -> int:
         f"用户画像: rows={len(artifacts.user_profile):,}",
         source=LOG_SOURCE,
     )
+    timer.rows = len(artifacts.user_profile)
+    timer.details.update(
+        {
+            "time_windows": len(artifacts.time_windows),
+            "target_users": len(artifacts.target_users),
+            "evaluation_labels": len(artifacts.evaluation_labels),
+            "user_profile": len(artifacts.user_profile),
+        }
+    )
+    log.info(format_stage_log(timer.finish()), source=LOG_SOURCE)
     return 0
 
 
