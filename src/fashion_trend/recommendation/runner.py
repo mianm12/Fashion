@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pandas as pd
 
 from fashion_trend.foundation.io import write_json_atomic
-from fashion_trend.recommendation.contracts import RECOMMENDATION_TOP_K
+from fashion_trend.recommendation.contracts import (
+    RECOMMENDATION_CORE_ATTR_TYPES,
+    RECOMMENDATION_TOP_K,
+    RECOMMENDATION_TREND_ATTR_WEIGHTS,
+)
 from fashion_trend.recommendation.methods.base import (
     RecommendationContext,
     RecommendationResult,
@@ -28,6 +34,8 @@ def run_recommendation_method(
     trend_predictions: pd.DataFrame | None = None,
     exclude_seen: bool = True,
     weights: dict[str, float] | None = None,
+    input_paths: dict[str, str] | None = None,
+    trend_model_source: str | None = None,
 ) -> RecommendationResult:
     method = get_recommendation_method(method_name)
     context = RecommendationContext(
@@ -42,8 +50,20 @@ def run_recommendation_method(
         user_profile=user_profile,
         trend_predictions=trend_predictions,
         weights=weights,
+        input_paths=input_paths,
+        trend_model_source=trend_model_source,
     )
     result = method.build_recommendations(context)
+    result.params.update(_params_for_method(method, method_name, exclude_seen, weights))
+    result.metadata.update(
+        _base_metadata(
+            method_name,
+            method.required_features,
+            windows,
+            input_paths,
+            trend_model_source,
+        )
+    )
     write_recommendation_result(result)
     return result
 
@@ -60,12 +80,20 @@ def run_recommendation_method_by_window(
     exclude_seen: bool = True,
     weights: dict[str, float] | None = None,
     collect_result: bool = True,
+    input_paths: dict[str, str] | None = None,
+    trend_model_source: str | None = None,
 ) -> RecommendationResult:
     """Run a recommendation method window-by-window and stream large CSV outputs."""
     method = get_recommendation_method(method_name)
     params = _params_for_method(method, method_name, exclude_seen, weights)
     metadata: dict[str, object] = {
-        "method": method_name,
+        **_base_metadata(
+            method_name,
+            method.required_features,
+            windows,
+            input_paths,
+            trend_model_source,
+        ),
         "candidate_rows": 0,
         "recommendation_rows": 0,
         "recommendation_item_rows": 0,
@@ -89,6 +117,8 @@ def run_recommendation_method_by_window(
                 user_profile=_optional_frame_for_window(user_profile, window),
                 trend_predictions=trend_predictions,
                 weights=weights,
+                input_paths=input_paths,
+                trend_model_source=trend_model_source,
             )
             result = method.build_recommendations(context)
             writer.write_chunk(result)
@@ -121,6 +151,50 @@ def _params_for_method(
         "top_k": RECOMMENDATION_TOP_K,
         "exclude_seen": exclude_seen,
         "weights": dict(weights if weights is not None else method.default_weights),
+        "candidate_strategy": method.default_candidate_strategy,
+        "score_features": list(method.required_features),
+    }
+
+
+def _base_metadata(
+    method_name: str,
+    required_features,
+    windows: pd.DataFrame,
+    input_paths: dict[str, str] | None,
+    trend_model_source: str | None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "method": method_name,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "window_config": _window_config(windows),
+        "input_artifacts": dict(input_paths or {}),
+    }
+    if "trend_score" in required_features:
+        metadata["trend_score_config"] = {
+            "stable_trend_model_source": trend_model_source,
+            "core_attr_types": list(RECOMMENDATION_CORE_ATTR_TYPES),
+            "attr_weights": dict(RECOMMENDATION_TREND_ATTR_WEIGHTS),
+        }
+    return metadata
+
+
+def _window_config(windows: pd.DataFrame) -> dict[str, object]:
+    if windows.empty:
+        return {
+            "window_count": 0,
+            "splits": [],
+            "min_cutoff_week": None,
+            "max_cutoff_week": None,
+            "min_label_week": None,
+            "max_label_week": None,
+        }
+    return {
+        "window_count": int(len(windows)),
+        "splits": sorted(windows["split"].astype(str).unique().tolist()),
+        "min_cutoff_week": int(windows["cutoff_week"].min()),
+        "max_cutoff_week": int(windows["cutoff_week"].max()),
+        "min_label_week": int(windows["label_week"].min()),
+        "max_label_week": int(windows["label_week"].max()),
     }
 
 

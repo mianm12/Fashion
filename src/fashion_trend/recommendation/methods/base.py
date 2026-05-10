@@ -20,6 +20,8 @@ class RecommendationContext:
     user_profile: pd.DataFrame | None = None
     trend_predictions: pd.DataFrame | None = None
     weights: dict[str, float] | None = None
+    input_paths: dict[str, str] | None = None
+    trend_model_source: str | None = None
 
 
 @dataclass(frozen=True)

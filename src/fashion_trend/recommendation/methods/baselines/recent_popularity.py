@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from fashion_trend.recommendation.contracts import RECOMMENDATION_CANDIDATES_PER_SOURCE
+from fashion_trend.recommendation.contracts import (
+    RECOMMENDATION_CANDIDATES_PER_SOURCE,
+)
 from fashion_trend.recommendation.methods.base import (
     RecommendationContext,
     RecommendationResult,
@@ -37,4 +39,9 @@ class RecentPopularityMethod:
             top_n=max(context.top_k, RECOMMENDATION_CANDIDATES_PER_SOURCE),
         )
         candidates = build_candidate_items("popularity", [source])
-        return build_baseline_recommendation_result(self, context, candidates)
+        return build_baseline_recommendation_result(
+            self,
+            context,
+            candidates,
+            backfill_mode="recent",
+        )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import re
 
 import pytest
@@ -12,6 +13,7 @@ from fashion_trend.recommendation.experiments.grid_search import (
 from fashion_trend.recommendation.experiments.runner import (
     candidate_strategy_for_method,
     generate_experiment_run_id,
+    run_recommendation_experiment,
 )
 from fashion_trend.recommendation.paths import experiment_run_dir
 
@@ -84,6 +86,13 @@ def test_experiment_uses_method_default_candidate_strategy() -> None:
     assert candidate_strategy_for_method("attribute_similarity") == "similarity"
     assert candidate_strategy_for_method("pop_similarity") == "default"
     assert candidate_strategy_for_method("pop_similarity_trend") == "default"
+
+
+def test_experiment_runner_exposes_force_rebuild_switch() -> None:
+    signature = inspect.signature(run_recommendation_experiment)
+
+    assert "force" in signature.parameters
+    assert signature.parameters["force"].default is False
 
 
 @pytest.mark.parametrize("bad", ["", ".", "..", "main/evil", "main\\evil"])

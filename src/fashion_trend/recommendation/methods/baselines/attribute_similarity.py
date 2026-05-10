@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from fashion_trend.recommendation.contracts import RECOMMENDATION_CANDIDATES_PER_SOURCE
+from fashion_trend.recommendation.contracts import (
+    RECOMMENDATION_CANDIDATES_PER_SOURCE,
+)
 from fashion_trend.recommendation.methods.base import (
     RecommendationContext,
     RecommendationResult,
@@ -43,12 +45,14 @@ class AttributeSimilarityMethod:
                 context,
                 candidates,
                 metadata={"fallback_user_count": _target_user_window_count(context)},
+                backfill_mode="recent",
             )
         return build_baseline_recommendation_result(
             self,
             context,
             context.candidates,
             metadata={"fallback_user_count": 0},
+            backfill_mode="recent",
         )
 
 
@@ -63,10 +67,13 @@ def _needs_recent_fallback(context: RecommendationContext) -> bool:
 
 @dataclass(frozen=True)
 class _AttributeSimilarityRecentFallbackMethod:
+    name: str = "attribute_similarity"
     method_type: str = "baseline"
+    default_candidate_strategy: str = "popularity"
     default_weights: dict[str, float] = field(
         default_factory=lambda: {"recent_score": 1.0}
     )
+    required_features: tuple[str, ...] = ("recent_score",)
 
 
 def _target_user_window_count(context: RecommendationContext) -> int:

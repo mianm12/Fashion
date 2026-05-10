@@ -65,6 +65,8 @@ class RecommendationExperimentContext:
     transactions: pd.DataFrame
     article_attributes: pd.DataFrame
     trend_predictions: pd.DataFrame
+    input_paths: dict[str, str] | None = None
+    trend_model_source: str | None = None
 
 
 def generate_experiment_run_id(now: datetime | None = None) -> str:
@@ -80,8 +82,9 @@ def candidate_strategy_for_method(method_name: str) -> str | None:
 
 def ensure_or_build_recommendation_inputs(
     context: RecommendationExperimentContext,
+    force: bool = False,
 ) -> RecommendationInputArtifacts:
-    if all(
+    if not force and all(
         path.exists()
         for path in (
             TIME_WINDOWS_PATH,
@@ -108,9 +111,10 @@ def ensure_or_build_candidate_items(
     strategy: str,
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
+    force: bool = False,
 ) -> pd.DataFrame:
     path = candidate_items_path(strategy)
-    if path.exists():
+    if not force and path.exists():
         return read_candidate_items(path)
 
     build_and_write_candidate_items(
@@ -129,20 +133,22 @@ def ensure_or_build_candidates_for_method(
     method_name: str,
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
+    force: bool = False,
 ) -> pd.DataFrame | None:
     strategy = candidate_strategy_for_method(method_name)
     if strategy is None:
         return None
-    return ensure_or_build_candidate_items(strategy, context, inputs)
+    return ensure_or_build_candidate_items(strategy, context, inputs, force=force)
 
 
 def run_baseline_methods(
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
+    force: bool = False,
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for method_name in BASELINE_METHODS:
-        if method_output_paths(method_name).recommendations.exists():
+        if not force and method_output_paths(method_name).recommendations.exists():
             payloads.append(
                 evaluate_method_output_for_experiment(method_name, context, inputs)
             )
@@ -151,6 +157,7 @@ def run_baseline_methods(
             method_name,
             context,
             inputs,
+            force=force,
         )
         run_recommendation_method_by_window(
             method_name=method_name,
@@ -162,6 +169,7 @@ def run_baseline_methods(
             user_profile=inputs.user_profile,
             trend_predictions=None,
             collect_result=False,
+            input_paths=_experiment_input_paths(context),
         )
         payloads.append(
             evaluate_method_output_for_experiment(method_name, context, inputs)
@@ -279,6 +287,8 @@ def publish_trend_method_with_weights(
         trend_predictions=context.trend_predictions,
         weights=weights,
         collect_result=False,
+        input_paths=_experiment_input_paths(context),
+        trend_model_source=context.trend_model_source,
     )
     return evaluate_method_output_for_experiment(TREND_METHOD, context, inputs)
 
@@ -342,14 +352,16 @@ def build_experiment_payload(
 def run_recommendation_experiment(
     context: RecommendationExperimentContext,
     experiment_id: str = "main",
+    force: bool = False,
 ) -> dict[str, Any]:
     validate_safe_path_segment(experiment_id, "experiment_id")
-    inputs = ensure_or_build_recommendation_inputs(context)
-    baseline_payloads = run_baseline_methods(context, inputs)
+    inputs = ensure_or_build_recommendation_inputs(context, force=force)
+    baseline_payloads = run_baseline_methods(context, inputs, force=force)
     default_candidates = ensure_or_build_candidates_for_method(
         TREND_METHOD,
         context,
         inputs,
+        force=force,
     )
     if default_candidates is None:
         raise ValueError(f"{TREND_METHOD} requires a candidate strategy")
@@ -379,3 +391,17 @@ def run_recommendation_experiment(
 
 def _filter_split(dataframe: pd.DataFrame, split: str) -> pd.DataFrame:
     return dataframe.loc[dataframe["split"].astype(str) == split].reset_index(drop=True)
+
+
+def _experiment_input_paths(
+    context: RecommendationExperimentContext,
+) -> dict[str, str]:
+    return {
+        **dict(context.input_paths or {}),
+        "time_windows": str(TIME_WINDOWS_PATH),
+        "target_users": str(TARGET_USERS_PATH),
+        "evaluation_labels": str(EVALUATION_LABELS_PATH),
+        "user_profile": str(USER_PROFILE_PATH),
+        "default_candidates": str(candidate_items_path("default")),
+        "similarity_candidates": str(candidate_items_path("similarity")),
+    }

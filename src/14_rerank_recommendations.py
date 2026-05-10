@@ -41,18 +41,30 @@ def main() -> int:
         args = parse_args()
         method = get_recommendation_method(args.method)
         candidates = None
+        candidate_path = None
         if method.default_candidate_strategy is not None:
-            candidates = read_candidate_items(
-                candidate_items_path(method.default_candidate_strategy)
-            )
+            candidate_path = candidate_items_path(method.default_candidate_strategy)
+            candidates = read_candidate_items(candidate_path)
+        trend_prediction_path = None
         trend_predictions = None
         if method.name == "pop_similarity_trend":
-            trend_predictions = read_trend_model_predictions(
-                OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
-            )
+            trend_prediction_path = OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
+            trend_predictions = read_trend_model_predictions(trend_prediction_path)
         user_profile = None
         if "sim_score" in method.required_features and USER_PROFILE_PATH.exists():
             user_profile = read_user_profile(USER_PROFILE_PATH)
+        input_paths = {
+            "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
+            "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
+            "time_windows": str(TIME_WINDOWS_PATH),
+            "target_users": str(TARGET_USERS_PATH),
+        }
+        if candidate_path is not None:
+            input_paths["candidate_items"] = str(candidate_path)
+        if user_profile is not None:
+            input_paths["user_profile"] = str(USER_PROFILE_PATH)
+        if trend_prediction_path is not None:
+            input_paths["trend_predictions"] = str(trend_prediction_path)
         result = run_recommendation_method_by_window(
             method_name=args.method,
             transactions=read_weekly_transactions(WEEKLY_TRANSACTIONS_PATH),
@@ -66,6 +78,12 @@ def main() -> int:
             trend_predictions=trend_predictions,
             exclude_seen=args.exclude_seen,
             collect_result=False,
+            input_paths=input_paths,
+            trend_model_source=(
+                str(trend_prediction_path)
+                if trend_prediction_path is not None
+                else None
+            ),
         )
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         log.error(f"处理失败: {exc}", source=LOG_SOURCE)

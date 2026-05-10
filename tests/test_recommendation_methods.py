@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pandas as pd
@@ -211,6 +212,28 @@ def test_popularity_baselines_build_without_profile_or_candidates(
     assert result.params["exclude_seen"] is True
 
 
+@pytest.mark.parametrize("method_name", ["global_popularity", "recent_popularity"])
+def test_popularity_baselines_backfill_after_excluding_seen(method_name: str) -> None:
+    context = sample_method_context(method_name=method_name)
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["u1", "u2", "u3", "u4"],
+            "article_id": ["0000000001", "0000000001", "0000000002", "0000000003"],
+            "week_id": [10, 10, 10, 10],
+        }
+    )
+
+    result = get_recommendation_method(method_name).build_recommendations(
+        replace(context, top_k=2, transactions=transactions)
+    )
+
+    assert set(result.recommendation_items["article_id"]) == {
+        "0000000002",
+        "0000000003",
+    }
+    assert len(result.recommendation_items) == 2
+
+
 def test_attribute_similarity_falls_back_when_profile_is_empty() -> None:
     method = get_recommendation_method("attribute_similarity")
     empty_profile = pd.DataFrame(columns=list(USER_PROFILE_COLUMNS))
@@ -224,6 +247,44 @@ def test_attribute_similarity_falls_back_when_profile_is_empty() -> None:
     assert_method_result_shape(result, "attribute_similarity")
     assert result.metadata["fallback_user_count"] == 1
     assert result.params["weights"] == {"recent_score": 1.0}
+
+
+def test_attribute_similarity_backfills_short_similarity_candidates() -> None:
+    method = get_recommendation_method("attribute_similarity")
+    context = sample_method_context(method_name="attribute_similarity")
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "similarity",
+                "customer_id": "u1",
+                "article_id": "0000000001",
+                "candidate_sources": "similarity",
+                "primary_source": "similarity",
+                "best_source_rank": 1,
+            }
+        ],
+        columns=list(CANDIDATE_ITEM_COLUMNS),
+    )
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["u1", "u2", "u3", "u4"],
+            "article_id": ["0000000001", "0000000001", "0000000002", "0000000003"],
+            "week_id": [10, 10, 10, 10],
+        }
+    )
+
+    result = method.build_recommendations(
+        replace(context, top_k=2, transactions=transactions, candidates=candidates)
+    )
+
+    assert set(result.recommendation_items["article_id"]) == {
+        "0000000002",
+        "0000000003",
+    }
+    assert len(result.recommendation_items) == 2
 
 
 def test_pop_similarity_builds_without_trend_predictions() -> None:
@@ -280,8 +341,11 @@ def test_window_runner_writes_streamed_method_outputs(tmp_path, monkeypatch) -> 
         windows=context.windows,
         target_users=context.target_users,
         exclude_seen=context.exclude_seen,
+        input_paths={"weekly_transactions": "in_memory"},
     )
     output_paths = recommendation_paths.method_output_paths("global_popularity")
+    params = json.loads(output_paths.params.read_text(encoding="utf-8"))
+    metadata = json.loads(output_paths.metadata.read_text(encoding="utf-8"))
 
     assert output_paths.recommendations.exists()
     assert output_paths.recommendation_items.exists()
@@ -293,6 +357,53 @@ def test_window_runner_writes_streamed_method_outputs(tmp_path, monkeypatch) -> 
     assert result.metadata["recommendation_item_rows"] == len(
         result.recommendation_items
     )
+    assert params["candidate_strategy"] is None
+    assert params["score_features"] == ["pop_score"]
+    assert metadata["generated_at"].endswith("Z")
+    assert metadata["input_artifacts"] == {"weekly_transactions": "in_memory"}
+    assert metadata["window_config"] == {
+        "window_count": 1,
+        "splits": ["valid"],
+        "min_cutoff_week": 10,
+        "max_cutoff_week": 10,
+        "min_label_week": 11,
+        "max_label_week": 11,
+    }
+
+
+def test_window_runner_records_trend_score_metadata(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(method_name="pop_similarity_trend")
+    predictions = pd.DataFrame(
+        {
+            "split": ["valid"],
+            "week_id": [10],
+            "attr_id": [101],
+            "attr_type": ["product_type_name"],
+            "attr_value": ["Dress"],
+            "pred_target_growth": [2.0],
+        }
+    )
+
+    run_recommendation_method_by_window(
+        method_name="pop_similarity_trend",
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        windows=context.windows,
+        target_users=context.target_users,
+        candidates=context.candidates,
+        user_profile=context.user_profile,
+        trend_predictions=predictions,
+        trend_model_source="outputs/models/lightgbm/predictions.csv",
+    )
+    output_paths = recommendation_paths.method_output_paths("pop_similarity_trend")
+    metadata = json.loads(output_paths.metadata.read_text(encoding="utf-8"))
+
+    assert metadata["trend_score_config"]["stable_trend_model_source"] == (
+        "outputs/models/lightgbm/predictions.csv"
+    )
+    assert "product_type_name" in metadata["trend_score_config"]["core_attr_types"]
+    assert metadata["trend_score_config"]["attr_weights"]["product_type_name"] == 0.35
 
 
 def make_small_transactions() -> pd.DataFrame:
