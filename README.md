@@ -34,7 +34,7 @@ H&M transactions_train.csv
 | Moving Average baseline | 已实现（运行命令后生成） | `outputs/models/moving_average/predictions.csv`、`params.json`、`metadata.json` |
 | LightGBM 主模型 | 已实现（运行命令后生成） | `outputs/models/lightgbm/predictions.csv`、`params.json`、`metadata.json`、`feature_importance.csv`、`model.txt` |
 | 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json`、`outputs/metrics/lightgbm/trend_metrics.json` |
-| 推荐模块与推荐评价 | 已实现（运行命令后生成） | `outputs/recommendation/<method>/recommendations.csv`、`recommendation_items.csv`、`params.json`、`metadata.json`、`metrics.json` |
+| 推荐模块与推荐评价 | 已实现（运行命令后生成） | `outputs/recommendation/<method>/recommendations.csv`、`recommendation_items.parquet`、`params.json`、`metadata.json`、`metrics.json` |
 
 上表中 baseline、LightGBM、趋势评价和推荐实验的产物是对应训练、评价、推荐命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
 
@@ -665,18 +665,35 @@ data/processed/recommend/time_windows.parquet
 data/processed/recommend/target_users.parquet
 data/processed/recommend/evaluation_labels.parquet
 data/processed/recommend/user_profile.parquet
+data/processed/recommend/metadata.json
 data/processed/recommend/candidates/<strategy>/candidate_items.parquet
+data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet
 ```
 
 候选池按 strategy 隔离，推荐输出按 method 隔离。标准推荐产物写入：
 
 ```text
 outputs/recommendation/<method>/recommendations.csv
-outputs/recommendation/<method>/recommendation_items.csv
+outputs/recommendation/<method>/recommendation_items.parquet
 outputs/recommendation/<method>/params.json
 outputs/recommendation/<method>/metadata.json
 outputs/recommendation/<method>/metrics.json
 outputs/recommendation/experiments/<experiment_id>/experiment.json
+```
+
+`recommendation_items.parquet` 是默认内部长表产物；`recommendation_items.csv`
+仅作为显式导出用途，不是默认推荐输出。
+
+`16_run_recommendation_experiment.py` 默认复用新鲜的输入、候选、feature
+cache 和 method 产物。需要重建时使用明确 force 参数：
+
+```sh
+uv run python src/16_run_recommendation_experiment.py --experiment main
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-experiment
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-method pop_similarity
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-cache
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-candidates
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-rebuild-all
 ```
 
 ## 后续阶段

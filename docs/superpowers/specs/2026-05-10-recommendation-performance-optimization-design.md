@@ -351,7 +351,16 @@ Backfill 策略：
 
 ## `16` 重建语义
 
-将重建模式拆成明确参数：
+当前实现后的重建模式使用以下明确参数：
+
+```sh
+uv run python src/16_run_recommendation_experiment.py --experiment main
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-experiment
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-method pop_similarity
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-cache
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-candidates
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-rebuild-all
+```
 
 ```sh
 --force-experiment

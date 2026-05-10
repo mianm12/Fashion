@@ -166,12 +166,14 @@ LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。
 - `data/processed/recommend/target_users.parquet`
 - `data/processed/recommend/evaluation_labels.parquet`
 - `data/processed/recommend/user_profile.parquet`
+- `data/processed/recommend/metadata.json`
 - `data/processed/recommend/candidates/<strategy>/candidate_items.parquet`
+- `data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet`
 
 推荐 method stable 输出使用：
 
 - `outputs/recommendation/<method>/recommendations.csv`
-- `outputs/recommendation/<method>/recommendation_items.csv`
+- `outputs/recommendation/<method>/recommendation_items.parquet`
 - `outputs/recommendation/<method>/params.json`
 - `outputs/recommendation/<method>/metadata.json`
 - `outputs/recommendation/<method>/metrics.json`
@@ -180,11 +182,22 @@ LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。
 
 - `outputs/recommendation/experiments/<experiment_id>/experiment.json`
 - `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/recommendations.csv`
-- `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/recommendation_items.csv`
+- `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/recommendation_items.parquet`
 - `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/params.json`
 - `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/metadata.json`
 
-推荐结果必须保留 `customer_id`、`article_id` 和 `prediction` 的字符串语义，尤其不能丢失前导 0。`recommendations.csv` 是每个用户窗口一行的 Top-12 短表；`recommendation_items.csv` 是用于解释、审计和评价的长表。同一用户窗口内推荐商品不能重复。
+推荐结果必须保留 `customer_id`、`article_id` 和 `prediction` 的字符串语义，尤其不能丢失前导 0。`recommendations.csv` 是每个用户窗口一行的 Top-12 短表；`recommendation_items.parquet` 是用于解释、审计和评价的默认内部长表。同一用户窗口内推荐商品不能重复。`recommendation_items.csv` 只有显式导出时才应出现，不能作为默认产物或默认 reader 来源。
+
+`16_run_recommendation_experiment.py` 的推荐实验 force 语义必须保持精确：
+
+```sh
+uv run python src/16_run_recommendation_experiment.py --experiment main
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-experiment
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-method pop_similarity
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-cache
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-candidates
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-rebuild-all
+```
 
 ## 编码风格与架构边界
 

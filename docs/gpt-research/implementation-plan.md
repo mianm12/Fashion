@@ -1328,6 +1328,13 @@ hm-fashion-trend-rec/
 │   │       ├── target_users.parquet
 │   │       ├── evaluation_labels.parquet
 │   │       ├── user_profile.parquet
+│   │       ├── metadata.json
+│   │       ├── features/
+│   │       │   └── <feature_name>/
+│   │       │       └── strategy=<strategy>/
+│   │       │           └── split=<split>/
+│   │       │               └── cutoff_week=<week>/
+│   │       │                   └── part.parquet
 │   │       └── candidates/
 │   │           └── <strategy>/
 │   │               └── candidate_items.parquet
@@ -1346,7 +1353,7 @@ hm-fashion-trend-rec/
 │   └── recommendation/
 │       ├── <method>/
 │       │   ├── recommendations.csv
-│       │   ├── recommendation_items.csv
+│       │   ├── recommendation_items.parquet
 │       │   ├── params.json
 │       │   ├── metadata.json
 │       │   └── metrics.json
@@ -1441,9 +1448,10 @@ hm-fashion-trend-rec/
 | LightGBM run 评价 | `11_eval_trend_model.py --model lightgbm --run-id <run_id>` | `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json` |
 | 已评估 run 发布 | `10_train_trend_model.py --model lightgbm --promote-run <run_id>` | 发布到 `outputs/models/lightgbm/` 和 `outputs/metrics/lightgbm/trend_metrics.json` |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
-| 推荐输入        | `src/12_build_recommendation_inputs.py` | `time_windows.parquet`, `target_users.parquet`, `evaluation_labels.parquet`, `user_profile.parquet`       |
+| 推荐输入        | `src/12_build_recommendation_inputs.py` | `time_windows.parquet`, `target_users.parquet`, `evaluation_labels.parquet`, `user_profile.parquet`, `data/processed/recommend/metadata.json` |
 | 候选召回        | `src/13_build_recommend_candidates.py --strategy <strategy>` | `data/processed/recommend/candidates/<strategy>/candidate_items.parquet` |
-| 推荐重排序       | `src/14_rerank_recommendations.py --method <method>` | `outputs/recommendation/<method>/recommendations.csv`, `recommendation_items.csv`, `params.json`, `metadata.json` |
+| 推荐特征缓存     | `src/16_run_recommendation_experiment.py --experiment main --force-cache` | `data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet` |
+| 推荐重排序       | `src/14_rerank_recommendations.py --method <method>` | `outputs/recommendation/<method>/recommendations.csv`, `recommendation_items.parquet`, `params.json`, `metadata.json` |
 | 推荐评价        | `src/15_eval_recommendations.py --method <method>` | `outputs/recommendation/<method>/metrics.json`                                                             |
 | 推荐实验        | `src/16_run_recommendation_experiment.py --experiment main` | `outputs/recommendation/experiments/<experiment_id>/experiment.json`                                       |
 | 报告导出        | 后续编号入口                         | figures、tables、case studies                                                                              |
@@ -1803,10 +1811,13 @@ src/14_rerank_recommendations.py --method <method>
 
 ```text
 outputs/recommendation/<method>/recommendations.csv
-outputs/recommendation/<method>/recommendation_items.csv
+outputs/recommendation/<method>/recommendation_items.parquet
 outputs/recommendation/<method>/params.json
 outputs/recommendation/<method>/metadata.json
 ```
+
+`recommendation_items.parquet` 是默认内部长表产物；`recommendation_items.csv`
+仅在显式导出时生成。
 
 格式：
 
@@ -1858,8 +1869,13 @@ Coverage
 
 写：
 
-```text
-src/16_run_recommendation_experiment.py --experiment main
+```sh
+uv run python src/16_run_recommendation_experiment.py --experiment main
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-experiment
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-method pop_similarity
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-cache
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-candidates
+uv run python src/16_run_recommendation_experiment.py --experiment main --force-rebuild-all
 ```
 
 输出：
