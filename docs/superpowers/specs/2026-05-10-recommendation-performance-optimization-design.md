@@ -445,7 +445,7 @@ stage=experiment experiment=main elapsed=<seconds>
 1. 观测与耗时日志：给 `12-16` 加阶段计时和 row count，不改算法，建立 baseline。
 2. Artifact 契约迁移：method output 增加 `schema_version`、`algorithm_version`、`output_artifacts`、`config` 和 `row_counts`，再将 `recommendation_items.csv` 主产物迁到 `recommendation_items.parquet`，更新 reader、evaluator、docs 和 tests。
 3. 统一 freshness checker：新增 `data/processed/recommend/metadata.json`，并把 input、candidate、method 和后续 cache 的 freshness 检查统一到一个可测试的 helper。
-4. Feature cache 与 method runner：引入按 strategy/window 分区的 `data/processed/recommend/features/`，缓存 pop/recent/sim/trend/seen/recommendable_pool；`14` 改为按 method strategy 和 window 读取 cache、只输出 Top-12 parquet 和 short CSV；第一版保持 source `top_n=12`，避免放大候选瓶颈。
+4. Feature cache 与 method runner：引入按 strategy/window 分区的 `data/processed/recommend/features/`，缓存 pop/recent/sim/trend/candidate_seen_flags/recommendable_pool；`14` 改为按 method strategy 和 window 读取 cache、只输出 Top-12 parquet 和 short CSV；第一版保持 source `top_n=12`，避免放大候选瓶颈。
 5. Experiment 编排重构：改造 `16` 的 force 语义、新鲜度复用、权重搜索和 experiment payload，最后跑真实全量性能验收。
 
 每个阶段都应独立提交，避免把 artifact 契约、算法变化和实验编排混成一个大 diff。
