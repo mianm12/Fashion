@@ -98,6 +98,14 @@ method output metadata 必须记录：
 
 method output 只有在 `recommendations.csv`、`recommendation_items.parquet`、`params.json` 和 `metadata.json` 同时存在，且 metadata 的 input fingerprint、output artifact、schema version、algorithm version 和 config 都匹配时，才能被 `16` 复用。迁移后旧的 CSV-only method output 必须被判定为 stale，不能因为 `recommendations.csv` 存在而复用。
 
+method metadata 的 `input_artifacts` 必须覆盖 method 实际使用的完整上游链路：
+
+- `data/processed/recommend/metadata.json`。
+- method 使用 strategy 的 `candidate_items.parquet` 和 `metadata.json`。
+- method 读取的 feature cache manifest、metadata 和分区路径。
+
+这些输入的 `schema_version`、`algorithm_version`、`config` 和 fingerprint 都必须进入 freshness 判断。不能只记录原始 transactions、user profile 或趋势预测，否则候选或 cache 重建后，旧 method output 可能被错误复用。
+
 ### 候选与缓存产物
 
 候选继续 strategy-scoped：
@@ -122,7 +130,7 @@ popularity_scores
 recent_scores
 similarity_scores
 trend_scores
-seen_items
+candidate_seen_flags
 recommendable_pool
 data/processed/recommend/features/metadata.json
 ```
@@ -133,7 +141,7 @@ feature cache 的物理组织必须支持按 strategy 和 window 分区读取，
 data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet
 ```
 
-其中 `popularity_scores`、`recent_scores` 和 `trend_scores` 可以只按 window 分区，因为它们不依赖用户；`similarity_scores` 和 `seen_items` 必须至少按 strategy + window 分区，因为它们接近 candidate user-article-window 规模。`14` 每次只读取当前 method 所需 strategy 和 window 的 feature partition。
+其中 `popularity_scores`、`recent_scores` 和 `trend_scores` 可以只按 window 分区，因为它们不依赖用户；`similarity_scores` 和 `candidate_seen_flags` 必须至少按 strategy + window 分区，因为它们接近 candidate user-article-window 规模。`14` 每次只读取当前 method 所需 strategy 和 window 的 feature partition。
 
 feature cache metadata 必须记录：
 
@@ -147,7 +155,7 @@ feature cache metadata 必须记录：
 
 输入、算法版本或配置变化时，下游必须识别 stale。默认行为可以报错并给出重建命令，也可以在 `16` 中只重建必要 stale 节点，但不能静默混用旧产物。
 
-feature cache 也需要体积预算：单个 strategy 的 `similarity_scores` 和 `seen_items` 行数不应超过对应 strategy candidate 行数的合理倍数，第一版目标是不超过 `candidate_rows`。如果某个 cache 超过候选行数或单 feature cache 文件显著接近历史 GB 级 CSV 体积，必须视为设计退化并回到分区或计算粒度调整。
+feature cache 也需要体积预算：单个 strategy 的 `similarity_scores` 和 `candidate_seen_flags` 行数不应超过对应 strategy candidate 行数的合理倍数，第一版目标是不超过 `candidate_rows`。`candidate_seen_flags` 只缓存当前 strategy/window candidate pair 中已购命中的子集，不能实现成完整历史已购集合；完整历史已购集合只能作为中间计算输入，不作为稳定 cache。如果某个 cache 超过候选行数或单 feature cache 文件显著接近历史 GB 级 CSV 体积，必须视为设计退化并回到分区或计算粒度调整。
 
 ### 可选导出产物
 
@@ -205,7 +213,7 @@ candidate_items + transactions + article_attributes + user_profile + trend_predi
 -> recent_score
 -> sim_score
 -> trend_score
--> seen_items
+-> candidate_seen_flags
 -> recommendable_pool
 ```
 
@@ -214,9 +222,9 @@ candidate_items + transactions + article_attributes + user_profile + trend_predi
 - `pop_score` 和 `recent_score` 按 `split + cutoff_week + label_week + article_id` 预计算。
 - `sim_score` 只针对候选中实际出现的 `customer_id + article_id + window` 预计算。
 - `trend_score` 按 `split + cutoff_week + label_week + article_id` 预计算，所有用户共享。
-- `seen_items` 按 `split + cutoff_week + label_week + customer_id + article_id` 或等价 join key 预计算。
+- `candidate_seen_flags` 按 `split + cutoff_week + label_week + customer_id + article_id` 或等价 join key 预计算，且只包含当前候选 pair 中已命中的 seen 记录。
 - `recommendable_pool` 按窗口预计算，供所有 method 的评价复用。
-- `14` 必须按 method strategy 和 window 分批读取 cache，并流式写出 Top-12 结果；不能一次性把 `default` 候选、similarity cache、seen cache、trend cache 和 popularity cache 全部 join 成单个巨大 DataFrame。
+- `14` 必须按 method strategy 和 window 分批读取 cache，并流式写出 Top-12 结果；不能一次性把 `default` 候选、similarity cache、candidate seen cache、trend cache 和 popularity cache 全部 join 成单个巨大 DataFrame。
 
 ### `14` Method 产出
 
@@ -225,7 +233,7 @@ candidate_items + transactions + article_attributes + user_profile + trend_predi
 ```text
 method candidate set
 + feature cache
-+ seen_items
++ candidate_seen_flags
 -> score
 -> filter seen
 -> Top-12
@@ -361,13 +369,13 @@ Backfill 策略：
 --force-cache
 ```
 
-重建 feature cache，但复用输入和候选。
+重建 feature cache，但复用输入和候选。所有依赖被重建 cache 的 method output、metrics 和 experiment payload 必须判定为 stale，并重建或在日志与 `experiment.json` 中显式标记为 skipped；不能继续复用旧 method output。
 
 ```sh
 --force-candidates
 ```
 
-重建候选和 feature cache，但不重建 `12` 输入。
+重建候选和 feature cache，但不重建 `12` 输入。相关 strategy 的 candidate、cache、method output、metrics 和 experiment payload 都必须进入 rebuilt/stale 链路。未受影响 strategy 的 method 可以复用，但必须通过 method metadata 中的 candidate 和 cache fingerprint 验证。
 
 ```sh
 --force-rebuild-all
@@ -412,8 +420,9 @@ stage=experiment experiment=main elapsed=<seconds>
 - `recommendation_items.parquet` schema、dtype、key 唯一性、rank 范围和 Top-K 无重复。
 - `recommendations.csv` 与 `recommendation_items.parquet` 一致。
 - Cache freshness：输入 fingerprint、algorithm version 或 config 变化时识别 stale。
+- Method freshness：candidate artifact、feature cache manifest 或其 metadata 变化时识别 stale。
 - `16` 默认复用新鲜产物，不重建 `12`、`13`、cache 或 baseline。
-- `--force-cache`、`--force-candidates`、`--force-method`、`--force-rebuild-all` 只影响声明范围。
+- `--force-cache`、`--force-candidates`、`--force-method`、`--force-rebuild-all` 只影响声明范围，并正确触发下游 method、metrics 和 experiment stale/rebuilt 状态。
 - `--force-rebuild-all` 后关键 artifact 更新时间戳更新。
 - 时间泄漏检查：trend score 使用 `cutoff_week`，评价 labels 使用 `label_week`。
 - 推荐算法变化后，Top-K、无重复、eligible denominator 和 metrics payload 仍合法。
