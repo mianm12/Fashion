@@ -50,6 +50,7 @@ from fashion_trend.recommendation.readers import (
 from fashion_trend.recommendation.registry import get_recommendation_method
 from fashion_trend.recommendation.retrieval.candidates import (
     build_and_write_candidate_items,
+    candidate_input_paths_for_strategy,
 )
 from fashion_trend.recommendation.runner import run_recommendation_method_by_window
 
@@ -116,7 +117,12 @@ def ensure_or_build_candidate_items(
     force: bool = False,
 ) -> pd.DataFrame:
     path = candidate_items_path(strategy)
+    input_paths = candidate_input_paths_for_strategy(
+        strategy,
+        _experiment_input_paths(context),
+    )
     if not force and path.exists():
+        _validate_candidate_items_fresh(strategy, input_paths)
         return read_candidate_items(path)
 
     build_and_write_candidate_items(
@@ -127,6 +133,7 @@ def ensure_or_build_candidate_items(
         windows=inputs.time_windows,
         target_users=inputs.target_users,
         user_profile=inputs.user_profile,
+        input_paths=input_paths,
     )
     return read_candidate_items(path)
 
@@ -421,9 +428,41 @@ def _validate_method_output_fresh(
         )
 
 
+def _validate_candidate_items_fresh(
+    strategy: str,
+    input_paths: dict[str, str],
+) -> None:
+    candidate_path = candidate_items_path(strategy)
+    metadata_path = candidate_path.with_name("metadata.json")
+    if not metadata_path.exists():
+        raise RuntimeError(
+            _stale_candidate_message(strategy, "metadata.json is missing")
+        )
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    expected_input_artifacts = dict(input_paths)
+    if metadata.get("input_artifacts") != expected_input_artifacts:
+        raise RuntimeError(
+            _stale_candidate_message(strategy, "input_artifacts changed")
+        )
+
+    expected_fingerprints = build_input_fingerprints(expected_input_artifacts)
+    if metadata.get("input_fingerprints") != expected_fingerprints:
+        raise RuntimeError(
+            _stale_candidate_message(strategy, "input_fingerprints changed")
+        )
+
+
 def _stale_output_message(method_name: str, reason: str) -> str:
     return (
         f"{method_name} recommendation output is stale: {reason}. "
+        "Run src/16_run_recommendation_experiment.py with --force to rebuild."
+    )
+
+
+def _stale_candidate_message(strategy: str, reason: str) -> str:
+    return (
+        f"{strategy} candidate_items output is stale: {reason}. "
         "Run src/16_run_recommendation_experiment.py with --force to rebuild."
     )
 

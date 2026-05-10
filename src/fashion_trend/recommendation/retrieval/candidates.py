@@ -4,12 +4,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from fashion_trend.foundation.io import write_parquet_atomic
+from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
 from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
     RECOMMENDATION_CANDIDATE_STRATEGIES,
     RECOMMENDATION_CANDIDATES_PER_SOURCE,
 )
+from fashion_trend.recommendation.fingerprints import build_input_fingerprints
 from fashion_trend.recommendation.paths import candidate_items_path
 from fashion_trend.recommendation.retrieval.attributes import (
     build_attribute_similarity_candidates,
@@ -29,12 +30,48 @@ SOURCE_COLUMNS = (
     "source",
     "source_rank",
 )
+CANDIDATE_INPUT_KEYS_BY_STRATEGY = {
+    "popularity": ("weekly_transactions", "time_windows", "target_users"),
+    "similarity": (
+        "article_attributes",
+        "time_windows",
+        "target_users",
+        "user_profile",
+    ),
+    "trend_union": (
+        "article_attributes",
+        "trend_predictions",
+        "time_windows",
+        "target_users",
+    ),
+    "default": (
+        "weekly_transactions",
+        "article_attributes",
+        "trend_predictions",
+        "time_windows",
+        "target_users",
+        "user_profile",
+    ),
+}
 
 
 def validate_candidate_strategy(strategy: str) -> None:
     if strategy not in RECOMMENDATION_CANDIDATE_STRATEGIES:
         choices = ", ".join(RECOMMENDATION_CANDIDATE_STRATEGIES)
         raise ValueError(f"未知候选 strategy: {strategy}. 可用 strategy: {choices}")
+
+
+def candidate_input_paths_for_strategy(
+    strategy: str,
+    input_paths: dict[str, str] | None,
+) -> dict[str, str]:
+    validate_candidate_strategy(strategy)
+    available_paths = dict(input_paths or {})
+    return {
+        key: available_paths[key]
+        for key in CANDIDATE_INPUT_KEYS_BY_STRATEGY[strategy]
+        if key in available_paths
+    }
 
 
 def build_candidate_items(
@@ -134,7 +171,9 @@ def build_and_write_candidate_items(
     windows: pd.DataFrame,
     target_users: pd.DataFrame,
     user_profile: pd.DataFrame | None,
+    input_paths: dict[str, str] | None = None,
 ) -> Path:
+    candidate_input_paths = candidate_input_paths_for_strategy(strategy, input_paths)
     source_frames = build_source_frames_for_frames(
         strategy=strategy,
         transactions=transactions,
@@ -147,6 +186,15 @@ def build_and_write_candidate_items(
     candidates = build_candidate_items(strategy, source_frames)
     output_path = candidate_items_path(strategy)
     write_parquet_atomic(candidates, output_path)
+    write_json_atomic(
+        {
+            "strategy": strategy,
+            "candidate_rows": int(len(candidates)),
+            "input_artifacts": candidate_input_paths,
+            "input_fingerprints": build_input_fingerprints(candidate_input_paths),
+        },
+        output_path.with_name("metadata.json"),
+    )
     return output_path
 
 

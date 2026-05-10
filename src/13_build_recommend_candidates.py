@@ -18,6 +18,7 @@ from fashion_trend.recommendation.readers import (
 )
 from fashion_trend.recommendation.retrieval.candidates import (
     build_and_write_candidate_items,
+    candidate_input_paths_for_strategy,
 )
 from fashion_trend.transactions.paths import WEEKLY_TRANSACTIONS_PATH
 from fashion_trend.transactions.readers import read_weekly_transactions
@@ -51,9 +52,20 @@ def main() -> int:
         if args.strategy in {"similarity", "default"}:
             user_profile = read_user_profile(USER_PROFILE_PATH)
         if args.strategy in {"trend_union", "default"}:
-            trend_predictions = read_trend_model_predictions(
-                OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
-            )
+            trend_prediction_path = OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
+            trend_predictions = read_trend_model_predictions(trend_prediction_path)
+        else:
+            trend_prediction_path = None
+        input_paths = {
+            "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
+            "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
+            "trend_predictions": (
+                str(trend_prediction_path) if trend_prediction_path is not None else ""
+            ),
+            "time_windows": str(TIME_WINDOWS_PATH),
+            "target_users": str(TARGET_USERS_PATH),
+            "user_profile": str(USER_PROFILE_PATH),
+        }
         output_path = build_and_write_candidate_items(
             strategy=args.strategy,
             transactions=read_weekly_transactions(WEEKLY_TRANSACTIONS_PATH),
@@ -62,6 +74,7 @@ def main() -> int:
             windows=read_time_windows(TIME_WINDOWS_PATH),
             target_users=read_target_users(TARGET_USERS_PATH),
             user_profile=user_profile,
+            input_paths=candidate_input_paths_for_strategy(args.strategy, input_paths),
         )
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         log.error(f"处理失败: {exc}", source=LOG_SOURCE)

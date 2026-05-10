@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from fashion_trend.recommendation.contracts import CANDIDATE_ITEM_COLUMNS
 from fashion_trend.recommendation.experiments import runner as experiment_runner
 from fashion_trend.recommendation.experiments.ablation import build_ablation_summary
 from fashion_trend.recommendation.experiments.grid_search import (
@@ -17,6 +18,7 @@ from fashion_trend.recommendation.experiments.grid_search import (
 from fashion_trend.recommendation.experiments.runner import (
     RecommendationExperimentContext,
     candidate_strategy_for_method,
+    ensure_or_build_candidate_items,
     generate_experiment_run_id,
     run_baseline_methods,
     run_recommendation_experiment,
@@ -164,6 +166,80 @@ def test_experiment_rejects_stale_existing_method_output(
     )
     with pytest.raises(RuntimeError, match="--force"):
         run_baseline_methods(context, inputs, force=False)
+
+
+def test_experiment_rejects_stale_candidate_when_method_output_missing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("current input", encoding="utf-8")
+    candidate_path = tmp_path / "candidates" / "popularity" / "candidate_items.parquet"
+    candidate_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            (
+                "valid",
+                10,
+                11,
+                "popularity",
+                "0000001",
+                "0000000001",
+                "popularity",
+                "popularity",
+                1,
+            )
+        ],
+        columns=CANDIDATE_ITEM_COLUMNS,
+    ).to_parquet(candidate_path, index=False)
+    candidate_path.with_name("metadata.json").write_text(
+        json.dumps(
+            {
+                "strategy": "popularity",
+                "input_artifacts": {"weekly_transactions": str(input_path)},
+                "input_fingerprints": {
+                    "weekly_transactions": {
+                        "path": str(input_path),
+                        "exists": True,
+                        "size_bytes": 0,
+                        "mtime_ns": 0,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    input_paths = {"weekly_transactions": str(input_path)}
+    monkeypatch.setattr(
+        experiment_runner,
+        "candidate_items_path",
+        lambda strategy: candidate_path,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: input_paths,
+    )
+
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths=input_paths,
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    with pytest.raises(RuntimeError, match="--force"):
+        ensure_or_build_candidate_items(
+            "popularity",
+            context,
+            inputs,
+            force=False,
+        )
 
 
 @pytest.mark.parametrize("bad", ["", ".", "..", "main/evil", "main\\evil"])

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
+from fashion_trend.recommendation.retrieval import candidates as candidate_module
 from fashion_trend.recommendation.retrieval.attributes import (
     build_attribute_similarity_candidates,
 )
 from fashion_trend.recommendation.retrieval.candidates import (
+    build_and_write_candidate_items,
     build_candidate_items,
     build_source_frames_for_frames,
     validate_candidate_strategy,
@@ -128,6 +132,44 @@ def test_popularity_strategy_does_not_require_profile_or_trend_predictions() -> 
 
     assert len(frames) == 1
     assert set(frames[0]["source"]) == {"popularity"}
+
+
+def test_candidate_writer_records_input_fingerprints(tmp_path, monkeypatch) -> None:
+    input_path = tmp_path / "transactions.parquet"
+    input_path.write_text("transactions", encoding="utf-8")
+    candidate_path = tmp_path / "candidate_items.parquet"
+    monkeypatch.setattr(
+        candidate_module,
+        "candidate_items_path",
+        lambda strategy: candidate_path,
+    )
+
+    output_path = build_and_write_candidate_items(
+        strategy="popularity",
+        transactions=pd.DataFrame(
+            {
+                "customer_id": ["u1"],
+                "article_id": ["0000000001"],
+                "week_id": [10],
+            }
+        ),
+        article_attributes=None,
+        trend_predictions=None,
+        windows=sample_window(),
+        target_users=sample_targets(),
+        user_profile=None,
+        input_paths={"weekly_transactions": str(input_path)},
+    )
+    metadata = json.loads(
+        output_path.with_name("metadata.json").read_text(encoding="utf-8")
+    )
+
+    assert metadata["strategy"] == "popularity"
+    assert metadata["candidate_rows"] == 1
+    assert metadata["input_artifacts"] == {"weekly_transactions": str(input_path)}
+    assert metadata["input_fingerprints"]["weekly_transactions"]["size_bytes"] == (
+        input_path.stat().st_size
+    )
 
 
 def test_trend_strategy_requires_trend_predictions() -> None:
