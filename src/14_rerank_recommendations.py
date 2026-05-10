@@ -20,7 +20,10 @@ from fashion_trend.recommendation.readers import (
     read_user_profile,
 )
 from fashion_trend.recommendation.registry import get_recommendation_method
-from fashion_trend.recommendation.runner import run_recommendation_method_by_window
+from fashion_trend.recommendation.runner import (
+    method_input_paths_for_artifacts,
+    run_recommendation_method_by_window,
+)
 from fashion_trend.transactions.paths import WEEKLY_TRANSACTIONS_PATH
 from fashion_trend.transactions.readers import read_weekly_transactions
 from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
@@ -55,18 +58,22 @@ def main() -> int:
         user_profile = None
         if "sim_score" in method.required_features and USER_PROFILE_PATH.exists():
             user_profile = read_user_profile(USER_PROFILE_PATH)
-        input_paths = {
+        available_input_paths = {
             "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
             "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
             "time_windows": str(TIME_WINDOWS_PATH),
             "target_users": str(TARGET_USERS_PATH),
         }
+        if USER_PROFILE_PATH.exists():
+            available_input_paths["user_profile"] = str(USER_PROFILE_PATH)
         if candidate_path is not None:
-            input_paths["candidate_items"] = str(candidate_path)
-        if user_profile is not None:
-            input_paths["user_profile"] = str(USER_PROFILE_PATH)
+            available_input_paths["candidate_items"] = str(candidate_path)
         if trend_prediction_path is not None:
-            input_paths["trend_predictions"] = str(trend_prediction_path)
+            available_input_paths["trend_predictions"] = str(trend_prediction_path)
+        input_paths = method_input_paths_for_artifacts(
+            args.method,
+            available_input_paths,
+        )
         result = run_recommendation_method_by_window(
             method_name=args.method,
             transactions=read_weekly_transactions(WEEKLY_TRANSACTIONS_PATH),

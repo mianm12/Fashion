@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 
+from fashion_trend.recommendation import inputs as recommendation_inputs
 from fashion_trend.recommendation.inputs import (
+    build_and_write_recommendation_inputs,
     build_evaluation_labels,
     build_target_users,
     build_user_profile,
@@ -168,3 +172,73 @@ def test_user_profile_keeps_top_core_attributes_only() -> None:
 
     assert profile["attr_value"].tolist() == ["Dress", "Black", "Tops"]
     assert "detail_desc" not in set(profile["attr_type"])
+
+
+def test_build_and_write_inputs_records_upstream_metadata(
+    tmp_path, monkeypatch
+) -> None:
+    time_windows_path = tmp_path / "time_windows.parquet"
+    target_users_path = tmp_path / "target_users.parquet"
+    evaluation_labels_path = tmp_path / "evaluation_labels.parquet"
+    user_profile_path = tmp_path / "user_profile.parquet"
+    metadata_path = tmp_path / "metadata.json"
+    monkeypatch.setattr(recommendation_inputs, "TIME_WINDOWS_PATH", time_windows_path)
+    monkeypatch.setattr(recommendation_inputs, "TARGET_USERS_PATH", target_users_path)
+    monkeypatch.setattr(
+        recommendation_inputs,
+        "EVALUATION_LABELS_PATH",
+        evaluation_labels_path,
+    )
+    monkeypatch.setattr(recommendation_inputs, "USER_PROFILE_PATH", user_profile_path)
+    monkeypatch.setattr(recommendation_inputs, "RECOMMEND_METADATA_PATH", metadata_path)
+    upstream_paths = {
+        "weekly_transactions": str(tmp_path / "weekly_transactions.parquet"),
+        "article_attributes": str(tmp_path / "article_attributes.csv"),
+        "trend_predictions": str(tmp_path / "predictions.csv"),
+    }
+    for name, path in upstream_paths.items():
+        pd.DataFrame({"source": [name]}).to_csv(path, index=False)
+
+    build_and_write_recommendation_inputs(
+        transactions=pd.DataFrame(
+            {
+                "customer_id": ["u1", "u1", "u2", "u2"],
+                "article_id": [
+                    "0000000001",
+                    "0000000002",
+                    "0000000001",
+                    "0000000003",
+                ],
+                "week_id": [10, 11, 11, 12],
+            }
+        ),
+        article_attributes=pd.DataFrame(
+            {
+                "article_id": ["0000000001", "0000000002", "0000000003"],
+                "attr_id": [101, 102, 103],
+                "attr_type": ["product_type_name"] * 3,
+                "attr_value": ["Dress", "Shirt", "Coat"],
+            }
+        ),
+        trend_predictions=pd.DataFrame(
+            {
+                "split": ["valid", "test"],
+                "week_id": [10, 11],
+            }
+        ),
+        input_paths=upstream_paths,
+    )
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["input_artifacts"] == upstream_paths
+    assert set(metadata["input_fingerprints"]) == {
+        "weekly_transactions",
+        "article_attributes",
+        "trend_predictions",
+    }
+    assert metadata["output_artifacts"] == {
+        "time_windows": str(time_windows_path),
+        "target_users": str(target_users_path),
+        "evaluation_labels": str(evaluation_labels_path),
+        "user_profile": str(user_profile_path),
+    }

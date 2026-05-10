@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from fashion_trend.foundation.io import write_parquet_atomic
+from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
 from fashion_trend.recommendation.contracts import (
     EVALUATION_LABEL_COLUMNS,
     EVALUATION_LABEL_KEY_COLUMNS,
@@ -16,8 +16,10 @@ from fashion_trend.recommendation.contracts import (
     USER_PROFILE_COLUMNS,
     USER_PROFILE_KEY_COLUMNS,
 )
+from fashion_trend.recommendation.freshness import build_artifact_metadata
 from fashion_trend.recommendation.paths import (
     EVALUATION_LABELS_PATH,
+    RECOMMEND_METADATA_PATH,
     TARGET_USERS_PATH,
     TIME_WINDOWS_PATH,
     USER_PROFILE_PATH,
@@ -183,6 +185,7 @@ def build_and_write_recommendation_inputs(
     transactions: pd.DataFrame,
     article_attributes: pd.DataFrame,
     trend_predictions: pd.DataFrame,
+    input_paths: dict[str, str] | None = None,
 ) -> RecommendationInputArtifacts:
     """Build and write recommendation input artifacts."""
     windows = build_recommendation_windows(trend_predictions)
@@ -196,6 +199,25 @@ def build_and_write_recommendation_inputs(
     write_parquet_atomic(target_users, TARGET_USERS_PATH)
     write_parquet_atomic(labels, EVALUATION_LABELS_PATH)
     write_parquet_atomic(profile, USER_PROFILE_PATH)
+    write_json_atomic(
+        build_artifact_metadata(
+            name="recommendation_inputs",
+            input_artifacts=dict(input_paths or {}),
+            output_artifacts=_recommendation_input_output_artifacts(),
+            schema_version=1,
+            algorithm_version="recommendation-inputs-v1",
+            config={
+                "profile_top_attributes": RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
+            },
+            row_counts={
+                "time_windows": int(len(windows)),
+                "target_users": int(len(target_users)),
+                "evaluation_labels": int(len(labels)),
+                "user_profile": int(len(profile)),
+            },
+        ),
+        RECOMMEND_METADATA_PATH,
+    )
     return RecommendationInputArtifacts(windows, target_users, labels, profile)
 
 
@@ -240,3 +262,12 @@ def _coerce_text_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
         if column in dataframe.columns:
             dataframe[column] = dataframe[column].astype("string")
     return dataframe
+
+
+def _recommendation_input_output_artifacts() -> dict[str, str]:
+    return {
+        "time_windows": str(TIME_WINDOWS_PATH),
+        "target_users": str(TARGET_USERS_PATH),
+        "evaluation_labels": str(EVALUATION_LABELS_PATH),
+        "user_profile": str(USER_PROFILE_PATH),
+    }

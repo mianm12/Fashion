@@ -585,6 +585,21 @@ def test_window_runner_writes_streamed_method_outputs(tmp_path, monkeypatch) -> 
     assert metadata["generated_at"].endswith("Z")
     assert metadata["input_artifacts"] == {"weekly_transactions": "in_memory"}
     assert metadata["input_fingerprints"]["weekly_transactions"]["path"] == "in_memory"
+    assert metadata["schema_version"] == 1
+    assert metadata["algorithm_version"] == "recommendation-method-v1"
+    assert metadata["config"] == {
+        "method": "global_popularity",
+        "top_k": 12,
+        "candidate_strategy": None,
+        "exclude_seen": True,
+        "weights": {"pop_score": 1.0},
+    }
+    assert metadata["output_artifacts"] == {
+        "recommendations": str(output_paths.recommendations),
+        "recommendation_items": str(output_paths.recommendation_items),
+        "params": str(output_paths.params),
+        "metadata": str(output_paths.metadata),
+    }
     assert metadata["window_config"] == {
         "window_count": 1,
         "splits": ["valid"],

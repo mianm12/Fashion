@@ -13,6 +13,7 @@ TIME_WINDOWS_PATH = RECOMMEND_DIR / "time_windows.parquet"
 TARGET_USERS_PATH = RECOMMEND_DIR / "target_users.parquet"
 EVALUATION_LABELS_PATH = RECOMMEND_DIR / "evaluation_labels.parquet"
 USER_PROFILE_PATH = RECOMMEND_DIR / "user_profile.parquet"
+RECOMMEND_METADATA_PATH = RECOMMEND_DIR / "metadata.json"
 CANDIDATES_DIR = RECOMMEND_DIR / "candidates"
 EXPERIMENTS_DIR = OUTPUT_RECOMMENDATION_DIR / "experiments"
 

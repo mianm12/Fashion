@@ -11,6 +11,7 @@ from fashion_trend.trend.paths import OUTPUT_MODELS_DIR
 from fashion_trend.trend.readers import read_trend_model_predictions
 
 LOG_SOURCE = "recommendation-inputs"
+TREND_PREDICTIONS_PATH = OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
 
 
 def main() -> int:
@@ -22,9 +23,12 @@ def main() -> int:
             article_attributes=read_article_attribute_edges(
                 GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH
             ),
-            trend_predictions=read_trend_model_predictions(
-                OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
-            ),
+            trend_predictions=read_trend_model_predictions(TREND_PREDICTIONS_PATH),
+            input_paths={
+                "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
+                "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
+                "trend_predictions": str(TREND_PREDICTIONS_PATH),
+            },
         )
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         log.error(f"处理失败: {exc}", source=LOG_SOURCE)

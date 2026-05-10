@@ -10,7 +10,7 @@ from fashion_trend.recommendation.contracts import (
     RECOMMENDATION_CANDIDATE_STRATEGIES,
     RECOMMENDATION_CANDIDATES_PER_SOURCE,
 )
-from fashion_trend.recommendation.fingerprints import build_input_fingerprints
+from fashion_trend.recommendation.freshness import build_artifact_metadata
 from fashion_trend.recommendation.paths import candidate_items_path
 from fashion_trend.recommendation.retrieval.attributes import (
     build_attribute_similarity_candidates,
@@ -186,12 +186,23 @@ def build_and_write_candidate_items(
     candidates = build_candidate_items(strategy, source_frames)
     output_path = candidate_items_path(strategy)
     write_parquet_atomic(candidates, output_path)
+    candidate_rows = int(len(candidates))
     write_json_atomic(
         {
+            **build_artifact_metadata(
+                name="recommendation_candidates",
+                input_artifacts=candidate_input_paths,
+                output_artifacts={"candidate_items": str(output_path)},
+                schema_version=1,
+                algorithm_version="recommendation-candidates-v1",
+                config={
+                    "strategy": strategy,
+                    "candidates_per_source": RECOMMENDATION_CANDIDATES_PER_SOURCE,
+                },
+                row_counts={"candidate_rows": candidate_rows},
+            ),
             "strategy": strategy,
-            "candidate_rows": int(len(candidates)),
-            "input_artifacts": candidate_input_paths,
-            "input_fingerprints": build_input_fingerprints(candidate_input_paths),
+            "candidate_rows": candidate_rows,
         },
         output_path.with_name("metadata.json"),
     )

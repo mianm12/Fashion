@@ -19,9 +19,44 @@ from fashion_trend.recommendation.outputs import (
     RecommendationResultChunkWriter,
     write_recommendation_result,
 )
+from fashion_trend.recommendation.paths import method_output_paths
 from fashion_trend.recommendation.registry import get_recommendation_method
 
 WINDOW_COLUMNS = ("split", "cutoff_week", "label_week")
+COMMON_METHOD_INPUT_KEYS = (
+    "weekly_transactions",
+    "time_windows",
+    "target_users",
+)
+
+
+def method_input_paths_for_artifacts(
+    method_name: str,
+    available_paths: dict[str, str],
+) -> dict[str, str]:
+    """Select only the artifacts a recommendation method output depends on."""
+    method = get_recommendation_method(method_name)
+    selected = {
+        key: available_paths[key]
+        for key in COMMON_METHOD_INPUT_KEYS
+        if key in available_paths
+    }
+    if (
+        "sim_score" in method.required_features
+        or "trend_score" in method.required_features
+    ) and "article_attributes" in available_paths:
+        selected["article_attributes"] = available_paths["article_attributes"]
+    if "sim_score" in method.required_features and "user_profile" in available_paths:
+        selected["user_profile"] = available_paths["user_profile"]
+    strategy = method.default_candidate_strategy
+    if strategy is not None:
+        selected["candidate_items"] = _candidate_input_path(strategy, available_paths)
+    if (
+        "trend_score" in method.required_features
+        and "trend_predictions" in available_paths
+    ):
+        selected["trend_predictions"] = available_paths["trend_predictions"]
+    return selected
 
 
 def run_recommendation_method(
@@ -60,6 +95,9 @@ def run_recommendation_method(
         _base_metadata(
             method_name,
             method.required_features,
+            method.default_candidate_strategy,
+            exclude_seen,
+            weights,
             windows,
             input_paths,
             trend_model_source,
@@ -91,6 +129,9 @@ def run_recommendation_method_by_window(
         **_base_metadata(
             method_name,
             method.required_features,
+            method.default_candidate_strategy,
+            exclude_seen,
+            weights,
             windows,
             input_paths,
             trend_model_source,
@@ -160,16 +201,31 @@ def _params_for_method(
 def _base_metadata(
     method_name: str,
     required_features,
+    candidate_strategy: str | None,
+    exclude_seen: bool,
+    weights: dict[str, float] | None,
     windows: pd.DataFrame,
     input_paths: dict[str, str] | None,
     trend_model_source: str | None,
 ) -> dict[str, object]:
+    method = get_recommendation_method(method_name)
+    effective_weights = dict(weights if weights is not None else method.default_weights)
     metadata: dict[str, object] = {
         "method": method_name,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "window_config": _window_config(windows),
         "input_artifacts": dict(input_paths or {}),
         "input_fingerprints": build_input_fingerprints(input_paths),
+        "output_artifacts": _method_output_artifacts(method_name),
+        "schema_version": 1,
+        "algorithm_version": "recommendation-method-v1",
+        "config": {
+            "method": method_name,
+            "top_k": RECOMMENDATION_TOP_K,
+            "candidate_strategy": candidate_strategy,
+            "exclude_seen": exclude_seen,
+            "weights": effective_weights,
+        },
     }
     if "trend_score" in required_features:
         metadata["trend_score_config"] = {
@@ -178,6 +234,23 @@ def _base_metadata(
             "attr_weights": dict(RECOMMENDATION_TREND_ATTR_WEIGHTS),
         }
     return metadata
+
+
+def _method_output_artifacts(method_name: str) -> dict[str, str]:
+    output_paths = method_output_paths(method_name)
+    return {
+        "recommendations": str(output_paths.recommendations),
+        "recommendation_items": str(output_paths.recommendation_items),
+        "params": str(output_paths.params),
+        "metadata": str(output_paths.metadata),
+    }
+
+
+def _candidate_input_path(strategy: str, available_paths: dict[str, str]) -> str:
+    strategy_key = f"{strategy}_candidates"
+    if strategy_key in available_paths:
+        return available_paths[strategy_key]
+    return available_paths["candidate_items"]
 
 
 def _window_config(windows: pd.DataFrame) -> dict[str, object]:

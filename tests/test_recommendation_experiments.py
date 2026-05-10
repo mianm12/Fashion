@@ -23,6 +23,8 @@ from fashion_trend.recommendation.experiments.runner import (
     run_baseline_methods,
     run_recommendation_experiment,
 )
+from fashion_trend.recommendation.fingerprints import build_input_fingerprints
+from fashion_trend.recommendation.freshness import build_artifact_metadata
 from fashion_trend.recommendation.inputs import RecommendationInputArtifacts
 from fashion_trend.recommendation.paths import experiment_run_dir
 from fashion_trend.recommendation.perf import StageTimer, format_stage_log
@@ -164,6 +166,8 @@ def test_experiment_rejects_stale_existing_method_output(
         "method_output_paths",
         lambda method: SimpleNamespace(
             recommendations=recommendations_path,
+            recommendation_items=output_dir / "recommendation_items.parquet",
+            params=output_dir / "params.json",
             metadata=metadata_path,
         ),
     )
@@ -190,8 +194,275 @@ def test_experiment_rejects_stale_existing_method_output(
         evaluation_labels=pd.DataFrame(),
         user_profile=pd.DataFrame(),
     )
-    with pytest.raises(RuntimeError, match="--force"):
+    with pytest.raises(RuntimeError, match="recommendation_items.parquet is missing"):
         run_baseline_methods(context, inputs, force=False)
+
+
+def test_experiment_rejects_method_output_missing_params(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("current input", encoding="utf-8")
+    output_dir = tmp_path / "outputs" / "global_popularity"
+    output_dir.mkdir(parents=True)
+    recommendations_path = output_dir / "recommendations.csv"
+    items_path = output_dir / "recommendation_items.parquet"
+    params_path = output_dir / "params.json"
+    metadata_path = output_dir / "metadata.json"
+    recommendations_path.write_text("existing output", encoding="utf-8")
+    pd.DataFrame({"customer_id": ["u1"]}).to_parquet(items_path, index=False)
+    metadata_path.write_text(json.dumps({"metadata": "old"}), encoding="utf-8")
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("global_popularity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: SimpleNamespace(
+            recommendations=recommendations_path,
+            recommendation_items=items_path,
+            params=params_path,
+            metadata=metadata_path,
+        ),
+    )
+
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths={"weekly_transactions": str(input_path)},
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    with pytest.raises(RuntimeError, match="params.json is missing"):
+        run_baseline_methods(context, inputs, force=False)
+
+
+def test_experiment_rejects_old_method_metadata_schema(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("current input", encoding="utf-8")
+    output_dir = tmp_path / "outputs" / "global_popularity"
+    output_dir.mkdir(parents=True)
+    recommendations_path = output_dir / "recommendations.csv"
+    items_path = output_dir / "recommendation_items.parquet"
+    params_path = output_dir / "params.json"
+    metadata_path = output_dir / "metadata.json"
+    recommendations_path.write_text("existing output", encoding="utf-8")
+    pd.DataFrame({"customer_id": ["u1"]}).to_parquet(items_path, index=False)
+    params_path.write_text(
+        json.dumps({"method": "global_popularity"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("global_popularity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: SimpleNamespace(
+            recommendations=recommendations_path,
+            recommendation_items=items_path,
+            params=params_path,
+            metadata=metadata_path,
+        ),
+    )
+
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths={"weekly_transactions": str(input_path)},
+    )
+    method_input_paths = experiment_runner._method_input_paths(
+        "global_popularity",
+        experiment_runner._experiment_input_paths(context),
+    )
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "input_artifacts": method_input_paths,
+                "input_fingerprints": build_input_fingerprints(method_input_paths),
+            }
+        ),
+        encoding="utf-8",
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="output_artifacts changed|schema_version changed|config changed",
+    ):
+        run_baseline_methods(context, inputs, force=False)
+
+
+def test_experiment_rejects_method_output_with_include_seen_config(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    input_path = tmp_path / "weekly_transactions.parquet"
+    input_path.write_text("current input", encoding="utf-8")
+    output_dir = tmp_path / "outputs" / "global_popularity"
+    output_dir.mkdir(parents=True)
+    recommendations_path = output_dir / "recommendations.csv"
+    items_path = output_dir / "recommendation_items.parquet"
+    params_path = output_dir / "params.json"
+    metadata_path = output_dir / "metadata.json"
+    recommendations_path.write_text("existing output", encoding="utf-8")
+    pd.DataFrame({"customer_id": ["u1"]}).to_parquet(items_path, index=False)
+    params_path.write_text(
+        json.dumps({"method": "global_popularity"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("global_popularity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: SimpleNamespace(
+            recommendations=recommendations_path,
+            recommendation_items=items_path,
+            params=params_path,
+            metadata=metadata_path,
+        ),
+    )
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths={"weekly_transactions": str(input_path)},
+    )
+    method_input_paths = experiment_runner._method_input_paths(
+        "global_popularity",
+        experiment_runner._experiment_input_paths(context),
+    )
+    metadata_path.write_text(
+        json.dumps(
+            build_artifact_metadata(
+                name="recommendation_method",
+                input_artifacts=method_input_paths,
+                output_artifacts=experiment_runner._method_output_artifacts(
+                    "global_popularity"
+                ),
+                schema_version=1,
+                algorithm_version="recommendation-method-v1",
+                config={
+                    "method": "global_popularity",
+                    "top_k": 12,
+                    "candidate_strategy": None,
+                    "exclude_seen": False,
+                    "weights": {"pop_score": 1.0},
+                },
+                row_counts={
+                    "recommendation_rows": 1,
+                    "recommendation_item_rows": 1,
+                },
+            )
+        ),
+        encoding="utf-8",
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+
+    with pytest.raises(RuntimeError, match="config changed"):
+        run_baseline_methods(context, inputs, force=False)
+
+
+def test_non_similarity_method_freshness_excludes_unrelated_inputs(tmp_path) -> None:
+    available_paths = {
+        "weekly_transactions": str(tmp_path / "weekly.parquet"),
+        "article_attributes": str(tmp_path / "articles.csv"),
+        "time_windows": str(tmp_path / "time_windows.parquet"),
+        "target_users": str(tmp_path / "target_users.parquet"),
+        "user_profile": str(tmp_path / "user_profile.parquet"),
+        "evaluation_labels": str(tmp_path / "labels.parquet"),
+        "default_candidates": str(tmp_path / "default.parquet"),
+        "similarity_candidates": str(tmp_path / "similarity.parquet"),
+    }
+
+    method_paths = experiment_runner._method_input_paths(
+        "global_popularity",
+        available_paths,
+    )
+    recent_paths = experiment_runner._method_input_paths(
+        "recent_popularity",
+        available_paths,
+    )
+
+    expected = {
+        "weekly_transactions": available_paths["weekly_transactions"],
+        "time_windows": available_paths["time_windows"],
+        "target_users": available_paths["target_users"],
+    }
+    assert method_paths == expected
+    assert recent_paths == expected
+
+
+def test_attribute_similarity_method_freshness_uses_profile_and_candidates(
+    tmp_path,
+) -> None:
+    available_paths = {
+        "weekly_transactions": str(tmp_path / "weekly.parquet"),
+        "article_attributes": str(tmp_path / "articles.csv"),
+        "time_windows": str(tmp_path / "time_windows.parquet"),
+        "target_users": str(tmp_path / "target_users.parquet"),
+        "user_profile": str(tmp_path / "user_profile.parquet"),
+        "trend_predictions": str(tmp_path / "predictions.csv"),
+        "similarity_candidates": str(tmp_path / "similarity.parquet"),
+        "default_candidates": str(tmp_path / "default.parquet"),
+    }
+
+    method_paths = experiment_runner._method_input_paths(
+        "attribute_similarity",
+        available_paths,
+    )
+
+    assert method_paths == {
+        "weekly_transactions": available_paths["weekly_transactions"],
+        "article_attributes": available_paths["article_attributes"],
+        "time_windows": available_paths["time_windows"],
+        "target_users": available_paths["target_users"],
+        "user_profile": available_paths["user_profile"],
+        "candidate_items": available_paths["similarity_candidates"],
+    }
+
+
+def test_trend_method_freshness_uses_profile_candidates_and_predictions(
+    tmp_path,
+) -> None:
+    available_paths = {
+        "weekly_transactions": str(tmp_path / "weekly.parquet"),
+        "article_attributes": str(tmp_path / "articles.csv"),
+        "time_windows": str(tmp_path / "time_windows.parquet"),
+        "target_users": str(tmp_path / "target_users.parquet"),
+        "user_profile": str(tmp_path / "user_profile.parquet"),
+        "trend_predictions": str(tmp_path / "predictions.csv"),
+        "similarity_candidates": str(tmp_path / "similarity.parquet"),
+        "default_candidates": str(tmp_path / "default.parquet"),
+    }
+
+    method_paths = experiment_runner._method_input_paths(
+        "pop_similarity_trend",
+        available_paths,
+    )
+
+    assert method_paths == {
+        "weekly_transactions": available_paths["weekly_transactions"],
+        "article_attributes": available_paths["article_attributes"],
+        "time_windows": available_paths["time_windows"],
+        "target_users": available_paths["target_users"],
+        "user_profile": available_paths["user_profile"],
+        "candidate_items": available_paths["default_candidates"],
+        "trend_predictions": available_paths["trend_predictions"],
+    }
 
 
 def test_experiment_rejects_stale_candidate_when_method_output_missing(
