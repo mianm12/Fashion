@@ -107,6 +107,9 @@ def test_recommendation_paths_are_scoped_by_strategy_method_and_experiment() -> 
         output_paths.output_dir / "recommendations.csv"
     )
     assert output_paths.recommendation_items == (
+        output_paths.output_dir / "recommendation_items.parquet"
+    )
+    assert output_paths.recommendation_items_csv == (
         output_paths.output_dir / "recommendation_items.csv"
     )
     assert output_paths.params == output_paths.output_dir / "params.json"
@@ -248,7 +251,7 @@ def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
     method_dir = tmp_path / "pop_similarity_trend"
     method_dir.mkdir()
     recommendations_path = method_dir / "recommendations.csv"
-    recommendation_items_path = method_dir / "recommendation_items.csv"
+    recommendation_items_path = method_dir / "recommendation_items.parquet"
 
     recommendations = pd.DataFrame(
         [
@@ -284,7 +287,7 @@ def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
         columns=contracts.RECOMMENDATION_ITEMS_COLUMNS,
     )
     recommendations.to_csv(recommendations_path, index=False)
-    recommendation_items.to_csv(recommendation_items_path, index=False)
+    recommendation_items.to_parquet(recommendation_items_path, index=False)
 
     read_recommendations = readers.read_recommendations(recommendations_path)
     read_recommendation_items = readers.read_recommendation_items(
@@ -314,13 +317,18 @@ def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
     with pytest.raises(ValueError, match="method"):
         readers.read_recommendation_result(mismatch_path)
 
-    duplicate_path = method_dir / "duplicate_recommendation_items.csv"
-    pd.concat([recommendation_items, recommendation_items], ignore_index=True).to_csv(
-        duplicate_path,
-        index=False,
-    )
+    duplicate_path = method_dir / "duplicate_recommendation_items.parquet"
+    pd.concat(
+        [recommendation_items, recommendation_items],
+        ignore_index=True,
+    ).to_parquet(duplicate_path, index=False)
     with pytest.raises(ValueError, match="重复键"):
         readers.read_recommendation_items(duplicate_path)
+
+    invalid_rank_path = method_dir / "invalid_rank_recommendation_items.parquet"
+    recommendation_items.assign(rank=13).to_parquet(invalid_rank_path, index=False)
+    with pytest.raises(ValueError, match="Top-K"):
+        readers.read_recommendation_items(invalid_rank_path)
 
 
 def _write_parquet(

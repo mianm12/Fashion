@@ -3,18 +3,38 @@ from __future__ import annotations
 import csv
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from fashion_trend.foundation.io import (
     remove_file_if_exists,
     write_csv_atomic,
     write_json_atomic,
 )
+from fashion_trend.recommendation import paths as recommendation_paths
 from fashion_trend.recommendation.contracts import (
     RECOMMENDATION_ITEMS_COLUMNS,
     RECOMMENDATIONS_COLUMNS,
 )
 from fashion_trend.recommendation.methods.base import RecommendationResult
-from fashion_trend.recommendation.paths import method_output_paths
+
+_RECOMMENDATION_ITEMS_ARROW_SCHEMA = pa.schema(
+    [
+        ("customer_id", pa.string()),
+        ("split", pa.string()),
+        ("cutoff_week", pa.int64()),
+        ("label_week", pa.int64()),
+        ("method", pa.string()),
+        ("article_id", pa.string()),
+        ("rank", pa.int64()),
+        ("score", pa.float64()),
+        ("pop_score", pa.float64()),
+        ("sim_score", pa.float64()),
+        ("trend_score", pa.float64()),
+        ("recent_score", pa.float64()),
+        ("candidate_sources", pa.string()),
+    ]
+)
 
 
 def build_recommendations_csv(
@@ -37,22 +57,30 @@ def build_recommendations_csv(
 
 
 def write_recommendation_result(result: RecommendationResult) -> None:
-    output_paths = method_output_paths(str(result.params["method"]))
+    output_paths = recommendation_paths.method_output_paths(
+        str(result.params["method"])
+    )
     write_csv_atomic(result.recommendations, output_paths.recommendations)
-    write_csv_atomic(result.recommendation_items, output_paths.recommendation_items)
+    _write_recommendation_items_parquet_atomic(
+        _normalize_recommendation_items(result.recommendation_items),
+        output_paths.recommendation_items,
+    )
     write_json_atomic(result.params, output_paths.params)
     write_json_atomic(result.metadata, output_paths.metadata)
 
 
 class RecommendationResultChunkWriter:
-    """Write large recommendation results through temp CSV chunks."""
+    """Write large recommendation results through streaming temp artifacts."""
 
     def __init__(self, method: str) -> None:
-        self.output_paths = method_output_paths(method)
+        self.output_paths = recommendation_paths.method_output_paths(method)
         self.recommendations_tmp = self.output_paths.recommendations.with_suffix(
             ".csv.tmp"
         )
-        self.items_tmp = self.output_paths.recommendation_items.with_suffix(".csv.tmp")
+        self.items_tmp = self.output_paths.recommendation_items.with_suffix(
+            ".parquet.tmp"
+        )
+        self._items_writer: pq.ParquetWriter | None = None
         self._started = False
 
     def __enter__(self) -> "RecommendationResultChunkWriter":
@@ -60,7 +88,6 @@ class RecommendationResultChunkWriter:
         remove_file_if_exists(self.recommendations_tmp)
         remove_file_if_exists(self.items_tmp)
         _write_csv_header(self.recommendations_tmp, RECOMMENDATIONS_COLUMNS)
-        _write_csv_header(self.items_tmp, RECOMMENDATION_ITEMS_COLUMNS)
         self._started = True
         return self
 
@@ -68,18 +95,43 @@ class RecommendationResultChunkWriter:
         if not self._started:
             raise RuntimeError("chunk writer has not been opened")
         _append_csv_rows(result.recommendations, self.recommendations_tmp)
-        _append_csv_rows(result.recommendation_items, self.items_tmp)
+        self._append_item_rows(result.recommendation_items)
 
     def publish(self) -> None:
         if not self._started:
             raise RuntimeError("chunk writer has not been opened")
+        self._close_items_writer()
+        if not self.items_tmp.exists():
+            _write_empty_items_parquet(self.items_tmp)
         self.recommendations_tmp.replace(self.output_paths.recommendations)
         self.items_tmp.replace(self.output_paths.recommendation_items)
 
     def __exit__(self, exc_type, exc, traceback) -> None:
+        self._close_items_writer()
         if exc_type is not None:
             remove_file_if_exists(self.recommendations_tmp)
             remove_file_if_exists(self.items_tmp)
+
+    def _append_item_rows(self, dataframe: pd.DataFrame) -> None:
+        dataframe = _normalize_recommendation_items(dataframe)
+        if dataframe.empty:
+            return
+        table = pa.Table.from_pandas(
+            dataframe,
+            schema=_RECOMMENDATION_ITEMS_ARROW_SCHEMA,
+            preserve_index=False,
+        )
+        if self._items_writer is None:
+            self._items_writer = pq.ParquetWriter(
+                self.items_tmp,
+                _RECOMMENDATION_ITEMS_ARROW_SCHEMA,
+            )
+        self._items_writer.write_table(table)
+
+    def _close_items_writer(self) -> None:
+        if self._items_writer is not None:
+            self._items_writer.close()
+            self._items_writer = None
 
 
 def _write_csv_header(path, columns: tuple[str, ...]) -> None:
@@ -100,3 +152,42 @@ def _append_csv_rows(dataframe: pd.DataFrame, path) -> None:
         index=False,
         quoting=csv.QUOTE_ALL,
     )
+
+
+def _normalize_recommendation_items(dataframe: pd.DataFrame) -> pd.DataFrame:
+    actual_columns = tuple(dataframe.columns)
+    if actual_columns != RECOMMENDATION_ITEMS_COLUMNS:
+        raise ValueError(
+            "recommendation_items 列契约不匹配: "
+            f"expected={RECOMMENDATION_ITEMS_COLUMNS}, actual={actual_columns}"
+        )
+    return dataframe.loc[:, list(RECOMMENDATION_ITEMS_COLUMNS)]
+
+
+def _write_recommendation_items_parquet_atomic(
+    dataframe: pd.DataFrame,
+    output_path,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    try:
+        table = pa.Table.from_pandas(
+            dataframe,
+            schema=_RECOMMENDATION_ITEMS_ARROW_SCHEMA,
+            preserve_index=False,
+        )
+        with pq.ParquetWriter(tmp_path, _RECOMMENDATION_ITEMS_ARROW_SCHEMA) as writer:
+            writer.write_table(table)
+        tmp_path.replace(output_path)
+    finally:
+        remove_file_if_exists(tmp_path)
+
+
+def _write_empty_items_parquet(path) -> None:
+    table = pa.Table.from_pandas(
+        pd.DataFrame(columns=list(RECOMMENDATION_ITEMS_COLUMNS)),
+        schema=_RECOMMENDATION_ITEMS_ARROW_SCHEMA,
+        preserve_index=False,
+    )
+    with pq.ParquetWriter(path, _RECOMMENDATION_ITEMS_ARROW_SCHEMA) as writer:
+        writer.write_table(table)

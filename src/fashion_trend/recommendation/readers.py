@@ -13,6 +13,7 @@ from fashion_trend.recommendation.contracts import (
     RECOMMENDATION_ITEMS_COLUMNS,
     RECOMMENDATION_ITEMS_KEY_COLUMNS,
     RECOMMENDATION_TEXT_COLUMNS,
+    RECOMMENDATION_TOP_K,
     RECOMMENDATIONS_COLUMNS,
     RECOMMENDATIONS_KEY_COLUMNS,
     TARGET_USER_COLUMNS,
@@ -153,12 +154,23 @@ def read_recommendations(path: Path) -> pd.DataFrame:
 def read_recommendation_items(path: Path) -> pd.DataFrame:
     expected_method = path.parent.name
     validate_safe_path_segment(expected_method, "method")
-    dataframe = read_csv_artifact(path, RECOMMENDATION_ITEMS_COLUMNS)
+    dataframe = pd.read_parquet(path)
+    validate_columns(dataframe, RECOMMENDATION_ITEMS_COLUMNS, "recommendation_items")
+    dataframe = coerce_article_id_string(dataframe)
     reject_duplicate_key(
         dataframe,
         RECOMMENDATION_ITEMS_KEY_COLUMNS,
         "recommendation_items",
     )
+    invalid_rank = ~dataframe["rank"].between(1, RECOMMENDATION_TOP_K)
+    if invalid_rank.any():
+        sample = dataframe.loc[invalid_rank, ["customer_id", "article_id", "rank"]]
+        raise ValueError(
+            "recommendation_items rank 超出 Top-K 范围: "
+            f"{sample.head(3).to_dict('records')}"
+        )
+    if dataframe.empty:
+        return dataframe
     validate_path_value_matches(
         dataframe,
         "method",

@@ -4,6 +4,8 @@ import json
 from dataclasses import replace
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from fashion_trend.recommendation import paths as recommendation_paths
@@ -25,7 +27,15 @@ from fashion_trend.recommendation.inputs import (
     build_target_users,
     build_user_profile,
 )
-from fashion_trend.recommendation.methods.base import RecommendationContext
+from fashion_trend.recommendation.methods.base import (
+    RecommendationContext,
+    RecommendationResult,
+)
+from fashion_trend.recommendation.outputs import (
+    RecommendationResultChunkWriter,
+    write_recommendation_result,
+)
+from fashion_trend.recommendation.readers import read_recommendation_items
 from fashion_trend.recommendation.registry import get_recommendation_method
 from fashion_trend.recommendation.retrieval.candidates import (
     build_candidate_items,
@@ -84,6 +94,219 @@ def test_pop_similarity_trend_uses_default_candidates_and_trend_score() -> None:
         "sim_score": 0.35,
         "trend_score": 0.25,
         "recent_score": 0.05,
+    }
+
+
+def test_method_output_paths_use_parquet_items() -> None:
+    paths = recommendation_paths.method_output_paths("pop_similarity")
+
+    assert paths.recommendation_items.name == "recommendation_items.parquet"
+    assert paths.recommendation_items_csv.name == "recommendation_items.csv"
+
+
+def test_result_writer_writes_items_parquet_by_default(tmp_path, monkeypatch) -> None:
+    output_dir = tmp_path / "pop_similarity"
+    monkeypatch.setattr(
+        recommendation_paths,
+        "method_output_paths",
+        lambda method: recommendation_paths.RecommendationOutputPaths(
+            output_dir=output_dir,
+            recommendations=output_dir / "recommendations.csv",
+            recommendation_items=output_dir / "recommendation_items.parquet",
+            recommendation_items_csv=output_dir / "recommendation_items.csv",
+            params=output_dir / "params.json",
+            metadata=output_dir / "metadata.json",
+            metrics=output_dir / "metrics.json",
+        ),
+    )
+    from fashion_trend.recommendation.methods.base import RecommendationResult
+    from fashion_trend.recommendation.outputs import write_recommendation_result
+
+    result = RecommendationResult(
+        recommendations=pd.DataFrame(columns=list(RECOMMENDATIONS_COLUMNS)),
+        recommendation_items=pd.DataFrame(columns=list(RECOMMENDATION_ITEMS_COLUMNS)),
+        params={"method": "pop_similarity"},
+        metadata={"method": "pop_similarity"},
+    )
+
+    write_recommendation_result(result)
+
+    assert (output_dir / "recommendations.csv").exists()
+    assert (output_dir / "recommendation_items.parquet").exists()
+    assert not (output_dir / "recommendation_items.csv").exists()
+
+
+def test_chunk_writer_streams_multiple_item_chunks_to_readable_parquet(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output_dir = _patch_method_output_dir(monkeypatch, tmp_path, "pop_similarity")
+
+    with RecommendationResultChunkWriter("pop_similarity") as writer:
+        writer.write_chunk(
+            _recommendation_result(
+                [_recommendation_item_row(article_id="0000000001", rank=1)]
+            )
+        )
+        writer.write_chunk(_recommendation_result([]))
+        writer.write_chunk(
+            _recommendation_result(
+                [_recommendation_item_row(article_id="0000000002", rank=2)]
+            )
+        )
+        writer.publish()
+
+    items = read_recommendation_items(output_dir / "recommendation_items.parquet")
+
+    assert items["article_id"].tolist() == ["0000000001", "0000000002"]
+    assert not (output_dir / "recommendation_items.parquet.tmp").exists()
+
+
+def test_chunk_writer_uses_stable_schema_across_numeric_dtypes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output_dir = _patch_method_output_dir(monkeypatch, tmp_path, "pop_similarity")
+    int_like_row = _recommendation_item_row(article_id="0000000001", rank=1)
+    float_like_row = _recommendation_item_row(article_id="0000000002", rank=2)
+    for column in ("score", "pop_score", "sim_score", "trend_score", "recent_score"):
+        int_like_row[column] = 1
+        float_like_row[column] = 1.5
+
+    with RecommendationResultChunkWriter("pop_similarity") as writer:
+        writer.write_chunk(_recommendation_result([int_like_row]))
+        writer.write_chunk(_recommendation_result([float_like_row]))
+        writer.publish()
+
+    items = read_recommendation_items(output_dir / "recommendation_items.parquet")
+
+    assert items["article_id"].tolist() == ["0000000001", "0000000002"]
+    assert items["score"].tolist() == [1.0, 1.5]
+
+
+def test_empty_items_written_by_result_writer_can_be_read_back(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output_dir = _patch_method_output_dir(monkeypatch, tmp_path, "pop_similarity")
+
+    write_recommendation_result(_recommendation_result([]))
+
+    items = read_recommendation_items(output_dir / "recommendation_items.parquet")
+
+    assert items.empty
+    assert tuple(items.columns) == RECOMMENDATION_ITEMS_COLUMNS
+    _assert_recommendation_items_arrow_schema(
+        output_dir / "recommendation_items.parquet"
+    )
+
+
+def test_empty_streaming_items_can_be_read_back(tmp_path, monkeypatch) -> None:
+    output_dir = _patch_method_output_dir(monkeypatch, tmp_path, "pop_similarity")
+
+    with RecommendationResultChunkWriter("pop_similarity") as writer:
+        writer.write_chunk(_recommendation_result([]))
+        writer.publish()
+
+    items = read_recommendation_items(output_dir / "recommendation_items.parquet")
+
+    assert items.empty
+    assert tuple(items.columns) == RECOMMENDATION_ITEMS_COLUMNS
+    _assert_recommendation_items_arrow_schema(
+        output_dir / "recommendation_items.parquet"
+    )
+
+
+def test_chunk_writer_rejects_bad_item_columns_and_cleans_temp_files(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output_dir = _patch_method_output_dir(monkeypatch, tmp_path, "pop_similarity")
+    bad_items = pd.DataFrame(
+        [_recommendation_item_row()],
+        columns=list(RECOMMENDATION_ITEMS_COLUMNS[:-1]),
+    )
+
+    with pytest.raises(ValueError, match="recommendation_items"):
+        with RecommendationResultChunkWriter("pop_similarity") as writer:
+            writer.write_chunk(
+                RecommendationResult(
+                    recommendations=pd.DataFrame(columns=list(RECOMMENDATIONS_COLUMNS)),
+                    recommendation_items=bad_items,
+                    params={"method": "pop_similarity"},
+                    metadata={"method": "pop_similarity"},
+                )
+            )
+
+    assert not (output_dir / "recommendations.csv.tmp").exists()
+    assert not (output_dir / "recommendation_items.parquet.tmp").exists()
+
+
+def _patch_method_output_dir(monkeypatch, tmp_path, method: str):
+    output_dir = tmp_path / method
+    monkeypatch.setattr(
+        recommendation_paths,
+        "method_output_paths",
+        lambda requested_method: recommendation_paths.RecommendationOutputPaths(
+            output_dir=output_dir,
+            recommendations=output_dir / "recommendations.csv",
+            recommendation_items=output_dir / "recommendation_items.parquet",
+            recommendation_items_csv=output_dir / "recommendation_items.csv",
+            params=output_dir / "params.json",
+            metadata=output_dir / "metadata.json",
+            metrics=output_dir / "metrics.json",
+        ),
+    )
+    return output_dir
+
+
+def _assert_recommendation_items_arrow_schema(path) -> None:
+    schema = pq.read_schema(path)
+
+    assert schema.field("rank").type == pa.int64()
+    assert schema.field("score").type == pa.float64()
+    assert schema.field("pop_score").type == pa.float64()
+    assert schema.field("sim_score").type == pa.float64()
+    assert schema.field("trend_score").type == pa.float64()
+    assert schema.field("recent_score").type == pa.float64()
+
+
+def _recommendation_result(
+    item_rows: list[dict[str, object]],
+    *,
+    method: str = "pop_similarity",
+) -> RecommendationResult:
+    return RecommendationResult(
+        recommendations=pd.DataFrame(columns=list(RECOMMENDATIONS_COLUMNS)),
+        recommendation_items=pd.DataFrame(
+            item_rows,
+            columns=list(RECOMMENDATION_ITEMS_COLUMNS),
+        ),
+        params={"method": method},
+        metadata={"method": method},
+    )
+
+
+def _recommendation_item_row(
+    *,
+    article_id: str = "0000000001",
+    rank: int = 1,
+    method: str = "pop_similarity",
+) -> dict[str, object]:
+    return {
+        "customer_id": "0000001",
+        "split": "valid",
+        "cutoff_week": 104,
+        "label_week": 105,
+        "method": method,
+        "article_id": article_id,
+        "rank": rank,
+        "score": 1.0,
+        "pop_score": 0.4,
+        "sim_score": 0.3,
+        "trend_score": 0.2,
+        "recent_score": 0.1,
+        "candidate_sources": "pop",
     }
 
 

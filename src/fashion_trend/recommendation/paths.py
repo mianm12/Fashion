@@ -22,6 +22,7 @@ class RecommendationOutputPaths:
     output_dir: Path
     recommendations: Path
     recommendation_items: Path
+    recommendation_items_csv: Path
     params: Path
     metadata: Path
     metrics: Path
@@ -38,7 +39,8 @@ def method_output_paths(method: str) -> RecommendationOutputPaths:
     return RecommendationOutputPaths(
         output_dir=output_dir,
         recommendations=output_dir / "recommendations.csv",
-        recommendation_items=output_dir / "recommendation_items.csv",
+        recommendation_items=output_dir / "recommendation_items.parquet",
+        recommendation_items_csv=output_dir / "recommendation_items.csv",
         params=output_dir / "params.json",
         metadata=output_dir / "metadata.json",
         metrics=output_dir / "metrics.json",
