@@ -771,6 +771,57 @@ def test_feature_cache_manifest_merges_entries_without_overwriting(tmp_path, mon
     assert first["entries"]["strategy:default"]["manifest"]["partitions"] == [
         "default.parquet"
     ]
+
+
+def test_filter_cached_seen_items_empty_seen_partition_returns_metadata_path(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    partition_path = tmp_path / "candidate_seen_flags" / "part.parquet"
+    metadata_path = tmp_path / "candidate_seen_flags" / "metadata.json"
+    partition_path.parent.mkdir(parents=True)
+    pd.DataFrame(
+        columns=[
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+            "seen",
+        ]
+    ).to_parquet(partition_path, index=False)
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_path",
+        lambda feature_name, strategy, split, cutoff_week: partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_metadata_path",
+        lambda feature_name, strategy, split, cutoff_week: metadata_path,
+    )
+
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "default",
+                "customer_id": "u1",
+                "article_id": "a1",
+            }
+        ]
+    )
+
+    filtered, seen_partition, seen_metadata = filter_cached_seen_items(
+        candidates,
+        strategy="default",
+        window={"split": "valid", "cutoff_week": 10, "label_week": 11},
+    )
+
+    assert filtered.equals(candidates)
+    assert seen_partition == str(partition_path)
+    assert seen_metadata == str(metadata_path)
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -1141,6 +1192,12 @@ def method_input_artifacts(
     return artifacts
 ```
 
+Also move shared formatting and backfill helpers out of the baseline module before the cached runner imports them:
+
+- Move `_format_recommendation_items` from `src/fashion_trend/recommendation/methods/baselines/global_popularity.py` to `src/fashion_trend/recommendation/outputs.py` as `format_recommendation_items`.
+- Move `_append_backfill_items`, `_missing_target_users`, `_candidate_strategy_for_backfill`, `_build_backfill_source`, `_drop_existing_candidates`, `_select_backfill_items`, and `_source_rank_score` to a new shared module `src/fashion_trend/recommendation/ranking/backfill.py`.
+- Update `global_popularity.py` to import the shared functions, so both the existing baseline path and the cached runner use the same implementation.
+
 - [ ] **Step 4: Add cache readers and cached scoring path**
 
 In `src/fashion_trend/recommendation/runner.py`, add a cache reader that loads only the current method strategy/window partitions and joins precomputed score columns. This path must not call `build_ranking_features`, because that would rebuild scores from transactions/profile/predictions:
@@ -1154,13 +1211,13 @@ from fashion_trend.recommendation.paths import (
     feature_cache_partition_path,
     feature_cache_partition_metadata_path,
 )
-from fashion_trend.recommendation.outputs import build_recommendations_csv
+from fashion_trend.recommendation.outputs import (
+    build_recommendations_csv,
+    format_recommendation_items,
+)
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.methods.base import RecommendationResult
-from fashion_trend.recommendation.methods.baselines.global_popularity import (
-    _append_backfill_items,
-    _format_recommendation_items,
-)
+from fashion_trend.recommendation.ranking.backfill import append_backfill_items
 
 
 def build_cached_feature_frame_for_window(
@@ -1223,9 +1280,15 @@ def filter_cached_seen_items(
         split=str(window["split"]),
         cutoff_week=int(window["cutoff_week"]),
     )
+    metadata_path = feature_cache_partition_metadata_path(
+        "candidate_seen_flags",
+        strategy=strategy,
+        split=str(window["split"]),
+        cutoff_week=int(window["cutoff_week"]),
+    )
     seen = pd.read_parquet(path)
     if seen.empty:
-        return candidates, str(path)
+        return candidates, str(path), str(metadata_path)
     marker = seen.loc[
         :,
         ["split", "cutoff_week", "label_week", "strategy", "customer_id", "article_id"],
@@ -1234,12 +1297,6 @@ def filter_cached_seen_items(
         marker,
         on=["split", "cutoff_week", "label_week", "strategy", "customer_id", "article_id"],
         how="left",
-    )
-    metadata_path = feature_cache_partition_metadata_path(
-        "candidate_seen_flags",
-        strategy=strategy,
-        split=str(window["split"]),
-        cutoff_week=int(window["cutoff_week"]),
     )
     return (
         merged.loc[merged["_seen"].isna()].drop(columns=["_seen"]),
@@ -1293,14 +1350,14 @@ def build_cached_recommendation_result_for_window(
         top_k=context.top_k,
         required_features=method.required_features,
     )
-    ranked = _append_backfill_items(
+    ranked = append_backfill_items(
         context,
         candidates,
         ranked,
         weights,
         backfill_mode,
     )
-    recommendation_items = _format_recommendation_items(ranked)
+    recommendation_items = format_recommendation_items(ranked)
     recommendations = build_recommendations_csv(recommendation_items, context.top_k)
     return RecommendationResult(
         recommendations=recommendations,
@@ -1695,9 +1752,11 @@ Then replace repeated `build_recommendable_pool_for_windows(context.transactions
 recommendable_pool = ensure_or_build_recommendable_pool_cache(
     context,
     inputs,
-    force=force_cache or force_rebuild_all,
+    force=force,
 )
 ```
+
+Task 6 must continue to use the existing `force` argument so it can compile and pass before Task 7 introduces explicit `force_cache` and `force_rebuild_all`. Task 7 will replace this call with `force=force_cache or force_rebuild_all` after the new runner signature exists.
 
 In `src/15_eval_recommendations.py`, read `read_recommendable_pool_cache(read_time_windows(TIME_WINDOWS_PATH))` instead of rebuilding from transactions when `FEATURE_CACHE_METADATA_PATH` exists; otherwise fail with a message telling the user to run `16 --force-cache` or the feature cache builder. Do not silently rebuild in `15`.
 
