@@ -4,7 +4,7 @@
 
 推荐阶段已经完成轻量离线 Top-N 闭环，但全量运行耗时过长。近期在 Mac M4 Pro 上按现有流程重跑真实 H&M 全量产物时，推荐阶段暴露出结构性性能问题：`default` 候选约 4,333 万行，每个推荐 method 产出约 120 万行 `recommendations.csv` 和约 1,444 万行 `recommendation_items.csv`，单个 `recommendation_items.csv` 约 2.9GB 到 3.4GB。五个 method 的推荐输出目录合计超过 15GB。
 
-这不是硬件异常，而是当前推荐流程把大量中间排序候选和解释长表作为 CSV 稳定产物反复生成、读取和重建。优化目标是让真实全量推荐生产运行更快，而不是只增加小样本 smoke 模式。
+这不是硬件异常，而是当前推荐流程把大量 Top-K 解释长表作为 CSV 稳定产物反复生成、读取和重建；同时候选与 feature 计算在不同 strategy、method 和实验编排之间重复执行。优化目标是让真实全量推荐生产运行更快，而不是只增加小样本 smoke 模式。
 
 ## 目标
 
@@ -29,7 +29,7 @@
 2. 重复计算过多：多个 method 重复扫描交易、用户画像、趋势预测和候选表，重复构建 popularity、recent、similarity、trend feature。
 3. 编排语义过重：`16 --force` 会重新构建输入、候选、baseline method、主 method 和实验结果，容易把前面已跑过的 `12-15` 再做一遍。
 4. 按 window 循环切大表：多处逻辑按 16 个推荐窗口对大 DataFrame 做 boolean mask、merge、groupby、sort 和 dedupe。
-5. 产物语义偏中间态：稳定长表保存过多排序前或可复算信息，而生产推荐真正需要的是 Top-12 结果和必要解释。
+5. 产物语义过重：当前稳定长表已经是 Top-K 后解释项，但仍以 CSV 保存五份千万级行产物；生产推荐真正需要的是 Top-12 结果、必要解释和可复算的缓存契约，不需要把内部读取路径绑定到 GB 级 CSV。
 
 ## 性能预算
 
@@ -85,6 +85,19 @@ candidate_sources
 
 `recommendations.csv` 继续作为最终短表和外部可读主结果。
 
+method output metadata 必须记录：
+
+- `input_artifacts`
+- `input_fingerprints`
+- `output_artifacts`
+- `algorithm_version`
+- `schema_version`
+- `config`
+- `row_counts`
+- `generated_at`
+
+method output 只有在 `recommendations.csv`、`recommendation_items.parquet`、`params.json` 和 `metadata.json` 同时存在，且 metadata 的 input fingerprint、output artifact、schema version、algorithm version 和 config 都匹配时，才能被 `16` 复用。迁移后旧的 CSV-only method output 必须被判定为 stale，不能因为 `recommendations.csv` 存在而复用。
+
 ### 候选与缓存产物
 
 候选继续 strategy-scoped：
@@ -94,17 +107,33 @@ data/processed/recommend/candidates/<strategy>/candidate_items.parquet
 data/processed/recommend/candidates/<strategy>/metadata.json
 ```
 
-新增可复用 feature cache：
+`12` 推荐输入新增统一 metadata：
 
 ```text
-data/processed/recommend/features/popularity_scores.parquet
-data/processed/recommend/features/recent_scores.parquet
-data/processed/recommend/features/similarity_scores.parquet
-data/processed/recommend/features/trend_scores.parquet
-data/processed/recommend/features/seen_items.parquet
-data/processed/recommend/features/recommendable_pool.parquet
+data/processed/recommend/metadata.json
+```
+
+该 metadata 覆盖 `time_windows.parquet`、`target_users.parquet`、`evaluation_labels.parquet` 和 `user_profile.parquet`，记录输入路径、input fingerprints、schema version、algorithm version、config、row counts 和 generated_at。`16` 不能再只用“4 个 parquet 是否存在”判断推荐输入新鲜度。
+
+新增可复用 feature cache。逻辑 cache 名称包括：
+
+```text
+popularity_scores
+recent_scores
+similarity_scores
+trend_scores
+seen_items
+recommendable_pool
 data/processed/recommend/features/metadata.json
 ```
+
+feature cache 的物理组织必须支持按 strategy 和 window 分区读取，避免 `14` 一次性 join 多个千万级 cache 表。推荐第一版采用目录分区或等价显式路径：
+
+```text
+data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet
+```
+
+其中 `popularity_scores`、`recent_scores` 和 `trend_scores` 可以只按 window 分区，因为它们不依赖用户；`similarity_scores` 和 `seen_items` 必须至少按 strategy + window 分区，因为它们接近 candidate user-article-window 规模。`14` 每次只读取当前 method 所需 strategy 和 window 的 feature partition。
 
 feature cache metadata 必须记录：
 
@@ -117,6 +146,8 @@ feature cache metadata 必须记录：
 - `generated_at`
 
 输入、算法版本或配置变化时，下游必须识别 stale。默认行为可以报错并给出重建命令，也可以在 `16` 中只重建必要 stale 节点，但不能静默混用旧产物。
+
+feature cache 也需要体积预算：单个 strategy 的 `similarity_scores` 和 `seen_items` 行数不应超过对应 strategy candidate 行数的合理倍数，第一版目标是不超过 `candidate_rows`。如果某个 cache 超过候选行数或单 feature cache 文件显著接近历史 GB 级 CSV 体积，必须视为设计退化并回到分区或计算粒度调整。
 
 ### 可选导出产物
 
@@ -148,7 +179,7 @@ weekly transactions + article attributes + lightgbm predictions
 -> user_profile
 ```
 
-它不生成候选或排序 feature，但需要写出更完整 metadata，供 `13`、feature cache、`14`、`15`、`16` 做 freshness 检查。
+它不生成候选或排序 feature，但必须写出 `data/processed/recommend/metadata.json`，供 `13`、feature cache、`14`、`15`、`16` 做 freshness 检查。
 
 ### `13` 候选生成
 
@@ -161,6 +192,8 @@ trend_source
 ```
 
 `default` strategy 只做 source union 和去重，不重新计算 popularity、similarity、trend source。`popularity`、`similarity`、`trend_union` 可以复用 source cache 或 materialized source parquet。
+
+生产默认保持当前 source `top_n=12`，避免在未建立 cache 和耗时基线前放大最大候选瓶颈。`top_n=24/36/48` 只作为 valid 实验配置，通过 `16` 的权重/候选配置实验验证后才能成为默认生产配置。
 
 ### Feature cache
 
@@ -176,13 +209,14 @@ candidate_items + transactions + article_attributes + user_profile + trend_predi
 -> recommendable_pool
 ```
 
-缓存边界：
+缓存边界和读取边界：
 
 - `pop_score` 和 `recent_score` 按 `split + cutoff_week + label_week + article_id` 预计算。
 - `sim_score` 只针对候选中实际出现的 `customer_id + article_id + window` 预计算。
 - `trend_score` 按 `split + cutoff_week + label_week + article_id` 预计算，所有用户共享。
 - `seen_items` 按 `split + cutoff_week + label_week + customer_id + article_id` 或等价 join key 预计算。
 - `recommendable_pool` 按窗口预计算，供所有 method 的评价复用。
+- `14` 必须按 method strategy 和 window 分批读取 cache，并流式写出 Top-12 结果；不能一次性把 `default` 候选、similarity cache、seen cache、trend cache 和 popularity cache 全部 join 成单个巨大 DataFrame。
 
 ### `14` Method 产出
 
@@ -238,6 +272,16 @@ write experiment.json
 
 默认不重建新鲜的 `12` 输入、`13` 候选、feature cache 或 baseline method。
 
+baseline output 的 freshness 检查必须读取 method metadata。判断新鲜必须同时满足：
+
+- `recommendations.csv` 存在。
+- `recommendation_items.parquet` 存在。
+- `params.json` 存在。
+- `metadata.json` 存在。
+- metadata 中的 input fingerprints、output artifacts、schema version、algorithm version 和 config 匹配当前运行期望。
+
+如果只有旧的 `recommendation_items.csv` 或旧 metadata，必须提示重建对应 method。
+
 ## 候选与排序算法调整
 
 优化后的推荐不要求逐行匹配旧版结果。候选池应更贴近 Top-N 生产语义。
@@ -250,16 +294,16 @@ write experiment.json
 - similarity：用户属性画像召回。
 - trend：趋势属性召回。
 
-`default` 仍是主策略，但每个 source 的召回上限独立配置。第一版默认建议：
+`default` 仍是主策略，但每个 source 的召回上限独立配置。第一版生产默认保持当前常量语义：
 
 ```text
-popularity source: top 24
-similarity source: top 24
-trend source: top 24
+popularity source: top 12
+similarity source: top 12
+trend source: top 12
 final recommendation: top 12
 ```
 
-后续可通过 valid metrics 比较 `12/24/36/48` 等配置。配置必须写入 metadata。
+`12/24/36/48` 等更大候选上限只能作为 valid 实验配置，不作为第一版生产默认。只有当真实全量耗时和 metrics 都通过验收时，才能把更大的 `top_n` 提升为默认生产配置。配置必须写入 metadata。
 
 ### Top-K 产物语义
 
@@ -390,9 +434,9 @@ stage=experiment experiment=main elapsed=<seconds>
 建议按 5 个阶段实施，避免一次大改：
 
 1. 观测与耗时日志：给 `12-16` 加阶段计时和 row count，不改算法，建立 baseline。
-2. Artifact 契约迁移：将 `recommendation_items.csv` 主产物迁到 `recommendation_items.parquet`，更新 reader、evaluator、docs 和 tests。
-3. Feature cache 层：引入 `data/processed/recommend/features/`，缓存 pop/recent/sim/trend/seen/recommendable_pool，并接入 freshness metadata。
-4. Method runner 重构：`14` 改为读取 candidate 和 feature cache，只输出 Top-12 parquet 和 short CSV。
+2. Artifact 契约迁移：method output 增加 `schema_version`、`algorithm_version`、`output_artifacts`、`config` 和 `row_counts`，再将 `recommendation_items.csv` 主产物迁到 `recommendation_items.parquet`，更新 reader、evaluator、docs 和 tests。
+3. 统一 freshness checker：新增 `data/processed/recommend/metadata.json`，并把 input、candidate、method 和后续 cache 的 freshness 检查统一到一个可测试的 helper。
+4. Feature cache 与 method runner：引入按 strategy/window 分区的 `data/processed/recommend/features/`，缓存 pop/recent/sim/trend/seen/recommendable_pool；`14` 改为按 method strategy 和 window 读取 cache、只输出 Top-12 parquet 和 short CSV；第一版保持 source `top_n=12`，避免放大候选瓶颈。
 5. Experiment 编排重构：改造 `16` 的 force 语义、新鲜度复用、权重搜索和 experiment payload，最后跑真实全量性能验收。
 
 每个阶段都应独立提交，避免把 artifact 契约、算法变化和实验编排混成一个大 diff。
