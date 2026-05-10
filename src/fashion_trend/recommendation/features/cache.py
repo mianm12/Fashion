@@ -40,6 +40,35 @@ ARTICLE_SCORE_FEATURES = {
     "trend_scores": "trend_score",
 }
 CUSTOMER_ARTICLE_SCORE_FEATURES = {"similarity_scores": "sim_score"}
+FEATURE_INPUT_KEYS = {
+    "candidate_seen_flags": (
+        "weekly_transactions",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "popularity_scores": (
+        "weekly_transactions",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "recent_scores": (
+        "weekly_transactions",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "similarity_scores": (
+        "article_attributes",
+        "user_profile",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "trend_scores": (
+        "article_attributes",
+        "trend_predictions",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+}
 FEATURE_CACHE_SCHEMA_VERSION = 1
 FEATURE_CACHE_ALGORITHM_VERSION = "recommendation-feature-cache-v1"
 RECOMMENDABLE_POOL_SCHEMA_VERSION = 1
@@ -349,9 +378,13 @@ def build_and_write_feature_cache_for_strategy(
                 split=str(window["split"]),
                 cutoff_week=int(window["cutoff_week"]),
             )
+            feature_input_artifacts = _feature_input_artifacts(
+                feature_name,
+                input_paths or {},
+            )
             metadata = build_artifact_metadata(
                 name=f"recommendation_feature_cache_{feature_name}",
-                input_artifacts=dict(input_paths or {}),
+                input_artifacts=feature_input_artifacts,
                 output_artifacts={
                     "partition": str(partition_path),
                     "partition_metadata": str(metadata_path),
@@ -454,6 +487,14 @@ def _partition_manifest_key(feature_name: str, window: dict[str, object]) -> str
         f"{feature_name}:split={window['split']}:"
         f"cutoff_week={int(window['cutoff_week'])}"
     )
+
+
+def _feature_input_artifacts(
+    feature_name: str,
+    input_paths: dict[str, str],
+) -> dict[str, str]:
+    keys = FEATURE_INPUT_KEYS.get(feature_name, ())
+    return {key: input_paths[key] for key in keys if key in input_paths}
 
 
 def _recommendable_pool_config(window) -> dict[str, object]:

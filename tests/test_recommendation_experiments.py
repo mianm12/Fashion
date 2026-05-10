@@ -863,6 +863,33 @@ def test_attribute_similarity_method_freshness_uses_profile_and_candidates(
     }
 
 
+def test_similarity_feature_cache_inputs_expose_shared_feature_sources(
+    tmp_path,
+) -> None:
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths={
+            "weekly_transactions": str(tmp_path / "weekly.parquet"),
+            "article_attributes": str(tmp_path / "attributes.csv"),
+            "trend_predictions": str(tmp_path / "predictions.csv"),
+        },
+    )
+
+    input_paths = experiment_runner._feature_cache_input_paths("similarity", context)
+
+    assert input_paths["weekly_transactions"] == str(tmp_path / "weekly.parquet")
+    assert input_paths["article_attributes"] == str(tmp_path / "attributes.csv")
+    assert input_paths["trend_predictions"] == str(tmp_path / "predictions.csv")
+    assert input_paths["candidate_items"].endswith(
+        "data/processed/recommend/candidates/similarity/candidate_items.parquet"
+    )
+    assert input_paths["candidate_metadata"].endswith(
+        "data/processed/recommend/candidates/similarity/metadata.json"
+    )
+
+
 def test_trend_method_freshness_uses_profile_candidates_and_predictions(
     tmp_path,
 ) -> None:

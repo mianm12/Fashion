@@ -474,6 +474,120 @@ def test_build_feature_cache_writes_partition_metadata_and_global_manifest(
     assert len(seen_flags) <= len(_candidates())
 
 
+def test_feature_cache_partition_metadata_records_feature_specific_inputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    feature_root = tmp_path / "features"
+    manifest_path = feature_root / "metadata.json"
+
+    def partition_path(
+        feature_name: str,
+        *,
+        strategy: str,
+        split: str,
+        cutoff_week: int,
+    ):
+        return (
+            feature_root
+            / feature_name
+            / f"strategy={strategy}"
+            / f"split={split}"
+            / f"cutoff_week={int(cutoff_week)}"
+            / "part.parquet"
+        )
+
+    def partition_metadata_path(
+        feature_name: str,
+        *,
+        strategy: str,
+        split: str,
+        cutoff_week: int,
+    ):
+        return partition_path(
+            feature_name,
+            strategy=strategy,
+            split=split,
+            cutoff_week=cutoff_week,
+        ).with_name("metadata.json")
+
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.FEATURE_CACHE_METADATA_PATH",
+        manifest_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache."
+        "feature_cache_partition_metadata_path",
+        partition_metadata_path,
+    )
+
+    build_and_write_feature_cache_for_strategy(
+        strategy="similarity",
+        candidates=_similarity_candidates(),
+        transactions=_transactions(),
+        article_attributes=_article_attributes(),
+        user_profile=_user_profile(),
+        trend_predictions=None,
+        input_paths={
+            "weekly_transactions": str(tmp_path / "weekly.parquet"),
+            "article_attributes": str(tmp_path / "article_attributes.csv"),
+            "trend_predictions": str(tmp_path / "predictions.csv"),
+            "time_windows": str(tmp_path / "time_windows.parquet"),
+            "target_users": str(tmp_path / "target_users.parquet"),
+            "user_profile": str(tmp_path / "user_profile.parquet"),
+            "candidate_items": str(tmp_path / "candidate_items.parquet"),
+            "candidate_metadata": str(tmp_path / "metadata.json"),
+        },
+    )
+
+    seen_metadata = json.loads(
+        partition_metadata_path(
+            "candidate_seen_flags",
+            strategy="similarity",
+            split="valid",
+            cutoff_week=10,
+        ).read_text(encoding="utf-8")
+    )
+    similarity_metadata = json.loads(
+        partition_metadata_path(
+            "similarity_scores",
+            strategy="similarity",
+            split="valid",
+            cutoff_week=10,
+        ).read_text(encoding="utf-8")
+    )
+    trend_metadata = json.loads(
+        partition_metadata_path(
+            "trend_scores",
+            strategy="similarity",
+            split="valid",
+            cutoff_week=10,
+        ).read_text(encoding="utf-8")
+    )
+
+    assert set(seen_metadata["input_artifacts"]) == {
+        "weekly_transactions",
+        "candidate_items",
+        "candidate_metadata",
+    }
+    assert set(similarity_metadata["input_artifacts"]) == {
+        "article_attributes",
+        "user_profile",
+        "candidate_items",
+        "candidate_metadata",
+    }
+    assert set(trend_metadata["input_artifacts"]) == {
+        "article_attributes",
+        "trend_predictions",
+        "candidate_items",
+        "candidate_metadata",
+    }
+
+
 def test_build_feature_cache_accepts_empty_candidates_with_manifest_only(
     tmp_path,
     monkeypatch,
@@ -531,6 +645,12 @@ def _candidates() -> pd.DataFrame:
             "article_id": ["0000000001", "0000000002", "0000000001"],
         }
     )
+
+
+def _similarity_candidates() -> pd.DataFrame:
+    candidates = _candidates().copy()
+    candidates["strategy"] = "similarity"
+    return candidates
 
 
 def _transactions() -> pd.DataFrame:

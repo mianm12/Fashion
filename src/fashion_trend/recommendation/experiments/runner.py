@@ -348,12 +348,14 @@ def run_baseline_methods(
                 context,
                 force=candidate_force,
             )
-            candidates = ensure_or_build_candidate_items(
-                strategy_name,
+            candidates = ensure_or_build_candidates_for_method(
+                method_name,
                 context,
                 inputs,
                 force=candidate_rebuild,
             )
+            if candidates is None:
+                raise ValueError(f"{method_name} requires a candidate strategy")
             _record_stage_status(
                 stage_status,
                 {
@@ -911,7 +913,21 @@ def _feature_cache_input_paths(
     context: RecommendationExperimentContext,
 ) -> dict[str, str]:
     available_paths = _experiment_input_paths(context)
+    feature_input_paths = {
+        key: available_paths[key]
+        for key in (
+            "recommendation_inputs",
+            "weekly_transactions",
+            "article_attributes",
+            "trend_predictions",
+            "time_windows",
+            "target_users",
+            "user_profile",
+        )
+        if key in available_paths
+    }
     return {
+        **feature_input_paths,
         **candidate_input_paths_for_strategy(strategy, available_paths),
         "candidate_items": str(candidate_items_path(strategy)),
         "candidate_metadata": str(
