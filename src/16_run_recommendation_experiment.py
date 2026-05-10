@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 
 from fashion_trend.catalog.paths import GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH
 from fashion_trend.catalog.readers import read_article_attribute_edges
@@ -18,11 +19,20 @@ from fashion_trend.trend.readers import read_trend_model_predictions
 LOG_SOURCE = "recommendation-experiment"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--experiment", default="main")
-    parser.add_argument("--force", action="store_true")
-    return parser.parse_args()
+    parser.add_argument("--force-experiment", action="store_true")
+    parser.add_argument("--force-method", action="append", default=[])
+    parser.add_argument("--force-cache", action="store_true")
+    parser.add_argument("--force-candidates", action="store_true")
+    parser.add_argument("--force-rebuild-all", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Deprecated alias for --force-experiment.",
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> int:
@@ -32,7 +42,11 @@ def main() -> int:
         trend_prediction_path = OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
         payload = run_recommendation_experiment(
             experiment_id=args.experiment,
-            force=args.force,
+            force_experiment=args.force_experiment or args.force,
+            force_methods=tuple(args.force_method),
+            force_cache=args.force_cache,
+            force_candidates=args.force_candidates,
+            force_rebuild_all=args.force_rebuild_all,
             context=RecommendationExperimentContext(
                 transactions=read_weekly_transactions(WEEKLY_TRANSACTIONS_PATH),
                 article_attributes=read_article_attribute_edges(

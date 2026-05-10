@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -54,6 +55,7 @@ from fashion_trend.recommendation.paths import (
     feature_cache_partition_path,
     method_output_paths,
 )
+from fashion_trend.recommendation.perf import StageTimer
 from fashion_trend.recommendation.readers import (
     read_candidate_items,
     read_evaluation_labels,
@@ -90,6 +92,34 @@ class RecommendationExperimentContext:
     trend_predictions: pd.DataFrame
     input_paths: dict[str, str] | None = None
     trend_model_source: str | None = None
+
+
+@dataclass(frozen=True)
+class RebuildDecision:
+    rebuild: bool
+    reason: str
+
+
+def should_rebuild_method(
+    *,
+    method_name: str,
+    stale_reason: str | None,
+    force_methods: Sequence[str],
+    force_cache: bool,
+    force_candidates: bool,
+    force_rebuild_all: bool,
+) -> RebuildDecision:
+    if force_rebuild_all:
+        return RebuildDecision(True, "force-rebuild-all")
+    if method_name in force_methods:
+        return RebuildDecision(True, "force-method")
+    if force_candidates:
+        return RebuildDecision(True, "force-candidates")
+    if force_cache:
+        return RebuildDecision(True, "force-cache")
+    if stale_reason is not None:
+        return RebuildDecision(True, stale_reason)
+    return RebuildDecision(False, "fresh")
 
 
 def generate_experiment_run_id(now: datetime | None = None) -> str:
@@ -224,31 +254,145 @@ def run_baseline_methods(
     context: RecommendationExperimentContext,
     inputs: RecommendationInputArtifacts,
     force: bool = False,
+    force_methods: Sequence[str] = (),
+    force_cache: bool = False,
+    force_candidates: bool = False,
+    force_rebuild_all: bool = False,
+    rebuild_stale_outputs: bool = False,
+    stage_status: list[dict[str, Any]] | None = None,
+    timings: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     available_paths = _experiment_input_paths(context)
     for method_name in BASELINE_METHODS:
+        timer = StageTimer("method", details={"method": method_name})
         input_paths = _method_input_paths(method_name, available_paths)
         method = get_recommendation_method(method_name)
-        if not force and method_output_paths(method_name).recommendations.exists():
-            _validate_method_output_fresh(method_name, input_paths)
-            payloads.append(
-                evaluate_method_output_for_experiment(method_name, context, inputs)
-            )
-            continue
-        candidates = ensure_or_build_candidates_for_method(
-            method_name,
-            context,
-            inputs,
-            force=force,
+        legacy_force = force or force_rebuild_all
+        stale_reason = None
+        output_exists = method_output_paths(method_name).recommendations.exists()
+        if not legacy_force:
+            stale_reason = _method_output_stale_reason(method_name, input_paths)
+            if (
+                stale_reason is not None
+                and output_exists
+                and not rebuild_stale_outputs
+                and not (
+                    force_cache or force_candidates or method_name in force_methods
+                )
+            ):
+                raise RuntimeError(stale_reason)
+        decision = should_rebuild_method(
+            method_name=method_name,
+            stale_reason=stale_reason,
+            force_methods=force_methods,
+            force_cache=force_cache,
+            force_candidates=force_candidates,
+            force_rebuild_all=legacy_force,
         )
-        if candidates is not None:
+        if not decision.rebuild:
+            payloads.append(
+                evaluate_method_output_for_experiment(
+                    method_name,
+                    context,
+                    inputs,
+                    force=force_cache or force_rebuild_all,
+                )
+            )
+            _record_stage_status(
+                stage_status,
+                {
+                    "stage": "method",
+                    "method": method_name,
+                    "status": "reused",
+                    "reason": decision.reason,
+                },
+            )
+            _record_stage_status(
+                stage_status,
+                {
+                    "stage": "metrics",
+                    "method": method_name,
+                    "status": "rebuilt",
+                    "reason": decision.reason,
+                },
+            )
+            _record_timing(timings, timer.finish())
+            continue
+        strategy = method.default_candidate_strategy
+        candidates = None
+        if strategy is None:
+            _record_stage_status(
+                stage_status,
+                {
+                    "stage": "candidates",
+                    "method": method_name,
+                    "status": "skipped",
+                    "reason": "no-candidate-strategy",
+                },
+            )
+            _record_stage_status(
+                stage_status,
+                {
+                    "stage": "cache",
+                    "method": method_name,
+                    "status": "skipped",
+                    "reason": "no-candidate-strategy",
+                },
+            )
+        else:
+            strategy_name = str(strategy)
+            candidate_force = legacy_force or force_candidates
+            candidate_rebuild = _candidate_items_rebuild_required(
+                strategy_name,
+                context,
+                force=candidate_force,
+            )
+            candidates = ensure_or_build_candidate_items(
+                strategy_name,
+                context,
+                inputs,
+                force=candidate_rebuild,
+            )
+            _record_stage_status(
+                stage_status,
+                {
+                    "stage": "candidates",
+                    "method": method_name,
+                    "strategy": strategy_name,
+                    "status": "rebuilt" if candidate_rebuild else "reused",
+                    "reason": _artifact_stage_reason(
+                        rebuilt=candidate_rebuild,
+                        forced=candidate_force,
+                        force_reason=decision.reason,
+                    ),
+                },
+            )
+            cache_force = legacy_force or force_cache or force_candidates
+            cache_rebuild = cache_force or not _feature_cache_partitions_exist(
+                strategy_name,
+                candidates,
+            )
             ensure_or_build_feature_cache_for_strategy(
-                str(method.default_candidate_strategy),
+                strategy_name,
                 context,
                 inputs,
                 candidates,
-                force=force,
+                force=cache_rebuild,
+            )
+            _record_stage_status(
+                stage_status,
+                {
+                    "stage": "cache",
+                    "method": method_name,
+                    "strategy": strategy_name,
+                    "status": "rebuilt" if cache_rebuild else "reused",
+                    "reason": _artifact_stage_reason(
+                        rebuilt=cache_rebuild,
+                        forced=cache_force,
+                        force_reason=decision.reason,
+                    ),
+                },
             )
         run_recommendation_method_by_window(
             method_name=method_name,
@@ -265,8 +409,32 @@ def run_baseline_methods(
             input_paths=input_paths,
         )
         payloads.append(
-            evaluate_method_output_for_experiment(method_name, context, inputs)
+            evaluate_method_output_for_experiment(
+                method_name,
+                context,
+                inputs,
+                force=force_cache or force_rebuild_all,
+            )
         )
+        _record_stage_status(
+            stage_status,
+            {
+                "stage": "metrics",
+                "method": method_name,
+                "status": "rebuilt",
+                "reason": decision.reason,
+            },
+        )
+        _record_stage_status(
+            stage_status,
+            {
+                "stage": "method",
+                "method": method_name,
+                "status": "rebuilt",
+                "reason": decision.reason,
+            },
+        )
+        _record_timing(timings, timer.finish())
     return payloads
 
 
@@ -437,6 +605,73 @@ def publish_trend_method_with_weights(
     )
 
 
+def _publish_or_reuse_trend_method(
+    *,
+    weights: dict[str, float],
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+    force_methods: Sequence[str],
+    force_cache: bool,
+    force_candidates: bool,
+    force_rebuild_all: bool,
+    stage_status: list[dict[str, Any]],
+    timings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    timer = StageTimer("method", details={"method": TREND_METHOD})
+    input_paths = _method_input_paths(TREND_METHOD, _experiment_input_paths(context))
+    stale_reason = _method_output_stale_reason(
+        TREND_METHOD,
+        input_paths,
+        weights=weights,
+    )
+    decision = should_rebuild_method(
+        method_name=TREND_METHOD,
+        stale_reason=stale_reason,
+        force_methods=force_methods,
+        force_cache=force_cache,
+        force_candidates=force_candidates,
+        force_rebuild_all=force_rebuild_all,
+    )
+    if decision.rebuild:
+        payload = publish_trend_method_with_weights(
+            weights,
+            context,
+            inputs,
+            candidates,
+            force=force_cache or force_rebuild_all,
+        )
+        status = "rebuilt"
+    else:
+        payload = evaluate_method_output_for_experiment(
+            TREND_METHOD,
+            context,
+            inputs,
+            force=force_cache or force_rebuild_all,
+        )
+        status = "reused"
+    _record_stage_status(
+        stage_status,
+        {
+            "stage": "method",
+            "method": TREND_METHOD,
+            "status": status,
+            "reason": decision.reason,
+        },
+    )
+    _record_stage_status(
+        stage_status,
+        {
+            "stage": "metrics",
+            "method": TREND_METHOD,
+            "status": "rebuilt",
+            "reason": decision.reason,
+        },
+    )
+    _record_timing(timings, timer.finish())
+    return payload
+
+
 def evaluate_result_for_experiment(
     method: str,
     result: RecommendationResult,
@@ -487,6 +722,9 @@ def build_experiment_payload(
     baseline_payloads: list[dict[str, Any]],
     search_results: list[dict[str, Any]],
     trend_payload: dict[str, Any],
+    stage_status: list[dict[str, Any]] | None = None,
+    force: dict[str, object] | None = None,
+    timings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "experiment_id": experiment_id,
@@ -494,53 +732,171 @@ def build_experiment_payload(
         "best_weights": select_best_weights(search_results),
         "search_results": search_results,
         "ablation": build_ablation_summary([*baseline_payloads, trend_payload]),
+        "stage_status": list(stage_status or []),
+        "force": dict(force or {}),
+        "timings": list(timings or []),
     }
 
 
 def run_recommendation_experiment(
     context: RecommendationExperimentContext,
     experiment_id: str = "main",
-    force: bool = False,
+    force_experiment: bool = False,
+    force_methods: Sequence[str] = (),
+    force_cache: bool = False,
+    force_candidates: bool = False,
+    force_rebuild_all: bool = False,
 ) -> dict[str, Any]:
     validate_safe_path_segment(experiment_id, "experiment_id")
-    inputs = ensure_or_build_recommendation_inputs(context, force=force)
-    baseline_payloads = run_baseline_methods(context, inputs, force=force)
+    force_methods = tuple(force_methods)
+    _validate_force_methods(force_methods)
+    stage_status: list[dict[str, Any]] = []
+    timings: list[dict[str, Any]] = []
+    force_payload = {
+        "force_experiment": force_experiment,
+        "force_methods": list(force_methods),
+        "force_cache": force_cache,
+        "force_candidates": force_candidates,
+        "force_rebuild_all": force_rebuild_all,
+    }
+
+    timer = StageTimer("inputs")
+    inputs_fresh = _recommendation_inputs_are_fresh(context)
+    inputs = ensure_or_build_recommendation_inputs(
+        context,
+        force=force_rebuild_all,
+    )
+    _record_stage_status(
+        stage_status,
+        {
+            "stage": "inputs",
+            "status": "rebuilt" if force_rebuild_all or not inputs_fresh else "reused",
+            "reason": (
+                "force-rebuild-all"
+                if force_rebuild_all
+                else ("fresh" if inputs_fresh else "stale-or-missing")
+            ),
+        },
+    )
+    _record_timing(timings, timer.finish())
+
+    baseline_payloads = run_baseline_methods(
+        context,
+        inputs,
+        force_methods=force_methods,
+        force_cache=force_cache,
+        force_candidates=force_candidates,
+        force_rebuild_all=force_rebuild_all,
+        rebuild_stale_outputs=True,
+        stage_status=stage_status,
+        timings=timings,
+    )
+    timer = StageTimer("candidates", details={"method": TREND_METHOD})
+    trend_strategy = candidate_strategy_for_method(TREND_METHOD)
+    if trend_strategy is None:
+        raise ValueError(f"{TREND_METHOD} requires a candidate strategy")
+    candidate_force = force_rebuild_all or force_candidates
+    candidate_rebuild = _candidate_items_rebuild_required(
+        str(trend_strategy),
+        context,
+        force=candidate_force,
+    )
     default_candidates = ensure_or_build_candidates_for_method(
         TREND_METHOD,
         context,
         inputs,
-        force=force,
+        force=candidate_rebuild,
     )
     if default_candidates is None:
         raise ValueError(f"{TREND_METHOD} requires a candidate strategy")
+    _record_stage_status(
+        stage_status,
+        {
+            "stage": "candidates",
+            "method": TREND_METHOD,
+            "status": "rebuilt" if candidate_rebuild else "reused",
+            "reason": _artifact_stage_reason(
+                rebuilt=candidate_rebuild,
+                forced=candidate_force,
+                force_reason=(
+                    "force-rebuild-all" if force_rebuild_all else "force-candidates"
+                ),
+            ),
+        },
+    )
+    _record_timing(timings, timer.finish())
+
+    timer = StageTimer("cache", details={"strategy": "default"})
+    cache_force = force_rebuild_all or force_cache or force_candidates
+    cache_rebuild = cache_force or not _feature_cache_partitions_exist(
+        "default",
+        default_candidates,
+    )
     ensure_or_build_feature_cache_for_strategy(
         "default",
         context,
         inputs,
         default_candidates,
-        force=force,
+        force=cache_rebuild,
     )
+    _record_stage_status(
+        stage_status,
+        {
+            "stage": "cache",
+            "strategy": "default",
+            "status": "rebuilt" if cache_rebuild else "reused",
+            "reason": _artifact_stage_reason(
+                rebuilt=cache_rebuild,
+                forced=cache_force,
+                force_reason=(
+                    "force-rebuild-all"
+                    if force_rebuild_all
+                    else ("force-candidates" if force_candidates else "force-cache")
+                ),
+            ),
+        },
+    )
+    _record_timing(timings, timer.finish())
 
+    timer = StageTimer("weight_search")
     search_results = evaluate_weight_grid_on_valid(
         iter_weight_grid(),
         context,
         inputs,
         default_candidates,
-        force=force,
+        force=force_cache or force_rebuild_all,
     )
+    _record_stage_status(
+        stage_status,
+        {
+            "stage": "experiment",
+            "status": "rebuilt",
+            "reason": "force-experiment" if force_experiment else "payload-write",
+        },
+    )
+    _record_timing(timings, timer.finish())
+
     best_weights = select_best_weights(search_results)
-    trend_payload = publish_trend_method_with_weights(
-        best_weights,
-        context,
-        inputs,
-        default_candidates,
-        force=force,
+    trend_payload = _publish_or_reuse_trend_method(
+        weights=best_weights,
+        context=context,
+        inputs=inputs,
+        candidates=default_candidates,
+        force_methods=force_methods,
+        force_cache=force_cache,
+        force_candidates=force_candidates,
+        force_rebuild_all=force_rebuild_all,
+        stage_status=stage_status,
+        timings=timings,
     )
     payload = build_experiment_payload(
         experiment_id,
         baseline_payloads,
         search_results,
         trend_payload,
+        stage_status=stage_status,
+        force=force_payload,
+        timings=timings,
     )
     write_json_atomic(payload, experiment_dir(experiment_id) / "experiment.json")
     return payload
@@ -562,6 +918,37 @@ def _feature_cache_input_paths(
             candidate_items_path(strategy).with_name("metadata.json")
         ),
     }
+
+
+def _candidate_items_rebuild_required(
+    strategy: str,
+    context: RecommendationExperimentContext,
+    *,
+    force: bool,
+) -> bool:
+    if force:
+        return True
+    if not candidate_items_path(strategy).exists():
+        return True
+    _validate_candidate_items_fresh(
+        strategy,
+        candidate_input_paths_for_strategy(
+            strategy,
+            _experiment_input_paths(context),
+        ),
+    )
+    return False
+
+
+def _artifact_stage_reason(
+    *,
+    rebuilt: bool,
+    forced: bool,
+    force_reason: str,
+) -> str:
+    if forced:
+        return force_reason
+    return "stale-or-missing" if rebuilt else "fresh"
 
 
 def _feature_cache_partitions_exist(
@@ -644,6 +1031,7 @@ def _concat_chunks(chunks: list[pd.DataFrame]) -> pd.DataFrame:
 def _validate_method_output_fresh(
     method_name: str,
     input_paths: dict[str, str],
+    weights: dict[str, float] | None = None,
 ) -> None:
     output_paths = method_output_paths(method_name)
     for path in (
@@ -666,9 +1054,53 @@ def _validate_method_output_fresh(
         expected_output_artifacts=_method_output_artifacts(method_name),
         expected_schema_version=1,
         expected_algorithm_version="recommendation-method-v1",
-        expected_config=_method_freshness_config(method_name, exclude_seen=True),
+        expected_config=_method_freshness_config(
+            method_name,
+            exclude_seen=True,
+            weights=weights,
+        ),
         stale_message=lambda reason: _stale_output_message(method_name, reason),
     )
+
+
+def _method_output_stale_reason(
+    method_name: str,
+    input_paths: dict[str, str],
+    weights: dict[str, float] | None = None,
+) -> str | None:
+    output_paths = method_output_paths(method_name)
+    if not output_paths.recommendations.exists():
+        return "recommendations.csv is missing"
+    try:
+        _validate_method_output_fresh(method_name, input_paths, weights=weights)
+    except RuntimeError as error:
+        return str(error)
+    return None
+
+
+def _record_stage_status(
+    stage_status: list[dict[str, Any]] | None,
+    payload: dict[str, Any],
+) -> None:
+    if stage_status is not None:
+        stage_status.append(payload)
+
+
+def _record_timing(
+    timings: list[dict[str, Any]] | None,
+    payload: dict[str, Any],
+) -> None:
+    if timings is not None:
+        timings.append(payload)
+
+
+def _validate_force_methods(force_methods: Sequence[str]) -> None:
+    allowed_methods = {*BASELINE_METHODS, TREND_METHOD}
+    unknown = sorted(
+        {method for method in force_methods if method not in allowed_methods}
+    )
+    if unknown:
+        raise ValueError(f"unknown force methods: {unknown}")
 
 
 def _recommendation_inputs_are_fresh(
@@ -725,14 +1157,16 @@ def _validate_candidate_items_fresh(
 def _stale_output_message(method_name: str, reason: str) -> str:
     return (
         f"{method_name} recommendation output is stale: {reason}. "
-        "Run src/16_run_recommendation_experiment.py with --force to rebuild."
+        "Run src/16_run_recommendation_experiment.py with "
+        f"--force-method {method_name} or --force-rebuild-all to rebuild."
     )
 
 
 def _stale_candidate_message(strategy: str, reason: str) -> str:
     return (
         f"{strategy} candidate_items output is stale: {reason}. "
-        "Run src/16_run_recommendation_experiment.py with --force to rebuild."
+        "Run src/16_run_recommendation_experiment.py with "
+        "--force-candidates or --force-rebuild-all to rebuild."
     )
 
 

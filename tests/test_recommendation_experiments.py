@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import inspect
 import json
 import re
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
@@ -126,11 +129,432 @@ def test_experiment_uses_method_default_candidate_strategy() -> None:
     assert candidate_strategy_for_method("pop_similarity_trend") == "default"
 
 
-def test_experiment_runner_exposes_force_rebuild_switch() -> None:
+def test_experiment_runner_exposes_explicit_force_switches() -> None:
     signature = inspect.signature(run_recommendation_experiment)
 
-    assert "force" in signature.parameters
-    assert signature.parameters["force"].default is False
+    assert "force" not in signature.parameters
+    assert "force_experiment" in signature.parameters
+    assert "force_methods" in signature.parameters
+    assert "force_cache" in signature.parameters
+    assert "force_candidates" in signature.parameters
+    assert "force_rebuild_all" in signature.parameters
+
+
+def test_force_cache_marks_method_outputs_stale() -> None:
+    from fashion_trend.recommendation.experiments.runner import should_rebuild_method
+
+    decision = should_rebuild_method(
+        method_name="pop_similarity",
+        stale_reason=None,
+        force_methods=(),
+        force_cache=True,
+        force_candidates=False,
+        force_rebuild_all=False,
+    )
+
+    assert decision.rebuild is True
+    assert decision.reason == "force-cache"
+
+
+def test_force_candidates_marks_method_outputs_stale() -> None:
+    from fashion_trend.recommendation.experiments.runner import should_rebuild_method
+
+    decision = should_rebuild_method(
+        method_name="pop_similarity",
+        stale_reason=None,
+        force_methods=(),
+        force_cache=False,
+        force_candidates=True,
+        force_rebuild_all=False,
+    )
+
+    assert decision.rebuild is True
+    assert decision.reason == "force-candidates"
+
+
+def test_experiment_cli_parses_explicit_force_options() -> None:
+    module = _load_experiment_cli_module()
+
+    args = module.parse_args(
+        [
+            "--experiment",
+            "main",
+            "--force-experiment",
+            "--force-method",
+            "pop_similarity",
+            "--force-method",
+            "recent_popularity",
+            "--force-cache",
+            "--force-candidates",
+            "--force-rebuild-all",
+            "--force",
+        ]
+    )
+
+    assert args.experiment == "main"
+    assert args.force_experiment is True
+    assert args.force_method == ["pop_similarity", "recent_popularity"]
+    assert args.force_cache is True
+    assert args.force_candidates is True
+    assert args.force_rebuild_all is True
+    assert args.force is True
+
+
+def test_experiment_payload_records_force_status_and_timings() -> None:
+    payload = experiment_runner.build_experiment_payload(
+        "main",
+        baseline_payloads=[{"method": "global_popularity", "metrics": {}}],
+        search_results=[
+            {
+                "grid_index": 0,
+                "weights": {
+                    "pop_score": 0.4,
+                    "sim_score": 0.3,
+                    "trend_score": 0.2,
+                    "recent_score": 0.1,
+                },
+                "valid_metrics": {"map_at_12": 0.1},
+            }
+        ],
+        trend_payload={"method": "pop_similarity_trend", "metrics": {}},
+        stage_status=[
+            {
+                "stage": "method",
+                "method": "pop_similarity",
+                "status": "rebuilt",
+                "reason": "force-cache",
+            }
+        ],
+        force={
+            "force_experiment": False,
+            "force_methods": ["pop_similarity"],
+            "force_cache": True,
+            "force_candidates": False,
+            "force_rebuild_all": False,
+        },
+        timings=[{"stage": "method", "elapsed_seconds": 0.01}],
+    )
+
+    assert payload["stage_status"] == [
+        {
+            "stage": "method",
+            "method": "pop_similarity",
+            "status": "rebuilt",
+            "reason": "force-cache",
+        }
+    ]
+    assert payload["force"]["force_cache"] is True
+    assert payload["force"]["force_methods"] == ["pop_similarity"]
+    assert payload["timings"] == [{"stage": "method", "elapsed_seconds": 0.01}]
+
+
+@pytest.mark.parametrize(
+    (
+        "force_kwargs",
+        "expected_reason",
+        "expected_candidate_force",
+        "expected_cache_force",
+    ),
+    [
+        ({"force_methods": ("pop_similarity",)}, "force-method", False, False),
+        ({"force_cache": True}, "force-cache", False, True),
+        ({"force_candidates": True}, "force-candidates", True, True),
+    ],
+)
+def test_baseline_force_rebuilds_fresh_cached_method_output(
+    tmp_path,
+    monkeypatch,
+    force_kwargs: dict[str, object],
+    expected_reason: str,
+    expected_candidate_force: bool,
+    expected_cache_force: bool,
+) -> None:
+    paths = _write_cached_method_output_fixture(tmp_path, "pop_similarity")
+    calls: list[tuple[str, object]] = []
+    stage_status: list[dict[str, object]] = []
+    candidates = _default_candidates_for_cache_test()
+
+    monkeypatch.setattr(experiment_runner, "BASELINE_METHODS", ("pop_similarity",))
+    monkeypatch.setattr(
+        experiment_runner,
+        "method_output_paths",
+        lambda method: paths.method_outputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_experiment_input_paths",
+        lambda context: _cached_method_current_inputs(paths),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_artifact_paths_for_method_window",
+        lambda **kwargs: paths.feature_artifacts,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_candidate_items_rebuild_required",
+        lambda strategy, context, *, force: calls.append(("candidate_required", force))
+        or bool(force),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_candidate_items",
+        lambda strategy, context, inputs, force=False: calls.append(
+            ("candidates", force)
+        )
+        or candidates,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_feature_cache_partitions_exist",
+        lambda strategy, candidates: True,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_feature_cache_for_strategy",
+        lambda strategy, context, inputs, candidates, force=False: calls.append(
+            ("cache", force)
+        ),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "run_recommendation_method_by_window",
+        lambda **kwargs: calls.append(("method", kwargs["method_name"])),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_method_output_for_experiment",
+        lambda method, context, inputs, force=False: calls.append(("evaluate", force))
+        or {"method": method, "metrics": {}},
+    )
+
+    payloads = run_baseline_methods(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+            input_paths={},
+        ),
+        RecommendationInputArtifacts(
+            time_windows=pd.DataFrame(),
+            target_users=pd.DataFrame(),
+            evaluation_labels=pd.DataFrame(),
+            user_profile=pd.DataFrame(),
+        ),
+        stage_status=stage_status,
+        **force_kwargs,
+    )
+
+    assert payloads == [{"method": "pop_similarity", "metrics": {}}]
+    assert ("method", "pop_similarity") in calls
+    assert ("candidates", expected_candidate_force) in calls
+    assert ("cache", expected_cache_force) in calls
+    assert {
+        "stage": "method",
+        "method": "pop_similarity",
+        "status": "rebuilt",
+        "reason": expected_reason,
+    } in stage_status
+
+
+def test_force_candidates_rebuilds_candidates_cache_and_methods(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    candidates = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_recommendation_inputs",
+        lambda context, force=False: calls.append(("inputs", force)) or inputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "run_baseline_methods",
+        lambda context, inputs, **kwargs: calls.append(("baselines", kwargs))
+        or [{"method": "global_popularity", "metrics": {}}],
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_candidates_for_method",
+        lambda method, context, inputs, force=False: calls.append(("candidates", force))
+        or candidates,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_feature_cache_for_strategy",
+        lambda strategy, context, inputs, candidates, force=False: calls.append(
+            ("cache", force)
+        ),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_weight_grid_on_valid",
+        lambda weight_grid, context, inputs, candidates, **kwargs: calls.append(
+            ("search", kwargs)
+        )
+        or [
+            {
+                "grid_index": 0,
+                "weights": {
+                    "pop_score": 0.4,
+                    "sim_score": 0.3,
+                    "trend_score": 0.2,
+                    "recent_score": 0.1,
+                },
+                "valid_metrics": {"map_at_12": 0.1},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "publish_trend_method_with_weights",
+        lambda weights, context, inputs, candidates, **kwargs: calls.append(
+            ("trend_method", kwargs)
+        )
+        or {"method": "pop_similarity_trend", "metrics": {}},
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "write_json_atomic",
+        lambda payload, path: calls.append(("payload", payload)),
+    )
+
+    payload = run_recommendation_experiment(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        ),
+        force_candidates=True,
+    )
+
+    assert ("inputs", False) in calls
+    assert ("candidates", True) in calls
+    assert ("cache", True) in calls
+    baseline_call = next(payload for stage, payload in calls if stage == "baselines")
+    assert baseline_call["force_candidates"] is True
+    assert baseline_call["rebuild_stale_outputs"] is True
+    assert ("trend_method", {"force": False}) in calls
+    assert payload["force"]["force_candidates"] is True
+    assert {
+        "stage": "candidates",
+        "method": "pop_similarity_trend",
+        "status": "rebuilt",
+        "reason": "force-candidates",
+    } in payload["stage_status"]
+
+
+def test_experiment_records_missing_candidate_and_cache_as_rebuilt(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    candidates = pd.DataFrame([{"split": "valid", "cutoff_week": 10, "label_week": 11}])
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_recommendation_inputs",
+        lambda context, force=False: inputs,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "run_baseline_methods",
+        lambda context, inputs, **kwargs: [
+            {"method": "global_popularity", "metrics": {}}
+        ],
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_candidate_items_rebuild_required",
+        lambda strategy, context, *, force: True,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_candidates_for_method",
+        lambda method, context, inputs, force=False: calls.append(("candidates", force))
+        or candidates,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "_feature_cache_partitions_exist",
+        lambda strategy, candidates: False,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_feature_cache_for_strategy",
+        lambda strategy, context, inputs, candidates, force=False: calls.append(
+            ("cache", force)
+        ),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_weight_grid_on_valid",
+        lambda *args, **kwargs: [
+            {
+                "grid_index": 0,
+                "weights": {
+                    "pop_score": 0.4,
+                    "sim_score": 0.3,
+                    "trend_score": 0.2,
+                    "recent_score": 0.1,
+                },
+                "valid_metrics": {"map_at_12": 0.1},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "publish_trend_method_with_weights",
+        lambda *args, **kwargs: {"method": "pop_similarity_trend", "metrics": {}},
+    )
+    monkeypatch.setattr(
+        experiment_runner, "write_json_atomic", lambda payload, path: None
+    )
+
+    payload = run_recommendation_experiment(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        )
+    )
+
+    assert ("candidates", True) in calls
+    assert ("cache", True) in calls
+    assert {
+        "stage": "candidates",
+        "method": "pop_similarity_trend",
+        "status": "rebuilt",
+        "reason": "stale-or-missing",
+    } in payload["stage_status"]
+    assert {
+        "stage": "cache",
+        "strategy": "default",
+        "status": "rebuilt",
+        "reason": "stale-or-missing",
+    } in payload["stage_status"]
+
+
+def test_experiment_rejects_unknown_force_method() -> None:
+    with pytest.raises(ValueError, match="unknown force methods"):
+        run_recommendation_experiment(
+            RecommendationExperimentContext(
+                transactions=pd.DataFrame(),
+                article_attributes=pd.DataFrame(),
+                trend_predictions=pd.DataFrame(),
+            ),
+            force_methods=("typo",),
+        )
 
 
 def test_experiment_rejects_stale_existing_method_output(
@@ -180,7 +604,7 @@ def test_experiment_rejects_stale_existing_method_output(
     monkeypatch.setattr(
         experiment_runner,
         "evaluate_method_output_for_experiment",
-        lambda method, context, inputs: {"method": method, "metrics": {}},
+        lambda method, context, inputs, force=False: {"method": method, "metrics": {}},
     )
 
     context = RecommendationExperimentContext(
@@ -506,7 +930,7 @@ def test_experiment_reuses_fresh_cached_method_output_with_feature_artifacts(
     monkeypatch.setattr(
         experiment_runner,
         "evaluate_method_output_for_experiment",
-        lambda method, context, inputs: {"method": method, "metrics": {}},
+        lambda method, context, inputs, force=False: {"method": method, "metrics": {}},
     )
 
     payloads = run_baseline_methods(
@@ -968,7 +1392,7 @@ def test_experiment_rejects_stale_candidate_when_method_output_missing(
         evaluation_labels=pd.DataFrame(),
         user_profile=pd.DataFrame(),
     )
-    with pytest.raises(RuntimeError, match="--force"):
+    with pytest.raises(RuntimeError, match="--force-candidates"):
         ensure_or_build_candidate_items(
             "popularity",
             context,
@@ -1012,7 +1436,7 @@ def test_run_baseline_methods_builds_missing_feature_cache_before_cached_method(
     monkeypatch.setattr(
         experiment_runner,
         "evaluate_method_output_for_experiment",
-        lambda method, context, inputs: {"method": method, "metrics": {}},
+        lambda method, context, inputs, force=False: {"method": method, "metrics": {}},
     )
 
     payloads = run_baseline_methods(context, inputs, force=True)
@@ -1284,6 +1708,22 @@ def _write_cached_method_output_fixture(tmp_path, method: str) -> SimpleNamespac
         feature_artifacts=[str(path) for path in feature_artifacts],
         method_outputs=method_outputs,
     )
+
+
+def _load_experiment_cli_module():
+    module_name = "_recommendation_experiment_cli_for_tests"
+    module_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / ("16_run_recommendation_experiment.py")
+    )
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _patch_experiment_feature_cache_paths(tmp_path, monkeypatch) -> None:
