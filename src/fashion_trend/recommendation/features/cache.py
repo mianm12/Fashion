@@ -1,0 +1,304 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
+from fashion_trend.recommendation.freshness import build_artifact_metadata
+from fashion_trend.recommendation.paths import (
+    FEATURE_CACHE_METADATA_PATH,
+    feature_cache_partition_metadata_path,
+    feature_cache_partition_path,
+)
+from fashion_trend.recommendation.ranking.features import build_ranking_features
+
+FEATURE_NAMES = (
+    "popularity_scores",
+    "recent_scores",
+    "similarity_scores",
+    "trend_scores",
+    "candidate_seen_flags",
+    "recommendable_pool",
+)
+WINDOW_COLUMNS = ["split", "cutoff_week", "label_week"]
+CANDIDATE_KEY_COLUMNS = [
+    *WINDOW_COLUMNS,
+    "strategy",
+    "customer_id",
+    "article_id",
+]
+SEEN_FLAG_COLUMNS = [*CANDIDATE_KEY_COLUMNS, "seen"]
+ARTICLE_SCORE_FEATURES = {
+    "popularity_scores": "pop_score",
+    "recent_scores": "recent_score",
+    "trend_scores": "trend_score",
+}
+CUSTOMER_ARTICLE_SCORE_FEATURES = {"similarity_scores": "sim_score"}
+FEATURE_CACHE_SCHEMA_VERSION = 1
+FEATURE_CACHE_ALGORITHM_VERSION = "recommendation-feature-cache-v1"
+
+
+def build_candidate_seen_flags(
+    candidates: pd.DataFrame,
+    transactions: pd.DataFrame,
+) -> pd.DataFrame:
+    """Return only candidate pairs seen by cutoff week, never full history."""
+    _require_columns(candidates, CANDIDATE_KEY_COLUMNS, "candidates")
+    _require_columns(
+        transactions, ("customer_id", "article_id", "week_id"), "transactions"
+    )
+
+    if candidates.empty or transactions.empty:
+        return pd.DataFrame(columns=SEEN_FLAG_COLUMNS)
+
+    candidate_frame = _with_string_ids(candidates.loc[:, CANDIDATE_KEY_COLUMNS])
+    candidate_frame["_candidate_order"] = range(len(candidate_frame))
+    transaction_frame = _with_string_ids(transactions)
+    transaction_frame["week_id"] = pd.to_numeric(
+        transaction_frame["week_id"],
+        errors="raise",
+    ).astype(int)
+
+    frames: list[pd.DataFrame] = []
+    for window in candidate_frame[WINDOW_COLUMNS].drop_duplicates().to_dict("records"):
+        window_candidates = _frame_for_window(candidate_frame, window)
+        seen_pairs = (
+            transaction_frame.loc[
+                transaction_frame["week_id"] <= int(window["cutoff_week"]),
+                ["customer_id", "article_id"],
+            ]
+            .drop_duplicates()
+            .assign(seen=True)
+        )
+        if seen_pairs.empty:
+            continue
+        matched = window_candidates.merge(
+            seen_pairs,
+            on=["customer_id", "article_id"],
+            how="inner",
+        )
+        if not matched.empty:
+            frames.append(matched)
+
+    if not frames:
+        return pd.DataFrame(columns=SEEN_FLAG_COLUMNS)
+
+    result = pd.concat(frames, ignore_index=True).drop_duplicates(SEEN_FLAG_COLUMNS)
+    result = result.sort_values("_candidate_order", kind="mergesort")
+    return result.loc[:, SEEN_FLAG_COLUMNS].reset_index(drop=True)
+
+
+def update_feature_cache_manifest(
+    manifest_key: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    """Merge one strategy manifest entry into the global feature cache manifest."""
+    manifest = _read_manifest(FEATURE_CACHE_METADATA_PATH)
+    entries = manifest.setdefault("entries", {})
+    if not isinstance(entries, dict):
+        raise ValueError("feature cache manifest entries must be an object")
+    entries[manifest_key] = _json_compatible(dict(payload))
+    write_json_atomic(manifest, FEATURE_CACHE_METADATA_PATH)
+    return manifest
+
+
+def build_and_write_feature_cache_for_strategy(
+    strategy: str,
+    candidates: pd.DataFrame,
+    transactions: pd.DataFrame,
+    article_attributes: pd.DataFrame,
+    user_profile: pd.DataFrame | None,
+    trend_predictions: pd.DataFrame | None,
+    input_paths: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Build strategy/window-scoped feature cache partitions for candidates."""
+    _require_columns(candidates, CANDIDATE_KEY_COLUMNS, "candidates")
+    _validate_candidate_strategy(candidates, strategy)
+
+    partitions: dict[str, list[dict[str, object]]] = {}
+    output_artifacts: dict[str, str] = {}
+    row_counts: dict[str, int] = {}
+
+    for window in candidates[WINDOW_COLUMNS].drop_duplicates().to_dict("records"):
+        partition_candidates = _frame_for_window(candidates, window)
+        if partition_candidates.empty:
+            continue
+
+        feature_frame = build_ranking_features(
+            partition_candidates,
+            transactions,
+            article_attributes,
+            user_profile,
+            trend_predictions,
+        )
+        seen_flags = build_candidate_seen_flags(partition_candidates, transactions)
+        if len(seen_flags) > len(partition_candidates):
+            raise ValueError("candidate_seen_flags rows exceed candidate rows")
+
+        partition_frames = _feature_partition_frames(feature_frame, seen_flags)
+        for feature_name, frame in partition_frames.items():
+            partition_path = feature_cache_partition_path(
+                feature_name,
+                strategy=strategy,
+                split=str(window["split"]),
+                cutoff_week=int(window["cutoff_week"]),
+            )
+            write_parquet_atomic(frame, partition_path)
+            metadata_path = feature_cache_partition_metadata_path(
+                feature_name,
+                strategy=strategy,
+                split=str(window["split"]),
+                cutoff_week=int(window["cutoff_week"]),
+            )
+            metadata = build_artifact_metadata(
+                name=f"recommendation_feature_cache_{feature_name}",
+                input_artifacts=dict(input_paths or {}),
+                output_artifacts={
+                    "partition": str(partition_path),
+                    "partition_metadata": str(metadata_path),
+                },
+                schema_version=FEATURE_CACHE_SCHEMA_VERSION,
+                algorithm_version=FEATURE_CACHE_ALGORITHM_VERSION,
+                config={
+                    "feature_name": feature_name,
+                    "strategy": strategy,
+                    "split": str(window["split"]),
+                    "cutoff_week": int(window["cutoff_week"]),
+                    "label_week": int(window["label_week"]),
+                },
+                row_counts={"rows": int(len(frame))},
+            )
+            write_json_atomic(metadata, metadata_path)
+
+            partition_key = _partition_manifest_key(feature_name, window)
+            partitions.setdefault(feature_name, []).append(
+                {
+                    "split": str(window["split"]),
+                    "cutoff_week": int(window["cutoff_week"]),
+                    "label_week": int(window["label_week"]),
+                    "path": str(partition_path),
+                    "metadata_path": str(metadata_path),
+                    "rows": int(len(frame)),
+                }
+            )
+            output_artifacts[f"{partition_key}:partition"] = str(partition_path)
+            output_artifacts[f"{partition_key}:partition_metadata"] = str(metadata_path)
+            row_counts[partition_key] = int(len(frame))
+
+    output_artifacts["feature_cache_metadata"] = str(FEATURE_CACHE_METADATA_PATH)
+    row_counts["candidate_rows"] = int(len(candidates))
+    global_manifest = build_artifact_metadata(
+        name="recommendation_feature_cache",
+        input_artifacts=dict(input_paths or {}),
+        output_artifacts=output_artifacts,
+        schema_version=FEATURE_CACHE_SCHEMA_VERSION,
+        algorithm_version=FEATURE_CACHE_ALGORITHM_VERSION,
+        config={"strategy": strategy},
+        row_counts=row_counts,
+    )
+    global_manifest["manifest"] = {
+        "strategy": strategy,
+        "features": list(FEATURE_NAMES),
+        "partitions": partitions,
+    }
+    return update_feature_cache_manifest(
+        manifest_key=f"strategy:{strategy}",
+        payload=global_manifest,
+    )
+
+
+def _feature_partition_frames(
+    feature_frame: pd.DataFrame,
+    seen_flags: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    frames = {
+        feature_name: feature_frame.loc[
+            :,
+            [*WINDOW_COLUMNS, "strategy", "article_id", score_column],
+        ].copy()
+        for feature_name, score_column in ARTICLE_SCORE_FEATURES.items()
+    }
+    frames = {
+        feature_name: frame.drop_duplicates().reset_index(drop=True)
+        for feature_name, frame in frames.items()
+    }
+    frames.update(
+        {
+            feature_name: feature_frame.loc[
+                :,
+                [*CANDIDATE_KEY_COLUMNS, score_column],
+            ]
+            .drop_duplicates()
+            .reset_index(drop=True)
+            for feature_name, score_column in CUSTOMER_ARTICLE_SCORE_FEATURES.items()
+        }
+    )
+    frames["candidate_seen_flags"] = (
+        seen_flags.loc[:, SEEN_FLAG_COLUMNS].drop_duplicates().reset_index(drop=True)
+    )
+    return frames
+
+
+def _validate_candidate_strategy(candidates: pd.DataFrame, strategy: str) -> None:
+    if candidates.empty:
+        return
+    candidate_strategies = set(candidates["strategy"].astype(str))
+    if candidate_strategies != {strategy}:
+        raise ValueError(
+            "candidates strategy must match feature cache strategy: "
+            f"expected {strategy}, found {sorted(candidate_strategies)}"
+        )
+
+
+def _partition_manifest_key(feature_name: str, window: dict[str, object]) -> str:
+    return (
+        f"{feature_name}:split={window['split']}:"
+        f"cutoff_week={int(window['cutoff_week'])}"
+    )
+
+
+def _read_manifest(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {"entries": {}}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("feature cache manifest must be a JSON object")
+    payload.setdefault("entries", {})
+    return payload
+
+
+def _require_columns(
+    dataframe: pd.DataFrame,
+    columns: list[str] | tuple[str, ...],
+    name: str,
+) -> None:
+    missing = [column for column in columns if column not in dataframe.columns]
+    if missing:
+        raise ValueError(f"{name} missing required columns: {missing}")
+
+
+def _frame_for_window(
+    frame: pd.DataFrame,
+    window: dict[str, object],
+) -> pd.DataFrame:
+    mask = (
+        (frame["split"] == window["split"])
+        & (frame["cutoff_week"] == window["cutoff_week"])
+        & (frame["label_week"] == window["label_week"])
+    )
+    return frame.loc[mask].copy()
+
+
+def _with_string_ids(dataframe: pd.DataFrame) -> pd.DataFrame:
+    result = dataframe.copy()
+    for column in ("article_id", "customer_id"):
+        if column in result.columns:
+            result[column] = result[column].astype(str)
+    return result
+
+
+def _json_compatible(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))

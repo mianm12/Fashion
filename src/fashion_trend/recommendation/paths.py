@@ -15,6 +15,8 @@ EVALUATION_LABELS_PATH = RECOMMEND_DIR / "evaluation_labels.parquet"
 USER_PROFILE_PATH = RECOMMEND_DIR / "user_profile.parquet"
 RECOMMEND_METADATA_PATH = RECOMMEND_DIR / "metadata.json"
 CANDIDATES_DIR = RECOMMEND_DIR / "candidates"
+FEATURES_DIR = RECOMMEND_DIR / "features"
+FEATURE_CACHE_METADATA_PATH = FEATURES_DIR / "metadata.json"
 EXPERIMENTS_DIR = OUTPUT_RECOMMENDATION_DIR / "experiments"
 
 
@@ -32,6 +34,39 @@ class RecommendationOutputPaths:
 def candidate_items_path(strategy: str) -> Path:
     _validate_recommendation_path_segment(strategy, "strategy")
     return CANDIDATES_DIR / strategy / "candidate_items.parquet"
+
+
+def feature_cache_partition_path(
+    feature_name: str,
+    *,
+    strategy: str,
+    split: str,
+    cutoff_week: int,
+) -> Path:
+    _validate_feature_cache_partition(feature_name, strategy, split, cutoff_week)
+    return (
+        FEATURES_DIR
+        / feature_name
+        / f"strategy={strategy}"
+        / f"split={split}"
+        / f"cutoff_week={int(cutoff_week)}"
+        / "part.parquet"
+    )
+
+
+def feature_cache_partition_metadata_path(
+    feature_name: str,
+    *,
+    strategy: str,
+    split: str,
+    cutoff_week: int,
+) -> Path:
+    return feature_cache_partition_path(
+        feature_name,
+        strategy=strategy,
+        split=split,
+        cutoff_week=cutoff_week,
+    ).with_name("metadata.json")
 
 
 def method_output_paths(method: str) -> RecommendationOutputPaths:
@@ -63,3 +98,15 @@ def _validate_recommendation_path_segment(segment: str, source_name: str) -> Non
         validate_safe_path_segment(segment, source_name)
     except ValueError as error:
         raise ValueError(f"{source_name} 不是安全的路径片段: {segment}") from error
+
+
+def _validate_feature_cache_partition(
+    feature_name: str,
+    strategy: str,
+    split: str,
+    cutoff_week: int,
+) -> None:
+    _validate_recommendation_path_segment(feature_name, "feature_name")
+    _validate_recommendation_path_segment(strategy, "strategy")
+    _validate_recommendation_path_segment(split, "split")
+    _validate_recommendation_path_segment(str(int(cutoff_week)), "cutoff_week")
