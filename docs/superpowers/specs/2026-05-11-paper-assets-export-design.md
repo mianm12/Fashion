@@ -88,24 +88,40 @@ src/fashion_trend/reports/
 - 校验 CSV / parquet / JSON schema。
 - 保留 `article_id`、`customer_id`、`prediction` 的字符串语义，尤其不能丢失前导 0。
 - 读取趋势 metrics、LightGBM feature importance、LightGBM predictions、趋势样本、属性图节点边表、推荐 metrics、推荐 experiment、推荐长表和推荐输入表。
+- 为趋势曲线和 Top-K 趋势榜构建 `LightGBM predictions + trend_model_samples` 的 1:1 join 视图。
 - 对缺失 artifact 给出明确上游命令提示。
+
+趋势预测与样本 join 契约：
+
+- join key 固定为 `week_id + attr_id + attr_type + attr_value`。
+- `outputs/models/lightgbm/predictions.csv` 与 `data/processed/features/trend_model_samples.parquet` 在 join key 上都必须唯一。
+- join 后行数必须等于 LightGBM predictions 行数，不能出现 left-only 或 right-only 预测行。
+- join 后必须保留 `split`、`share_t`、`pred_share_t1`、`target_growth`、`pred_target_growth`、`target_rank_in_type_t1`，并从样本表补充 `heat_t`、`history_total_heat_t`、`history_active_weeks_t`、`is_trend_eligible_t`。
+- 如果 predictions 和 samples 中同名字段语义重复，例如 `share_t` 或 `target_growth`，loader 必须校验数值一致后只暴露一个标准列，不能静默采用任意一侧。
 
 ### `tables.py`
 
 负责生成论文表格数据，输出 CSV 和 Markdown：
 
-| 表格文件前缀 | 内容 |
-| --- | --- |
-| `data_artifact_summary` | 原始数据、处理后数据、模型与推荐 artifact 规模 |
-| `time_split_summary` | 趋势 train/valid/test 与推荐 valid/test 窗口 |
-| `attribute_graph_summary` | 属性图节点、商品-属性边、属性层级边统计 |
-| `trend_feature_summary` | 趋势样本特征清单与 LightGBM 特征组说明 |
-| `trend_model_metrics` | `last_week`、`previous_growth`、`moving_average`、`lightgbm` 的 valid/test 指标 |
-| `trend_metrics_by_attr_type` | LightGBM 或模型对比的属性类型分组指标 |
-| `recommendation_method_metrics` | 五个推荐方法的 valid/test 指标 |
-| `recommendation_experiment_summary` | 主实验权重、grid search 摘要和当前 experiment artifact 支持的消融 |
+| 表格文件前缀 | 排序 | 必需列 |
+| --- | --- | --- |
+| `data_artifact_summary` | `section, artifact` | `section`, `artifact`, `path`, `row_count`, `column_count`, `paper_usage` |
+| `time_split_summary` | `domain, split, week_start` | `domain`, `split`, `week_start`, `week_end`, `week_count`, `row_count`, `attribute_count`, `user_count` |
+| `attribute_graph_summary` | `entity_type, attr_type, relation_type` | `entity_type`, `attr_type`, `relation_type`, `count`, `path`, `paper_usage` |
+| `trend_feature_summary` | `feature_group, feature_name` | `feature_group`, `feature_name`, `source_table`, `model_input`, `description` |
+| `trend_model_metrics` | `model_name, split` | `model_name`, `split`, `mae`, `rmse`, `spearman`, `ndcg_at_10`, `precision_at_10`, `recall_at_10`, `run_id` |
+| `trend_metrics_by_attr_type` | `model_name, split, attr_type` | `model_name`, `split`, `attr_type`, `mae`, `rmse`, `spearman`, `ndcg_at_10`, `precision_at_10`, `recall_at_10` |
+| `recommendation_method_metrics` | `method, split` | `method`, `split`, `map_at_12`, `recall_at_12`, `hit_rate_at_12`, `ndcg_at_12`, `coverage`, `user_count`, `missing_recommendation_user_count` |
+| `recommendation_experiment_summary` | `section, rank, split, method` | `section`, `rank`, `method`, `split`, `pop_score`, `sim_score`, `trend_score`, `recent_score`, `map_at_12`, `recall_at_12`, `hit_rate_at_12`, `ndcg_at_12`, `coverage` |
 
 Markdown 表格用于论文粘贴和人工审阅，CSV 用于复核和后续制图。
+
+表格输出约束：
+
+- CSV 和 Markdown 使用同一 DataFrame 和同一列顺序生成。
+- 数值列保留原始浮点精度到 CSV；Markdown 可以按论文展示需要格式化到固定小数位。
+- 缺少某张表的必需列必须失败，不能由实现临时省略列。
+- `recommendation_experiment_summary` 只能总结当前 `experiment.json` 已保存的 valid grid 与 ablation，不虚构不存在的 test grid 指标。
 
 ### `figures.py`
 
@@ -119,10 +135,22 @@ Markdown 表格用于论文粘贴和人工审阅，CSV 用于复核和后续制�
 | `lightgbm_feature_importance` | LightGBM Top-N 特征重要性 | `outputs/models/lightgbm/feature_importance.csv` |
 | `trend_model_metrics` | 趋势模型 MAE / Spearman / NDCG@10 对比 | `outputs/metrics/<model>/trend_metrics.json` |
 | `recommendation_method_metrics` | 推荐方法 MAP@12 / Recall@12 / NDCG@12 对比 | `outputs/recommendation/<method>/metrics.json` |
-| `topk_trend_attributes` | test `week_id=103` 的颜色、品类、图案 Top-K 趋势榜 | LightGBM predictions |
+| `topk_trend_attributes` | test `week_id=103` 的颜色、品类、图案 Top-K 趋势榜 | LightGBM predictions + trend samples join view |
 | `recommendation_weight_analysis` | `trend_score` 权重与 valid 指标、主实验权重构成 | `outputs/recommendation/experiments/main/experiment.json` |
 
 图表默认使用中文标题和说明，保留 `LightGBM`、`NDCG@10`、`NDCG@12`、`MAP@12`、`Recall@12` 等英文指标名。SVG 是论文排版主格式，PNG 是答辩和快速预览格式。
+
+## 绘图运行环境
+
+实现阶段需要把 `matplotlib` 加入 `pyproject.toml` 的 runtime dependencies，并通过 `uv sync` 更新锁文件。reports 导出入口启动时必须初始化绘图环境：
+
+- 使用非交互式后端，例如 `Agg`。
+- 设置候选 CJK 字体栈：`PingFang SC`、`Heiti SC`、`Songti SC`、`Noto Sans CJK SC`、`Microsoft YaHei`、`SimHei`、`Arial Unicode MS`。
+- 设置 `axes.unicode_minus = False`，避免负号在中文字体环境下显示异常。
+- 默认要求至少找到一个可用 CJK 字体；找不到时 fail-fast，错误信息说明如何安装字体或改用英文标签。
+- 如果后续实现提供 `--allow-missing-cjk-font` 之类显式参数，才允许降级为 manifest warning；默认论文导出不允许悄悄生成缺字图。
+
+测试需要包含一个最小中文图渲染 smoke：生成含中文标题、英文指标名和负数坐标轴的 SVG + PNG，并确认文件非空。该 smoke 不需要验证字体视觉效果，但要覆盖字体发现、`unicode_minus` 配置和双格式写出链路。
 
 ### `cases.py`
 
@@ -188,7 +216,7 @@ outputs/reports/
 
 - 趋势模型对比读取四个 `outputs/metrics/<model>/trend_metrics.json`。
 - LightGBM 特征重要性读取 `outputs/models/lightgbm/feature_importance.csv`。
-- 趋势曲线和 Top-K 趋势榜读取 `outputs/models/lightgbm/predictions.csv`，必要时结合趋势样本列。
+- 趋势曲线和 Top-K 趋势榜读取 `outputs/models/lightgbm/predictions.csv` 与 `data/processed/features/trend_model_samples.parquet` 的 1:1 join 视图。
 - 推荐方法对比读取五个 `outputs/recommendation/<method>/metrics.json`。
 - 推荐权重和消融摘要读取 `outputs/recommendation/experiments/main/experiment.json`。
 - 推荐案例读取 `outputs/recommendation/pop_similarity_trend/recommendation_items.parquet` 和推荐输入 / 商品属性公开 reader。
@@ -198,7 +226,7 @@ outputs/reports/
 - 趋势模型选择解释优先看 valid，最终报告同时展示 valid 和 test。
 - test 指标只能作为最终报告，不能在图表叙述中暗示用于调参选择。
 - 推荐主方法应表述为 valid 最优、test 接近强 `recent_popularity` baseline，并显著优于不含趋势分的 `pop_similarity`。
-- `topk_trend_attributes` 默认取 test `week_id=103`，过滤条件为 `is_trend_eligible_t = 1`、`heat_t >= 20`、`history_total_heat_t >= 100`、`history_active_weeks_t >= 8`。
+- `topk_trend_attributes` 默认取 test `week_id=103`，过滤字段来自 predictions + samples join 视图；过滤条件为 `is_trend_eligible_t = 1`、`heat_t >= 20`、`history_total_heat_t >= 100`、`history_active_weeks_t >= 8`。
 - 数据流程图和属性层次图是论文示意图，不伪装成全量网络布局图；精确规模由表格承载。
 
 ## CLI 设计
@@ -230,6 +258,8 @@ uv run python src/17_export_paper_assets.py
 - schema 或必需字段缺失。
 - 指标字段缺失或不是有限数值。
 - ID dtype 被破坏。
+- LightGBM predictions 与 trend samples 无法按 join key 做 1:1 对齐。
+- 缺少可用 CJK 字体，导致中文图表无法可靠渲染。
 - `recommendation_items.parquet` 缺失或被 CSV 替代。
 - 可复现规则下不足 3 个案例。
 - SVG / PNG / CSV / Markdown / JSON 输出缺失或为空。
@@ -250,8 +280,10 @@ uv run python src/17_export_paper_assets.py
 新增 `tests/test_reports_*.py`，覆盖：
 
 - loader 缺失路径、schema 错误、dtype 保留和非法 JSON。
+- LightGBM predictions 与 trend samples join key 重复、缺失或字段不一致时失败。
 - 表格生成的列、行数和 Markdown 输出。
 - figure 导出同时生成 SVG 和 PNG，且文件非空。
+- 绘图环境 smoke 覆盖中文标题、英文指标名、负数坐标轴、CJK 字体发现和 `axes.unicode_minus = False`。
 - case selector 能选出 3 个合法案例，并在案例不足时失败。
 - manifest payload 必需字段、输入输出路径记录和 warnings。
 
