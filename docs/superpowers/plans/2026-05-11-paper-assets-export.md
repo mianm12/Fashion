@@ -143,6 +143,12 @@ from __future__ import annotations
 import pandas as pd
 
 from fashion_trend.reports.markdown import markdown_table
+from fashion_trend.reports.paths import (
+    case_study_output_paths,
+    figure_output_paths,
+    manifest_output_path,
+    table_output_paths,
+)
 
 
 def test_markdown_table_uses_stable_column_order_and_escapes_cells() -> None:
@@ -188,6 +194,21 @@ def test_markdown_table_handles_empty_frame() -> None:
         "| name | value |\n"
         "| --- | --- |\n"
     )
+
+
+def test_output_path_helpers_honor_custom_output_root(tmp_path) -> None:
+    root = tmp_path / "paper-assets"
+
+    assert figure_output_paths("chart", output_root=root)["svg"] == (
+        root / "figures" / "chart.svg"
+    )
+    assert table_output_paths("metrics", output_root=root)["csv"] == (
+        root / "tables" / "metrics.csv"
+    )
+    assert case_study_output_paths("case_01", output_root=root)["json"] == (
+        root / "case_studies" / "case_01.json"
+    )
+    assert manifest_output_path(root) == root / "manifest.json"
 ```
 
 - [ ] **Step 2: Run failing tests**
@@ -222,36 +243,65 @@ OUTPUT_CASE_STUDIES_DIR = OUTPUT_REPORTS_DIR / "case_studies"
 OUTPUT_REPORTS_MANIFEST_PATH = OUTPUT_REPORTS_DIR / "manifest.json"
 
 
-def figure_output_paths(name: str) -> dict[str, Path]:
+def reports_output_dir(output_root: Path | None = None) -> Path:
+    """返回本次报告导出的输出根目录。"""
+    return output_root if output_root is not None else OUTPUT_REPORTS_DIR
+
+
+def figure_output_paths(
+    name: str,
+    *,
+    output_root: Path | None = None,
+) -> dict[str, Path]:
     """返回同一图表的 SVG 和 PNG 输出路径。"""
     _validate_report_artifact_name(name)
+    root = reports_output_dir(output_root)
     return {
-        "svg": OUTPUT_FIGURES_DIR / f"{name}.svg",
-        "png": OUTPUT_FIGURES_DIR / f"{name}.png",
+        "svg": root / "figures" / f"{name}.svg",
+        "png": root / "figures" / f"{name}.png",
     }
 
 
-def table_output_paths(name: str) -> dict[str, Path]:
+def table_output_paths(
+    name: str,
+    *,
+    output_root: Path | None = None,
+) -> dict[str, Path]:
     """返回同一表格的 CSV 和 Markdown 输出路径。"""
     _validate_report_artifact_name(name)
+    root = reports_output_dir(output_root)
     return {
-        "csv": OUTPUT_TABLES_DIR / f"{name}.csv",
-        "markdown": OUTPUT_TABLES_DIR / f"{name}.md",
+        "csv": root / "tables" / f"{name}.csv",
+        "markdown": root / "tables" / f"{name}.md",
     }
 
 
-def case_study_output_paths(case_id: str) -> dict[str, Path]:
+def case_study_output_paths(
+    case_id: str,
+    *,
+    output_root: Path | None = None,
+) -> dict[str, Path]:
     """返回单个案例的 JSON 和 Markdown 输出路径。"""
     _validate_report_artifact_name(case_id)
+    root = reports_output_dir(output_root)
     return {
-        "json": OUTPUT_CASE_STUDIES_DIR / f"{case_id}.json",
-        "markdown": OUTPUT_CASE_STUDIES_DIR / f"{case_id}.md",
+        "json": root / "case_studies" / f"{case_id}.json",
+        "markdown": root / "case_studies" / f"{case_id}.md",
     }
 
 
-def validate_report_output_path(path: Path) -> None:
-    """确认报告产物仍写在 outputs/reports/ 内。"""
-    validate_output_parent_dirs(path.parent, OUTPUT_REPORTS_DIR)
+def manifest_output_path(output_root: Path | None = None) -> Path:
+    """返回本次报告 manifest 输出路径。"""
+    return reports_output_dir(output_root) / "manifest.json"
+
+
+def validate_report_output_path(
+    path: Path,
+    *,
+    output_root: Path | None = None,
+) -> None:
+    """确认报告产物仍写在本次 output root 内。"""
+    validate_output_parent_dirs(path.parent, reports_output_dir(output_root))
 
 
 def _validate_report_artifact_name(name: str) -> None:
@@ -842,38 +892,37 @@ def test_build_recommendation_method_metrics_table_uses_contract_order() -> None
 def test_build_report_table_selects_each_design_contract() -> None:
     samples = {
         "data_artifact_summary": {
-            "artifact_name": "trend_model_samples",
+            "section": "trend",
+            "artifact": "trend_model_samples",
             "path": "data/processed/features/trend_model_samples.parquet",
-            "format": "parquet",
             "row_count": 59200,
             "column_count": 22,
-            "key_columns": "week_id, attr_id, attr_type, attr_value",
-            "notes": "trend features",
+            "paper_usage": "趋势模型样本规模说明",
         },
         "time_split_summary": {
+            "domain": "trend",
             "split": "test",
-            "start_week": 96,
-            "end_week": 104,
+            "week_start": 96,
+            "week_end": 104,
             "week_count": 8,
-            "sample_count": 5920,
-            "attr_count": 740,
+            "row_count": 5920,
+            "attribute_count": 740,
+            "user_count": 0,
         },
         "attribute_graph_summary": {
-            "node_type": "article",
-            "edge_type": "article_attribute",
+            "entity_type": "article",
+            "attr_type": "",
+            "relation_type": "article_attribute",
             "count": 105542,
-            "unique_article_count": 105542,
-            "unique_attribute_count": 740,
-            "notes": "published graph",
+            "path": "data/processed/graph/edges_article_attribute.csv",
+            "paper_usage": "属性图规模说明",
         },
         "trend_feature_summary": {
-            "split": "test",
-            "row_count": 5920,
-            "attr_count": 740,
-            "eligible_row_count": 84,
-            "mean_heat_t": 123.4,
-            "mean_share_t": 0.01,
-            "mean_target_growth": 0.03,
+            "feature_group": "lag",
+            "feature_name": "lag_1_heat",
+            "source_table": "trend_model_samples",
+            "model_input": True,
+            "description": "上一周属性热度",
         },
         "trend_model_metrics": {
             "model_name": "lightgbm",
@@ -890,12 +939,12 @@ def test_build_report_table_selects_each_design_contract() -> None:
             "model_name": "lightgbm",
             "split": "test",
             "attr_type": "colour_group_name",
-            "row_count": 80,
             "mae": 0.1,
             "rmse": 0.2,
             "spearman": 0.3,
             "ndcg_at_10": 0.4,
-            "run_id": "run-1",
+            "precision_at_10": 0.5,
+            "recall_at_10": 0.6,
         },
         "recommendation_method_metrics": {
             "method": "pop_similarity_trend",
@@ -909,17 +958,19 @@ def test_build_report_table_selects_each_design_contract() -> None:
             "missing_recommendation_user_count": 0,
         },
         "recommendation_experiment_summary": {
-            "experiment_id": "main",
-            "run_id": "weight-001",
+            "section": "search_results",
+            "rank": 1,
             "method": "pop_similarity_trend",
             "split": "valid",
-            "trend_weight": 0.15,
+            "pop_score": 0.2,
+            "sim_score": 0.2,
+            "trend_score": 0.1,
+            "recent_score": 0.5,
             "map_at_12": 0.1,
             "recall_at_12": 0.2,
             "hit_rate_at_12": 0.3,
             "ndcg_at_12": 0.4,
             "coverage": 0.5,
-            "is_selected": True,
         },
     }
 
@@ -986,38 +1037,37 @@ from fashion_trend.foundation.io import write_csv_atomic, write_text_atomic
 from fashion_trend.reports.markdown import markdown_table
 
 DATA_ARTIFACT_SUMMARY_COLUMNS = (
-    "artifact_name",
+    "section",
+    "artifact",
     "path",
-    "format",
     "row_count",
     "column_count",
-    "key_columns",
-    "notes",
+    "paper_usage",
 )
 TIME_SPLIT_SUMMARY_COLUMNS = (
+    "domain",
     "split",
-    "start_week",
-    "end_week",
+    "week_start",
+    "week_end",
     "week_count",
-    "sample_count",
-    "attr_count",
+    "row_count",
+    "attribute_count",
+    "user_count",
 )
 ATTRIBUTE_GRAPH_SUMMARY_COLUMNS = (
-    "node_type",
-    "edge_type",
+    "entity_type",
+    "attr_type",
+    "relation_type",
     "count",
-    "unique_article_count",
-    "unique_attribute_count",
-    "notes",
+    "path",
+    "paper_usage",
 )
 TREND_FEATURE_SUMMARY_COLUMNS = (
-    "split",
-    "row_count",
-    "attr_count",
-    "eligible_row_count",
-    "mean_heat_t",
-    "mean_share_t",
-    "mean_target_growth",
+    "feature_group",
+    "feature_name",
+    "source_table",
+    "model_input",
+    "description",
 )
 TREND_MODEL_METRICS_COLUMNS = (
     "model_name",
@@ -1034,12 +1084,12 @@ TREND_METRICS_BY_ATTR_TYPE_COLUMNS = (
     "model_name",
     "split",
     "attr_type",
-    "row_count",
     "mae",
     "rmse",
     "spearman",
     "ndcg_at_10",
-    "run_id",
+    "precision_at_10",
+    "recall_at_10",
 )
 RECOMMENDATION_METHOD_METRICS_COLUMNS = (
     "method",
@@ -1053,17 +1103,19 @@ RECOMMENDATION_METHOD_METRICS_COLUMNS = (
     "missing_recommendation_user_count",
 )
 RECOMMENDATION_EXPERIMENT_SUMMARY_COLUMNS = (
-    "experiment_id",
-    "run_id",
+    "section",
+    "rank",
     "method",
     "split",
-    "trend_weight",
+    "pop_score",
+    "sim_score",
+    "trend_score",
+    "recent_score",
     "map_at_12",
     "recall_at_12",
     "hit_rate_at_12",
     "ndcg_at_12",
     "coverage",
-    "is_selected",
 )
 
 REPORT_TABLE_COLUMNS = {
@@ -1077,14 +1129,14 @@ REPORT_TABLE_COLUMNS = {
     "recommendation_experiment_summary": RECOMMENDATION_EXPERIMENT_SUMMARY_COLUMNS,
 }
 REPORT_TABLE_SORT_COLUMNS = {
-    "data_artifact_summary": ("artifact_name",),
-    "time_split_summary": ("split",),
-    "attribute_graph_summary": ("node_type", "edge_type"),
-    "trend_feature_summary": ("split",),
+    "data_artifact_summary": ("section", "artifact"),
+    "time_split_summary": ("domain", "split", "week_start"),
+    "attribute_graph_summary": ("entity_type", "attr_type", "relation_type"),
+    "trend_feature_summary": ("feature_group", "feature_name"),
     "trend_model_metrics": ("model_name", "split"),
     "trend_metrics_by_attr_type": ("model_name", "split", "attr_type"),
     "recommendation_method_metrics": ("method", "split"),
-    "recommendation_experiment_summary": ("experiment_id", "run_id", "method", "split"),
+    "recommendation_experiment_summary": ("section", "rank", "split", "method"),
 }
 
 
@@ -1187,6 +1239,7 @@ Create `tests/test_reports_plotting.py`:
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
+import pytest
 
 from fashion_trend.reports.plotting import (
     configure_matplotlib_for_reports,
@@ -1205,7 +1258,21 @@ def test_configure_matplotlib_requires_cjk_font(monkeypatch) -> None:
         raise AssertionError("missing CJK font should fail")
 
 
-def test_save_report_figure_writes_svg_and_png(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("formats", "expected_suffixes", "unexpected_suffixes"),
+    [
+        (("svg",), ("svg",), ("png",)),
+        (("png",), ("png",), ("svg",)),
+        (("svg", "png"), ("svg", "png"), ()),
+    ],
+)
+def test_save_report_figure_honors_requested_formats(
+    tmp_path,
+    monkeypatch,
+    formats,
+    expected_suffixes,
+    unexpected_suffixes,
+) -> None:
     monkeypatch.setattr(
         "fashion_trend.reports.plotting.available_cjk_fonts",
         lambda: ["DejaVu Sans"],
@@ -1216,11 +1283,13 @@ def test_save_report_figure_writes_svg_and_png(tmp_path, monkeypatch) -> None:
     axis.plot([-1, 0, 1], [1, 0, -1])
     paths = {"svg": tmp_path / "figure.svg", "png": tmp_path / "figure.png"}
 
-    written = save_report_figure(figure, paths)
+    written = save_report_figure(figure, paths, formats=formats)
 
-    assert written == [paths["svg"], paths["png"]]
-    assert paths["svg"].stat().st_size > 0
-    assert paths["png"].stat().st_size > 0
+    assert written == [paths[suffix] for suffix in expected_suffixes]
+    for suffix in expected_suffixes:
+        assert paths[suffix].stat().st_size > 0
+    for suffix in unexpected_suffixes:
+        assert not paths[suffix].exists()
 ```
 
 - [ ] **Step 2: Run failing tests**
@@ -1280,9 +1349,22 @@ def configure_matplotlib_for_reports() -> str:
     return selected_font
 
 
-def save_report_figure(figure: Figure, output_paths: dict[str, Path]) -> list[Path]:
+def save_report_figure(
+    figure: Figure,
+    output_paths: dict[str, Path],
+    *,
+    formats: tuple[str, ...] = ("svg", "png"),
+) -> list[Path]:
+    allowed_formats = {"svg", "png"}
+    unknown_formats = sorted(set(formats) - allowed_formats)
+    if not formats or unknown_formats:
+        raise ValueError(f"figure formats 只支持 svg,png: {formats}")
+    missing_paths = sorted(set(formats) - set(output_paths))
+    if missing_paths:
+        raise ValueError(f"图表输出路径缺少格式: {missing_paths}")
+
     written: list[Path] = []
-    for suffix in ("svg", "png"):
+    for suffix in formats:
         output_path = output_paths[suffix]
         output_path.parent.mkdir(parents=True, exist_ok=True)
         figure.savefig(output_path, bbox_inches="tight")
@@ -2025,7 +2107,7 @@ from pathlib import Path
 from typing import Any
 
 from fashion_trend.reports.manifest import build_manifest_payload, write_manifest
-from fashion_trend.reports.paths import OUTPUT_REPORTS_MANIFEST_PATH
+from fashion_trend.reports.paths import manifest_output_path
 
 
 @dataclass(frozen=True)
@@ -2049,6 +2131,7 @@ def run_paper_assets_export(config: PaperAssetsExportConfig) -> dict[str, Any]:
             "top_k": config.top_k,
             "trend_week": config.trend_week,
             "figure_formats": list(config.figure_formats),
+            "output_dir": str(manifest_output_path(config.output_dir).parent),
         },
         input_artifacts={},
         output_artifacts={"figures": [], "tables": [], "case_studies": []},
@@ -2056,7 +2139,7 @@ def run_paper_assets_export(config: PaperAssetsExportConfig) -> dict[str, Any]:
         case_user_ids=[],
         warnings=[],
     )
-    write_manifest(payload, OUTPUT_REPORTS_MANIFEST_PATH)
+    write_manifest(payload, manifest_output_path(config.output_dir))
     return payload
 ```
 
@@ -2097,6 +2180,7 @@ Append to `tests/test_reports_runner.py`:
 
 ```python
 import importlib
+from pathlib import Path
 
 
 def test_export_paper_assets_cli_passes_args(monkeypatch) -> None:
@@ -2119,6 +2203,8 @@ def test_export_paper_assets_cli_passes_args(monkeypatch) -> None:
             "102",
             "--figure-format",
             "svg,png",
+            "--output-dir",
+            "outputs/reports-paper",
         ]
     )
 
@@ -2127,6 +2213,7 @@ def test_export_paper_assets_cli_passes_args(monkeypatch) -> None:
     assert captured["config"].top_k == 5
     assert captured["config"].trend_week == 102
     assert captured["config"].figure_formats == ("svg", "png")
+    assert captured["config"].output_dir == Path("outputs/reports-paper")
 ```
 
 - [ ] **Step 2: Run failing CLI test**
@@ -2240,18 +2327,19 @@ git commit -m "feat(reports): 添加论文素材导出入口"
 Append to `tests/test_reports_runner.py`:
 
 ```python
-from pathlib import Path
-
 import pandas as pd
 
 
-def test_run_paper_assets_export_writes_non_empty_manifest(tmp_path, monkeypatch) -> None:
+def test_run_paper_assets_export_writes_non_empty_manifest(tmp_path) -> None:
     from fashion_trend.reports import runner
 
-    monkeypatch.setattr(runner, "OUTPUT_REPORTS_MANIFEST_PATH", tmp_path / "manifest.json")
-
     payload = runner.run_paper_assets_export(
-        runner.PaperAssetsExportConfig(case_count=3, top_k=10, trend_week=103)
+        runner.PaperAssetsExportConfig(
+            case_count=3,
+            top_k=10,
+            trend_week=103,
+            output_dir=tmp_path,
+        )
     )
 
     assert payload["schema_version"] == "paper_assets_manifest/v1"
@@ -2433,15 +2521,18 @@ Modify `src/fashion_trend/reports/runner.py` to:
 - Read LightGBM predictions and trend samples, build join view, export `trend_curve_examples` and `topk_trend_attributes`.
 - Read experiment JSON, export `recommendation_weight_analysis` and table rows.
 - Select and write 3 case studies with representative trend attributes and product attributes.
+- Pass `config.figure_formats` into `_write_figures()` so requested SVG-only, PNG-only, or SVG+PNG outputs match the manifest `figure_count`.
 - Build manifest with real inputs/outputs/warnings.
 
 Keep the function small enough by adding private helpers with concrete return contracts:
 
-`report_table_rows` must be built before writing and must include all eight table names in `REPORT_TABLE_COLUMNS`. Use these sources: core artifact paths and row/column counts for `data_artifact_summary`; split metadata plus split parquet row counts for `time_split_summary`; graph node/edge artifacts for `attribute_graph_summary`; `trend_model_samples` grouped by split for `trend_feature_summary`; trend metrics JSON for `trend_model_metrics` and `trend_metrics_by_attr_type`; method metrics JSON for `recommendation_method_metrics`; and `experiment.json` `weight_search` / `ablation` rows for `recommendation_experiment_summary`. For case studies, build `article_attributes` from `data/processed/graph/edges_article_attribute.csv` and build `representative_trends` from the same LightGBM prediction + sample join view used by `topk_trend_attributes`.
+`report_table_rows` must be built before writing and must include all eight table names in `REPORT_TABLE_COLUMNS`. Use these sources: core artifact paths and row/column counts for `data_artifact_summary`; split metadata plus split parquet row counts for `time_split_summary`; graph node/edge artifacts for `attribute_graph_summary`; documented feature groups for `trend_feature_summary`; trend metrics JSON for `trend_model_metrics` and `trend_metrics_by_attr_type`; method metrics JSON for `recommendation_method_metrics`; and `experiment.json` top-level `search_results`, `ablation`, and `best_weights` for `recommendation_experiment_summary`. For `search_results`, flatten each row's `weights` into `pop_score/sim_score/trend_score/recent_score` and `valid_metrics` into metrics columns with `section="search_results"` and `split="valid"`. For `ablation`, use top-level metric fields with `section="ablation"` and use `best_weights` only for the selected trend method row; otherwise leave weight columns blank when a component is not applicable. For case studies, build `article_attributes` from `data/processed/graph/edges_article_attribute.csv` and build `representative_trends` from the same LightGBM prediction + sample join view used by `topk_trend_attributes`. Every table, figure, case, and manifest write must pass `config.output_dir` through the path helpers so `--output-dir` controls the complete export tree.
 
 ```python
 def _write_tables(
     report_table_rows: dict[str, list[dict[str, object]]],
+    *,
+    output_root: Path | None,
 ) -> tuple[list[str], dict[str, int]]:
     missing_tables = sorted(set(REPORT_TABLE_COLUMNS) - set(report_table_rows))
     if missing_tables:
@@ -2453,7 +2544,7 @@ def _write_tables(
         written = write_report_table(
             table,
             columns=columns,
-            output_paths=table_output_paths(name),
+            output_paths=table_output_paths(name, output_root=output_root),
         )
         output_paths.extend(str(path) for path in written)
         row_counts[name] = len(table)
@@ -2469,6 +2560,8 @@ def _write_figures(
     *,
     trend_week: int,
     top_k: int,
+    figure_formats: tuple[str, ...],
+    output_root: Path | None,
 ) -> list[str]:
     figure_builders = {
         "data_pipeline": build_data_pipeline_figure(),
@@ -2498,7 +2591,11 @@ def _write_figures(
     }
     output_paths: list[str] = []
     for name, figure in figure_builders.items():
-        written = save_report_figure(figure, figure_output_paths(name))
+        written = save_report_figure(
+            figure,
+            figure_output_paths(name, output_root=output_root),
+            formats=figure_formats,
+        )
         output_paths.extend(str(path) for path in written)
     return output_paths
 
@@ -2511,6 +2608,7 @@ def _write_cases(
     representative_trends: pd.DataFrame,
     *,
     case_count: int,
+    output_root: Path | None,
 ) -> tuple[list[str], list[str]]:
     case_keys = select_recommendation_cases(
         recommendation_items=recommendation_items,
@@ -2530,7 +2628,7 @@ def _write_cases(
             representative_trends=representative_trends,
         )
         case_id = f"case_{index:02d}"
-        paths = case_study_output_paths(case_id)
+        paths = case_study_output_paths(case_id, output_root=output_root)
         write_json_atomic(payload, paths["json"])
         write_text_atomic(render_case_markdown(payload), paths["markdown"])
         output_paths.extend(str(path) for path in paths.values())
@@ -2538,7 +2636,7 @@ def _write_cases(
     return output_paths, case_user_ids
 ```
 
-Each helper should return paths as strings for manifest recording.
+Each helper should return paths as strings for manifest recording. The runner must call `_write_figures(..., figure_formats=config.figure_formats, output_root=config.output_dir)` and use the returned paths directly for manifest `output_artifacts["figures"]`; do not recompute expected figure paths separately.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -2626,7 +2724,15 @@ Expected:
 论文素材导出完成: figures=16, tables>=16, cases=3
 ```
 
-Exact table count depends on whether each CSV and Markdown path is counted separately. Manifest must record file paths and warnings.
+The default `--figure-format svg,png` writes 8 figures x 2 formats = 16 files. If a non-default format is requested, `figure_count` must be `8 * len(figure_formats)`. Exact table count depends on whether each CSV and Markdown path is counted separately. Manifest must record file paths and warnings.
+
+Also run a focused format smoke:
+
+```sh
+uv run python src/17_export_paper_assets.py --figure-format svg --output-dir outputs/reports-svg-smoke
+```
+
+Expected: `figures=8`, every generated figure path ends with `.svg`, and no PNG files are written under `outputs/reports-svg-smoke/figures`.
 
 - [ ] **Step 5: Verify output files**
 
