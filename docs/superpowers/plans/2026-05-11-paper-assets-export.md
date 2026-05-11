@@ -145,6 +145,7 @@ import pandas as pd
 from fashion_trend.reports.markdown import markdown_table
 from fashion_trend.reports.paths import (
     case_study_output_paths,
+    default_report_input_paths,
     figure_output_paths,
     manifest_output_path,
     table_output_paths,
@@ -209,6 +210,24 @@ def test_output_path_helpers_honor_custom_output_root(tmp_path) -> None:
         root / "case_studies" / "case_01.json"
     )
     assert manifest_output_path(root) == root / "manifest.json"
+
+
+def test_default_report_input_paths_cover_core_sources() -> None:
+    paths = default_report_input_paths()
+
+    assert paths.lightgbm_predictions.as_posix().endswith(
+        "outputs/models/lightgbm/predictions.csv"
+    )
+    assert paths.trend_metrics["lightgbm"].as_posix().endswith(
+        "outputs/metrics/lightgbm/trend_metrics.json"
+    )
+    assert paths.recommendation_items["pop_similarity_trend"].as_posix().endswith(
+        "outputs/recommendation/pop_similarity_trend/recommendation_items.parquet"
+    )
+    assert paths.recommendation_items_csv["pop_similarity_trend"].as_posix().endswith(
+        "outputs/recommendation/pop_similarity_trend/recommendation_items.csv"
+    )
+    assert "trend_model_samples" in paths.data_artifacts
 ```
 
 - [ ] **Step 2: Run failing tests**
@@ -228,10 +247,11 @@ Modify `src/fashion_trend/reports/paths.py`:
 ```python
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from fashion_trend.foundation.artifacts import validate_output_parent_dirs
-from fashion_trend.foundation.paths import OUTPUT_DIR
+from fashion_trend.foundation.paths import INTERIM_DIR, OUTPUT_DIR, PROCESSED_DIR
 
 # 报告阶段输出根目录。
 OUTPUT_REPORTS_DIR = OUTPUT_DIR / "reports"
@@ -243,9 +263,110 @@ OUTPUT_CASE_STUDIES_DIR = OUTPUT_REPORTS_DIR / "case_studies"
 OUTPUT_REPORTS_MANIFEST_PATH = OUTPUT_REPORTS_DIR / "manifest.json"
 
 
+@dataclass(frozen=True)
+class ReportInputPaths:
+    trend_metrics: dict[str, Path]
+    recommendation_metrics: dict[str, Path]
+    recommendation_items: dict[str, Path]
+    recommendation_items_csv: dict[str, Path]
+    lightgbm_predictions: Path
+    lightgbm_feature_importance: Path
+    trend_model_samples: Path
+    trend_split_samples: dict[str, Path]
+    recommendation_experiment: Path
+    time_windows: Path
+    target_users: Path
+    evaluation_labels: Path
+    user_profile: Path
+    article_attributes: Path
+    graph_artifacts: dict[str, Path]
+    data_artifacts: dict[str, Path]
+
+
 def reports_output_dir(output_root: Path | None = None) -> Path:
     """返回本次报告导出的输出根目录。"""
     return output_root if output_root is not None else OUTPUT_REPORTS_DIR
+
+
+def default_report_input_paths() -> ReportInputPaths:
+    """Return read-only default inputs for the reports stage.
+
+    These defaults live in reports so the runner does not import upstream path
+    modules such as trend.paths, recommendation.paths, or catalog.paths.
+    """
+    graph_dir = PROCESSED_DIR / "graph"
+    trend_dir = PROCESSED_DIR / "trend"
+    features_dir = PROCESSED_DIR / "features"
+    recommend_dir = PROCESSED_DIR / "recommend"
+    output_models_dir = OUTPUT_DIR / "models"
+    output_metrics_dir = OUTPUT_DIR / "metrics"
+    output_recommendation_dir = OUTPUT_DIR / "recommendation"
+
+    trend_models = ("last_week", "previous_growth", "moving_average", "lightgbm")
+    recommendation_methods = (
+        "global_popularity",
+        "recent_popularity",
+        "attribute_similarity",
+        "pop_similarity",
+        "pop_similarity_trend",
+    )
+    graph_artifacts = {
+        "nodes_article": graph_dir / "nodes_article.csv",
+        "nodes_attribute": graph_dir / "nodes_attribute.csv",
+        "edges_article_attribute": graph_dir / "edges_article_attribute.csv",
+        "edges_attribute_hierarchy": graph_dir / "edges_attribute_hierarchy.csv",
+    }
+    trend_split_samples = {
+        "train": features_dir / "trend_model_samples_train.parquet",
+        "valid": features_dir / "trend_model_samples_valid.parquet",
+        "test": features_dir / "trend_model_samples_test.parquet",
+    }
+    data_artifacts = {
+        "articles_clean": INTERIM_DIR / "articles_clean.csv",
+        **graph_artifacts,
+        "article_week_sales": trend_dir / "article_week_sales.csv",
+        "attribute_week_heat": trend_dir / "attribute_week_heat.csv",
+        "attribute_week_target": trend_dir / "attribute_week_target.csv",
+        "trend_model_samples": features_dir / "trend_model_samples.parquet",
+        "time_windows": recommend_dir / "time_windows.parquet",
+        "target_users": recommend_dir / "target_users.parquet",
+        "evaluation_labels": recommend_dir / "evaluation_labels.parquet",
+        "user_profile": recommend_dir / "user_profile.parquet",
+    }
+    return ReportInputPaths(
+        trend_metrics={
+            model_name: output_metrics_dir / model_name / "trend_metrics.json"
+            for model_name in trend_models
+        },
+        recommendation_metrics={
+            method: output_recommendation_dir / method / "metrics.json"
+            for method in recommendation_methods
+        },
+        recommendation_items={
+            method: output_recommendation_dir / method / "recommendation_items.parquet"
+            for method in recommendation_methods
+        },
+        recommendation_items_csv={
+            method: output_recommendation_dir / method / "recommendation_items.csv"
+            for method in recommendation_methods
+        },
+        lightgbm_predictions=output_models_dir / "lightgbm" / "predictions.csv",
+        lightgbm_feature_importance=(
+            output_models_dir / "lightgbm" / "feature_importance.csv"
+        ),
+        trend_model_samples=features_dir / "trend_model_samples.parquet",
+        trend_split_samples=trend_split_samples,
+        recommendation_experiment=(
+            output_recommendation_dir / "experiments" / "main" / "experiment.json"
+        ),
+        time_windows=recommend_dir / "time_windows.parquet",
+        target_users=recommend_dir / "target_users.parquet",
+        evaluation_labels=recommend_dir / "evaluation_labels.parquet",
+        user_profile=recommend_dir / "user_profile.parquet",
+        article_attributes=graph_artifacts["edges_article_attribute"],
+        graph_artifacts=graph_artifacts,
+        data_artifacts=data_artifacts,
+    )
 
 
 def figure_output_paths(
@@ -1756,6 +1877,21 @@ def test_select_recommendation_cases_fails_when_not_enough_cases() -> None:
         raise AssertionError("missing profile should fail")
 
 
+def test_select_recommendation_cases_requires_clear_preference_attr_type() -> None:
+    profiles = _profiles()
+    profiles.loc[profiles["customer_id"] == "customer-a", "attr_type"] = "department_name"
+    profiles.loc[profiles["customer_id"] == "customer-a", "attr_value"] = "Divided"
+
+    selected = select_recommendation_cases(
+        recommendation_items=_items(),
+        evaluation_labels=_labels(),
+        user_profile=profiles,
+        case_count=1,
+    )
+
+    assert selected == [("customer-b", "test", 103, 104)]
+
+
 def test_build_case_payload_marks_hits() -> None:
     payload = build_case_payload(
         case_key=("customer-a", "test", 103, 104),
@@ -1772,6 +1908,41 @@ def test_build_case_payload_marks_hits() -> None:
     assert payload["recommendations"][0]["attributes"]["colour_group_name"] == "Black"
     assert payload["profile"][0]["attr_value"] == "Black"
     assert payload["representative_trends"][0]["attr_value"] == "Black"
+
+
+def test_build_case_payload_uses_case_cutoff_week_trends() -> None:
+    items = _items().assign(cutoff_week=102, label_week=103)
+    labels = _labels().assign(cutoff_week=102, label_week=103)
+    profiles = _profiles().assign(cutoff_week=102, label_week=103)
+    representative_trends = pd.DataFrame(
+        [
+            {
+                "week_id": 102,
+                "attr_type": "colour_group_name",
+                "attr_value": "Red",
+                "pred_target_growth": 0.42,
+                "heat_t": 900.0,
+            },
+            {
+                "week_id": 103,
+                "attr_type": "colour_group_name",
+                "attr_value": "Black",
+                "pred_target_growth": 0.31,
+                "heat_t": 1200.0,
+            },
+        ]
+    )
+
+    payload = build_case_payload(
+        case_key=("customer-a", "test", 102, 103),
+        recommendation_items=items,
+        evaluation_labels=labels,
+        user_profile=profiles,
+        article_attributes=_article_attributes(),
+        representative_trends=representative_trends,
+    )
+
+    assert payload["representative_trends"][0]["attr_value"] == "Red"
 
 
 def test_render_case_markdown_includes_explanations() -> None:
@@ -1820,6 +1991,11 @@ CORE_ARTICLE_ATTR_TYPES = (
     "colour_group_name",
     "department_name",
 )
+CASE_EXPLANATORY_PROFILE_ATTR_TYPES = (
+    "graphical_appearance_name",
+    "product_group_name",
+    "colour_group_name",
+)
 
 
 def select_recommendation_cases(
@@ -1837,6 +2013,9 @@ def select_recommendation_cases(
         evaluation_labels["split"].astype(str) == "test"
     ].copy()
     test_profiles = user_profile.loc[user_profile["split"].astype(str) == "test"].copy()
+    explanatory_profiles = test_profiles.loc[
+        test_profiles["attr_type"].astype(str).isin(CASE_EXPLANATORY_PROFILE_ATTR_TYPES)
+    ].copy()
 
     hits = test_items.merge(
         test_labels.loc[:, [*CASE_KEY_COLUMNS, "article_id"]],
@@ -1851,14 +2030,14 @@ def select_recommendation_cases(
         .rename(columns={"is_hit": "hit_count"})
     )
     profile_counts = (
-        test_profiles.groupby(list(CASE_KEY_COLUMNS), as_index=False)
+        explanatory_profiles.groupby(list(CASE_KEY_COLUMNS), as_index=False)
         .size()
-        .rename(columns={"size": "profile_count"})
+        .rename(columns={"size": "explanatory_profile_count"})
     )
     candidates = hit_counts.merge(profile_counts, on=list(CASE_KEY_COLUMNS), how="inner")
-    candidates = candidates.loc[candidates["profile_count"] > 0]
+    candidates = candidates.loc[candidates["explanatory_profile_count"] > 0]
     candidates = candidates.sort_values(
-        ["hit_count", "profile_count", "customer_id"],
+        ["hit_count", "explanatory_profile_count", "customer_id"],
         ascending=[False, False, True],
     )
     if len(candidates) < case_count:
@@ -2190,7 +2369,7 @@ from pathlib import Path
 from typing import Any
 
 from fashion_trend.reports.manifest import build_manifest_payload, write_manifest
-from fashion_trend.reports.paths import manifest_output_path
+from fashion_trend.reports.paths import ReportInputPaths, manifest_output_path
 
 
 @dataclass(frozen=True)
@@ -2200,6 +2379,7 @@ class PaperAssetsExportConfig:
     trend_week: int = 103
     figure_formats: tuple[str, ...] = ("svg", "png")
     output_dir: Path | None = None
+    input_paths: ReportInputPaths | None = None
 
 
 def run_paper_assets_export(config: PaperAssetsExportConfig) -> dict[str, Any]:
@@ -2274,7 +2454,12 @@ def test_export_paper_assets_cli_passes_args(monkeypatch) -> None:
 
     def fake_run(config):
         captured["config"] = config
-        return {"manifest_path": "outputs/reports/manifest.json"}
+        return {
+            "manifest_path": "outputs/reports/manifest.json",
+            "figure_count": 0,
+            "table_count": 0,
+            "case_count": 0,
+        }
 
     monkeypatch.setattr(module, "run_paper_assets_export", fake_run)
 
@@ -2423,8 +2608,10 @@ Append to `tests/test_reports_runner.py`:
 ```python
 from types import SimpleNamespace
 
+import matplotlib.pyplot as plt
 import pandas as pd
 
+from fashion_trend.reports.figures import build_recommendation_weight_analysis_figure
 from fashion_trend.reports.tables import REPORT_TABLE_COLUMNS
 
 
@@ -2457,6 +2644,13 @@ def test_run_paper_assets_export_uses_monkeypatched_small_data(
         user_profile=pd.DataFrame(),
         article_attributes=pd.DataFrame(),
         representative_trends=pd.DataFrame(),
+        best_weights={
+            "pop_score": 0.2,
+            "sim_score": 0.3,
+            "trend_score": 0.4,
+            "recent_score": 0.1,
+        },
+        warnings=[],
     )
 
     monkeypatch.setattr(runner, "configure_matplotlib_for_reports", lambda: "Test Font")
@@ -2477,11 +2671,13 @@ def test_run_paper_assets_export_uses_monkeypatched_small_data(
         trend_week,
         top_k,
         figure_formats,
+        best_weights,
         output_root,
     ):
         assert trend_week == 103
         assert top_k == 10
         assert figure_formats == ("svg",)
+        assert best_weights["trend_score"] == 0.4
         assert output_root == tmp_path
         return [
             str(output_root / "figures" / f"{name}.{suffix}")
@@ -2520,6 +2716,271 @@ def test_run_paper_assets_export_uses_monkeypatched_small_data(
     assert set(payload["row_counts"]) == set(REPORT_TABLE_COLUMNS)
     assert all(path.endswith(".svg") for path in payload["output_artifacts"]["figures"])
     assert (tmp_path / "manifest.json").exists()
+
+
+def test_report_input_helper_rows_use_design_contracts(tmp_path) -> None:
+    from fashion_trend.reports import runner
+
+    artifact_path = tmp_path / "artifact.csv"
+    pd.DataFrame([{"a": 1, "b": 2}]).to_csv(artifact_path, index=False)
+
+    artifact_rows = runner.build_data_artifact_summary_rows(
+        artifacts={"trend_samples": artifact_path},
+        sections={"trend_samples": "trend"},
+        paper_usage={"trend_samples": "趋势样本规模"},
+    )
+    assert tuple(artifact_rows[0]) == REPORT_TABLE_COLUMNS["data_artifact_summary"]
+    assert artifact_rows[0]["row_count"] == 1
+    assert artifact_rows[0]["column_count"] == 2
+
+    split_rows = runner.build_time_split_summary_rows(
+        split_frames={
+            "test": pd.DataFrame(
+                {"week_id": [101, 102], "attr_id": ["colour::black", "index::ladies"]}
+            )
+        },
+        domain="trend",
+    )
+    assert tuple(split_rows[0]) == REPORT_TABLE_COLUMNS["time_split_summary"]
+    assert split_rows[0]["week_start"] == 101
+    assert split_rows[0]["week_count"] == 2
+    assert split_rows[0]["attribute_count"] == 2
+
+    graph_rows = runner.build_attribute_graph_summary_rows(
+        graph_frames={
+            "nodes_article": pd.DataFrame({"article_id": ["000000001"]}),
+            "nodes_attribute": pd.DataFrame(
+                {"attr_id": ["colour::black"], "attr_type": ["colour_group_name"]}
+            ),
+            "edges_article_attribute": pd.DataFrame(
+                {"article_id": ["000000001"], "attr_type": ["colour_group_name"]}
+            ),
+            "edges_attribute_hierarchy": pd.DataFrame(
+                {"parent_attr_type": ["product_group_name"]}
+            ),
+        },
+        graph_paths={"edges_article_attribute": "graph/edges_article_attribute.csv"},
+    )
+    assert all(
+        tuple(row) == REPORT_TABLE_COLUMNS["attribute_graph_summary"]
+        for row in graph_rows
+    )
+
+    feature_rows = runner.build_trend_feature_summary_rows()
+    assert tuple(feature_rows[0]) == REPORT_TABLE_COLUMNS["trend_feature_summary"]
+
+
+def test_experiment_helpers_flatten_real_payload_shape() -> None:
+    from fashion_trend.reports import runner
+
+    payload = {
+        "best_weights": {
+            "pop_score": 0.20,
+            "sim_score": 0.30,
+            "trend_score": 0.40,
+            "recent_score": 0.10,
+        },
+        "search_results": [
+            {
+                "weights": {
+                    "pop_score": 0.20,
+                    "sim_score": 0.30,
+                    "trend_score": 0.40,
+                    "recent_score": 0.10,
+                },
+                "valid_metrics": {
+                    "map_at_12": 0.01,
+                    "recall_at_12": 0.02,
+                    "hit_rate_at_12": 0.03,
+                    "ndcg_at_12": 0.04,
+                    "coverage": 0.05,
+                },
+            }
+        ],
+        "ablation": [
+            {
+                "method": "pop_similarity_trend",
+                "split": "test",
+                "map_at_12": 0.11,
+                "recall_at_12": 0.12,
+                "hit_rate_at_12": 0.13,
+                "ndcg_at_12": 0.14,
+                "coverage": 0.15,
+            },
+            {
+                "method": "pop_similarity",
+                "split": "test",
+                "map_at_12": 0.21,
+                "recall_at_12": 0.22,
+                "hit_rate_at_12": 0.23,
+                "ndcg_at_12": 0.24,
+                "coverage": 0.25,
+            },
+        ],
+    }
+
+    search_results = runner.flatten_experiment_search_results(payload)
+    assert tuple(search_results.columns) == (
+        "section",
+        "rank",
+        "method",
+        "split",
+        "pop_score",
+        "sim_score",
+        "trend_score",
+        "recent_score",
+        "map_at_12",
+        "recall_at_12",
+        "hit_rate_at_12",
+        "ndcg_at_12",
+        "coverage",
+    )
+    assert search_results.loc[0, "section"] == "search_results"
+    assert search_results.loc[0, "trend_score"] == 0.40
+
+    rows = runner.flatten_recommendation_experiment_rows(payload)
+    assert [row["section"] for row in rows] == [
+        "search_results",
+        "ablation",
+        "ablation",
+    ]
+    assert rows[1]["trend_score"] == 0.40
+    assert rows[2]["trend_score"] == ""
+
+
+def test_manifest_helpers_capture_all_inputs_and_warnings(tmp_path) -> None:
+    from fashion_trend.reports import runner
+
+    legacy_csv = tmp_path / "recommendation_items.csv"
+    legacy_csv.write_text("customer_id,article_id\n", encoding="utf-8")
+    input_paths = SimpleNamespace(
+        data_artifacts={"trend_model_samples": tmp_path / "samples.parquet"},
+        trend_split_samples={"test": tmp_path / "samples_test.parquet"},
+        graph_artifacts={"nodes_article": tmp_path / "nodes_article.csv"},
+        trend_metrics={"lightgbm": tmp_path / "trend_metrics.json"},
+        recommendation_metrics={"pop_similarity_trend": tmp_path / "metrics.json"},
+        recommendation_items={
+            "pop_similarity_trend": tmp_path / "recommendation_items.parquet"
+        },
+        recommendation_items_csv={"pop_similarity_trend": legacy_csv},
+        lightgbm_predictions=tmp_path / "predictions.csv",
+        lightgbm_feature_importance=tmp_path / "feature_importance.csv",
+        trend_model_samples=tmp_path / "samples.parquet",
+        recommendation_experiment=tmp_path / "experiment.json",
+        evaluation_labels=tmp_path / "evaluation_labels.parquet",
+        user_profile=tmp_path / "user_profile.parquet",
+        article_attributes=tmp_path / "edges_article_attribute.csv",
+    )
+    payload = {
+        "search_results": [
+            {
+                "weights": {"trend_score": 0.4},
+                "valid_metrics": {"ndcg_at_12": 0.04},
+            }
+        ],
+        "ablation": [{"method": "pop_similarity_trend"}],
+    }
+
+    artifacts = runner._build_input_artifacts(input_paths)
+    warnings = runner._build_report_warnings(payload, input_paths)
+
+    assert artifacts["data_artifact__trend_model_samples"].endswith("samples.parquet")
+    assert artifacts["trend_split_sample__test"].endswith("samples_test.parquet")
+    assert artifacts["graph_artifact__nodes_article"].endswith("nodes_article.csv")
+    assert artifacts["recommendation_items_csv__pop_similarity_trend"].endswith(
+        "recommendation_items.csv"
+    )
+    assert any("grid search 只有 valid 指标" in warning for warning in warnings)
+    assert any("缺少严格 w/o Recent" in warning for warning in warnings)
+    assert any("recommendation_items.csv" in warning for warning in warnings)
+
+
+def test_recommendation_weight_analysis_includes_best_weights() -> None:
+    search_results = pd.DataFrame(
+        [
+            {"trend_score": 0.1, "ndcg_at_12": 0.02},
+            {"trend_score": 0.4, "ndcg_at_12": 0.04},
+        ]
+    )
+    figure = build_recommendation_weight_analysis_figure(
+        search_results,
+        best_weights={
+            "pop_score": 0.20,
+            "sim_score": 0.30,
+            "trend_score": 0.40,
+            "recent_score": 0.10,
+        },
+    )
+
+    try:
+        assert len(figure.axes) == 2
+        assert "主实验权重构成" in figure.axes[1].get_title()
+    finally:
+        plt.close(figure)
+
+
+def test_build_representative_trend_attributes_uses_top_eligible_rows() -> None:
+    from fashion_trend.reports import runner
+
+    trend_view = pd.DataFrame(
+        [
+            {
+                "week_id": 102,
+                "attr_type": "colour_group_name",
+                "attr_value": "Red",
+                "pred_target_growth": 0.40,
+                "heat_t": 700,
+                "is_trend_eligible_t": True,
+            },
+            {
+                "week_id": 103,
+                "attr_type": "colour_group_name",
+                "attr_value": "Black",
+                "pred_target_growth": 0.30,
+                "heat_t": 900,
+                "is_trend_eligible_t": True,
+            },
+            {
+                "week_id": 103,
+                "attr_type": "colour_group_name",
+                "attr_value": "Blue",
+                "pred_target_growth": 0.80,
+                "heat_t": 100,
+                "is_trend_eligible_t": False,
+            },
+            {
+                "week_id": 103,
+                "attr_type": "index_name",
+                "attr_value": "Ladieswear",
+                "pred_target_growth": 0.50,
+                "heat_t": 800,
+                "is_trend_eligible_t": True,
+            },
+        ]
+    )
+
+    rows = runner.build_representative_trend_attributes(
+        trend_view,
+        week_id=103,
+        top_n=2,
+    )
+
+    assert tuple(rows.columns) == (
+        "week_id",
+        "attr_type",
+        "attr_value",
+        "pred_target_growth",
+        "heat_t",
+    )
+    assert rows["attr_value"].tolist() == ["Ladieswear", "Black"]
+
+    case_rows = runner.build_representative_trend_attributes(
+        trend_view,
+        week_ids=[102, 103],
+        top_n=1,
+    )
+    assert case_rows["week_id"].tolist() == [103, 102]
+    assert set(case_rows["attr_value"]) == {"Ladieswear", "Red"}
 ```
 
 This test must not read `data/` or `outputs/`, must not require a real CJK font, and must not run real Matplotlib rendering. Keep real artifact validation in Task 10. Task 9 should introduce a private `_load_report_inputs()` seam that returns all DataFrames, JSON payloads, `input_artifacts`, and `report_table_rows`; this test monkeypatches that seam and the writer helpers to verify orchestration counts and argument propagation only.
@@ -2565,16 +3026,32 @@ def build_topk_trend_attributes_figure(
     return figure
 
 
-def build_recommendation_weight_analysis_figure(search_results: pd.DataFrame) -> Figure:
+def build_recommendation_weight_analysis_figure(
+    search_results: pd.DataFrame,
+    *,
+    best_weights: dict[str, float],
+) -> Figure:
     dataframe = search_results.copy()
     if dataframe.empty:
         raise ValueError("推荐权重分析图没有可绘制数据。")
-    figure, axis = plt.subplots(figsize=(7.5, 4.5))
+    figure, axes = plt.subplots(1, 2, figsize=(11.5, 4.5))
+    scatter_axis, weight_axis = axes
     for trend_score, group in dataframe.groupby("trend_score"):
-        axis.scatter(group["trend_score"], group["ndcg_at_12"], label=f"trend={trend_score}")
-    axis.set_title("trend_score 权重与 valid NDCG@12")
-    axis.set_xlabel("trend_score")
-    axis.set_ylabel("valid NDCG@12")
+        scatter_axis.scatter(
+            group["trend_score"],
+            group["ndcg_at_12"],
+            label=f"trend={trend_score}",
+        )
+    scatter_axis.set_title("trend_score 权重与 valid NDCG@12")
+    scatter_axis.set_xlabel("trend_score")
+    scatter_axis.set_ylabel("valid NDCG@12")
+
+    weight_names = ("pop_score", "sim_score", "trend_score", "recent_score")
+    weight_values = [float(best_weights[name]) for name in weight_names]
+    weight_axis.bar(weight_names, weight_values)
+    weight_axis.set_title("主实验权重构成")
+    weight_axis.set_ylabel("weight")
+    weight_axis.tick_params(axis="x", labelrotation=30)
     figure.tight_layout()
     return figure
 ```
@@ -2705,9 +3182,678 @@ Keep the function small enough by adding private helpers with concrete return co
 
 `_load_report_inputs()` must be the only helper that reads real artifacts. It returns the DataFrames and JSON-derived rows needed by `_write_tables()`, `_write_figures()`, and `_write_cases()`, making Task 9 unit tests independent from local `data/`, `outputs/`, and CJK fonts.
 
-`report_table_rows` must be built before writing and must include all eight table names in `REPORT_TABLE_COLUMNS`. Use these sources: core artifact paths and row/column counts for `data_artifact_summary`; split metadata plus split parquet row counts for `time_split_summary`; graph node/edge artifacts for `attribute_graph_summary`; documented feature groups for `trend_feature_summary`; `flatten_trend_metrics()` for `trend_model_metrics`; `flatten_trend_metrics_by_attr_type()` for `trend_metrics_by_attr_type`; method metrics JSON for `recommendation_method_metrics`; and `experiment.json` top-level `search_results`, `ablation`, and `best_weights` for `recommendation_experiment_summary`. For `search_results`, flatten each row's `weights` into `pop_score/sim_score/trend_score/recent_score` and `valid_metrics` into metrics columns with `section="search_results"` and `split="valid"`. For `ablation`, use top-level metric fields with `section="ablation"` and use `best_weights` only for the selected trend method row; otherwise leave weight columns blank when a component is not applicable. For case studies, build `article_attributes` from `data/processed/graph/edges_article_attribute.csv` and build `representative_trends` from the same LightGBM prediction + sample join view used by `topk_trend_attributes`. Every table, figure, case, and manifest write must pass `config.output_dir` through the path helpers so `--output-dir` controls the complete export tree.
+`report_table_rows` must be built before writing and must include all eight table names in `REPORT_TABLE_COLUMNS`. Use these sources: core artifact paths and row/column counts for `data_artifact_summary`; split metadata plus split parquet row counts for `time_split_summary`; graph node/edge artifacts for `attribute_graph_summary`; documented feature groups for `trend_feature_summary`; `flatten_trend_metrics()` for `trend_model_metrics`; `flatten_trend_metrics_by_attr_type()` for `trend_metrics_by_attr_type`; method metrics JSON for `recommendation_method_metrics`; and `experiment.json` top-level `search_results`, `ablation`, and `best_weights` for `recommendation_experiment_summary`. For `search_results`, flatten each row's `weights` into `pop_score/sim_score/trend_score/recent_score` and `valid_metrics` into metrics columns with `section="search_results"` and `split="valid"`. For `ablation`, use top-level metric fields with `section="ablation"` and use `best_weights` only for the selected trend method row; otherwise leave weight columns blank when a component is not applicable. For case studies, build `article_attributes` from `data/processed/graph/edges_article_attribute.csv` and build `representative_trends` from the same LightGBM prediction + sample join view used by `topk_trend_attributes`, covering every `test` `cutoff_week` present in `pop_similarity_trend` recommendation items. Manifest `input_artifacts` must flatten every path group from `ReportInputPaths`, including `data_artifacts`, `trend_split_samples`, `graph_artifacts`, metrics, recommendation parquet items, and historical recommendation item CSV paths. Manifest warnings must be generated through `_build_report_warnings()` and cover known non-blocking caveats: grid search only has valid metrics, strict w/o Recent ablation is missing, and historical `recommendation_items.csv` exists but is not used. Every table, figure, case, and manifest write must pass `config.output_dir` through the path helpers so `--output-dir` controls the complete export tree.
+
+The helper names referenced by `_load_report_inputs()` are part of the Task 9 contract, not pseudo-code. Implement them in `runner.py` with these return contracts: summary row builders return `list[dict[str, object]]` already matching `REPORT_TABLE_COLUMNS`; `_build_input_artifacts()` returns manifest-ready audit paths for every `ReportInputPaths` group; `_build_report_warnings()` returns design-specified non-blocking caveats; `flatten_experiment_search_results()` returns a DataFrame with `pop_score/sim_score/trend_score/recent_score/ndcg_at_12` for plotting; `flatten_recommendation_experiment_rows()` returns design-table rows for both `search_results` and `ablation`; `build_representative_trend_attributes()` returns Top-N trend rows per selected week, so case rendering can use each case's own `cutoff_week`.
+
+Update `runner.py` imports to stay inside the reports architecture allowlist: use `catalog.readers`, `trend.readers`, `recommendation.readers`, and the new `reports.loaders/tables/paths/plotting/manifest` modules. Do not import `trend.paths`, `recommendation.paths`, `catalog.paths`, `trend.evaluation`, trend training/model modules, recommendation experiment runners, or catalog graph builders from `reports`. Default input paths must come from `reports.paths.default_report_input_paths()` / `ReportInputPaths`; `runner.py` must not define raw upstream artifact path constants.
 
 ```python
+@dataclass(frozen=True)
+class ReportInputs:
+    input_artifacts: dict[str, str]
+    report_table_rows: dict[str, list[dict[str, object]]]
+    trend_metrics: pd.DataFrame
+    recommendation_metrics: pd.DataFrame
+    feature_importance: pd.DataFrame
+    trend_view: pd.DataFrame
+    search_results: pd.DataFrame
+    recommendation_items: pd.DataFrame
+    evaluation_labels: pd.DataFrame
+    user_profile: pd.DataFrame
+    article_attributes: pd.DataFrame
+    representative_trends: pd.DataFrame
+    best_weights: dict[str, float]
+    warnings: list[str]
+
+
+def run_paper_assets_export(config: PaperAssetsExportConfig) -> dict[str, Any]:
+    selected_font = configure_matplotlib_for_reports()
+    inputs = _load_report_inputs(config)
+    table_paths, row_counts = _write_tables(
+        inputs.report_table_rows,
+        output_root=config.output_dir,
+    )
+    figure_paths = _write_figures(
+        inputs.trend_metrics,
+        inputs.recommendation_metrics,
+        inputs.feature_importance,
+        inputs.trend_view,
+        inputs.search_results,
+        best_weights=inputs.best_weights,
+        trend_week=config.trend_week,
+        top_k=config.top_k,
+        figure_formats=config.figure_formats,
+        output_root=config.output_dir,
+    )
+    case_paths, case_user_ids = _write_cases(
+        inputs.recommendation_items,
+        inputs.evaluation_labels,
+        inputs.user_profile,
+        inputs.article_attributes,
+        inputs.representative_trends,
+        case_count=config.case_count,
+        output_root=config.output_dir,
+    )
+    payload = build_manifest_payload(
+        parameters={
+            "case_count": config.case_count,
+            "top_k": config.top_k,
+            "trend_week": config.trend_week,
+            "figure_formats": list(config.figure_formats),
+            "output_dir": str(manifest_output_path(config.output_dir).parent),
+            "selected_font": selected_font,
+        },
+        input_artifacts=inputs.input_artifacts,
+        output_artifacts={
+            "figures": figure_paths,
+            "tables": table_paths,
+            "case_studies": case_paths,
+        },
+        row_counts=row_counts,
+        case_user_ids=case_user_ids,
+        warnings=inputs.warnings,
+    )
+    write_manifest(payload, manifest_output_path(config.output_dir))
+    return payload
+
+
+def _load_report_inputs(config: PaperAssetsExportConfig) -> ReportInputs:
+    input_paths = config.input_paths or default_report_input_paths()
+    trend_metric_paths = input_paths.trend_metrics
+    trend_metric_payloads = [
+        read_trend_metrics(path)
+        for path in trend_metric_paths.values()
+    ]
+    trend_metric_rows, trend_attr_type_rows = _build_trend_metric_rows(
+        trend_metric_payloads
+    )
+
+    recommendation_metric_rows = []
+    for method, path in input_paths.recommendation_metrics.items():
+        payload = read_json_object(path, artifact_name=f"{method} metrics")
+        recommendation_metric_rows.extend(flatten_recommendation_metrics(payload))
+
+    predictions = read_trend_model_predictions(input_paths.lightgbm_predictions)
+    trend_samples = read_trend_samples(input_paths.trend_model_samples)
+    trend_view = build_lightgbm_prediction_sample_view(predictions, trend_samples)
+    feature_importance = read_feature_importance(input_paths.lightgbm_feature_importance)
+    experiment_payload = read_json_object(
+        input_paths.recommendation_experiment,
+        artifact_name="main recommendation experiment",
+    )
+    best_weights = _extract_best_weights(experiment_payload)
+
+    recommendation_items = read_recommendation_items(
+        input_paths.recommendation_items["pop_similarity_trend"]
+    )
+    evaluation_labels = read_evaluation_labels(input_paths.evaluation_labels)
+    user_profile = read_user_profile(input_paths.user_profile)
+    article_attributes = read_article_attribute_edges(input_paths.article_attributes)
+    case_cutoff_weeks = sorted(
+        recommendation_items.loc[
+            recommendation_items["split"].astype(str) == "test",
+            "cutoff_week",
+        ]
+        .dropna()
+        .astype(int)
+        .unique()
+        .tolist()
+    )
+    representative_trends = build_representative_trend_attributes(
+        trend_view,
+        week_ids=case_cutoff_weeks,
+    )
+    search_results = flatten_experiment_search_results(experiment_payload)
+    report_table_rows = {
+        "data_artifact_summary": build_data_artifact_summary_rows(
+            input_paths.data_artifacts
+        ),
+        "time_split_summary": build_time_split_summary_rows(
+            split_paths=input_paths.trend_split_samples,
+            time_windows_path=input_paths.time_windows,
+            target_users_path=input_paths.target_users,
+        ),
+        "attribute_graph_summary": build_attribute_graph_summary_rows(
+            graph_paths=input_paths.graph_artifacts
+        ),
+        "trend_feature_summary": build_trend_feature_summary_rows(),
+        "trend_model_metrics": trend_metric_rows,
+        "trend_metrics_by_attr_type": trend_attr_type_rows,
+        "recommendation_method_metrics": recommendation_metric_rows,
+        "recommendation_experiment_summary": flatten_recommendation_experiment_rows(
+            experiment_payload
+        ),
+    }
+    return ReportInputs(
+        input_artifacts=_build_input_artifacts(input_paths),
+        report_table_rows=report_table_rows,
+        trend_metrics=build_report_table(
+            trend_metric_rows,
+            table_name="trend_model_metrics",
+        ),
+        recommendation_metrics=build_report_table(
+            recommendation_metric_rows,
+            table_name="recommendation_method_metrics",
+        ),
+        feature_importance=feature_importance,
+        trend_view=trend_view,
+        search_results=search_results,
+        recommendation_items=recommendation_items,
+        evaluation_labels=evaluation_labels,
+        user_profile=user_profile,
+        article_attributes=article_attributes,
+        representative_trends=representative_trends,
+        best_weights=best_weights,
+        warnings=_build_report_warnings(experiment_payload, input_paths),
+    )
+
+
+def _build_input_artifacts(input_paths: ReportInputPaths) -> dict[str, str]:
+    artifacts = {
+        "lightgbm_predictions": str(input_paths.lightgbm_predictions),
+        "trend_model_samples": str(input_paths.trend_model_samples),
+        "feature_importance": str(input_paths.lightgbm_feature_importance),
+        "recommendation_experiment": str(input_paths.recommendation_experiment),
+        "evaluation_labels": str(input_paths.evaluation_labels),
+        "user_profile": str(input_paths.user_profile),
+        "article_attributes": str(input_paths.article_attributes),
+    }
+    _extend_prefixed_paths(artifacts, "data_artifact", input_paths.data_artifacts)
+    _extend_prefixed_paths(
+        artifacts,
+        "trend_split_sample",
+        input_paths.trend_split_samples,
+    )
+    _extend_prefixed_paths(artifacts, "graph_artifact", input_paths.graph_artifacts)
+    _extend_prefixed_paths(artifacts, "trend_metrics", input_paths.trend_metrics)
+    _extend_prefixed_paths(
+        artifacts,
+        "recommendation_metrics",
+        input_paths.recommendation_metrics,
+    )
+    _extend_prefixed_paths(
+        artifacts,
+        "recommendation_items",
+        input_paths.recommendation_items,
+    )
+    _extend_prefixed_paths(
+        artifacts,
+        "recommendation_items_csv",
+        input_paths.recommendation_items_csv,
+    )
+    return artifacts
+
+
+def _build_report_warnings(
+    experiment_payload: dict[str, object],
+    input_paths: ReportInputPaths,
+) -> list[str]:
+    warnings: list[str] = []
+    search_results = experiment_payload.get("search_results", [])
+    if isinstance(search_results, list) and any(
+        isinstance(row, dict)
+        and "valid_metrics" in row
+        and "test_metrics" not in row
+        for row in search_results
+    ):
+        warnings.append(
+            "recommendation grid search 只有 valid 指标，test 指标仅来自最终方法评价。"
+        )
+    if not _has_strict_without_recent_ablation(experiment_payload):
+        warnings.append("recommendation ablation 缺少严格 w/o Recent 消融行。")
+
+    legacy_csv_paths = [
+        path
+        for path in input_paths.recommendation_items_csv.values()
+        if Path(path).exists()
+    ]
+    if legacy_csv_paths:
+        warnings.append(
+            "检测到历史 recommendation_items.csv，但报告读取 parquet 长表: "
+            + ", ".join(str(path) for path in legacy_csv_paths)
+        )
+    return warnings
+
+
+def _extend_prefixed_paths(
+    target: dict[str, str],
+    prefix: str,
+    paths: dict[str, Path],
+) -> None:
+    for name, path in paths.items():
+        target[f"{prefix}__{name}"] = str(path)
+
+
+def _extract_best_weights(payload: dict[str, object]) -> dict[str, float]:
+    weights = payload.get("best_weights")
+    if not isinstance(weights, dict):
+        raise ValueError("experiment.json best_weights 必须是对象")
+    return {
+        name: float(weights[name])
+        for name in ("pop_score", "sim_score", "trend_score", "recent_score")
+    }
+
+
+def _has_strict_without_recent_ablation(payload: dict[str, object]) -> bool:
+    for row in payload.get("ablation", []):
+        if not isinstance(row, dict):
+            continue
+        fields = " ".join(
+            str(row.get(key, "")).lower()
+            for key in ("section", "name", "method", "variant")
+        )
+        if any(
+            token in fields
+            for token in ("w/o recent", "without_recent", "no_recent")
+        ):
+            return True
+        weights = row.get("weights")
+        if isinstance(weights, dict):
+            try:
+                recent_score = float(weights.get("recent_score", -1.0))
+            except (TypeError, ValueError):
+                continue
+            if recent_score == 0.0:
+                return True
+    return False
+
+
+def build_data_artifact_summary_rows(
+    artifacts: dict[str, Path | str] | None = None,
+    *,
+    sections: dict[str, str] | None = None,
+    paper_usage: dict[str, str] | None = None,
+) -> list[dict[str, object]]:
+    artifacts = artifacts or default_report_input_paths().data_artifacts
+    default_sections = {
+        "articles_clean": "catalog",
+        "nodes_article": "attribute_graph",
+        "nodes_attribute": "attribute_graph",
+        "edges_article_attribute": "attribute_graph",
+        "edges_attribute_hierarchy": "attribute_graph",
+        "article_week_sales": "trend",
+        "attribute_week_heat": "trend",
+        "attribute_week_target": "trend",
+        "trend_model_samples": "trend",
+        "time_windows": "recommendation",
+        "target_users": "recommendation",
+        "evaluation_labels": "recommendation",
+        "user_profile": "recommendation",
+    }
+    default_usage = {
+        "articles_clean": "商品属性清洗规模",
+        "nodes_article": "属性图商品节点规模",
+        "nodes_attribute": "属性图属性节点规模",
+        "edges_article_attribute": "商品-属性边规模",
+        "edges_attribute_hierarchy": "属性层级边规模",
+        "article_week_sales": "商品周销量聚合规模",
+        "attribute_week_heat": "属性周热度规模",
+        "attribute_week_target": "趋势标签规模",
+        "trend_model_samples": "趋势模型样本规模",
+        "time_windows": "推荐评价时间窗规模",
+        "target_users": "推荐目标用户规模",
+        "evaluation_labels": "推荐真实标签规模",
+        "user_profile": "用户画像规模",
+    }
+    section_map = {**default_sections, **(sections or {})}
+    usage_map = {**default_usage, **(paper_usage or {})}
+
+    rows: list[dict[str, object]] = []
+    for artifact, path_value in artifacts.items():
+        path = Path(path_value)
+        row_count, column_count = _artifact_shape(path)
+        rows.append(
+            {
+                "section": section_map.get(artifact, "other"),
+                "artifact": artifact,
+                "path": str(path),
+                "row_count": row_count,
+                "column_count": column_count,
+                "paper_usage": usage_map.get(artifact, ""),
+            }
+        )
+    return rows
+
+
+def build_time_split_summary_rows(
+    split_frames: dict[str, pd.DataFrame] | None = None,
+    *,
+    split_paths: dict[str, Path] | None = None,
+    time_windows_path: Path | None = None,
+    target_users_path: Path | None = None,
+    domain: str = "trend",
+) -> list[dict[str, object]]:
+    injected_split_frames = split_frames is not None
+    input_paths = default_report_input_paths()
+    split_paths = split_paths or input_paths.trend_split_samples
+    split_frames = split_frames or {
+        split: pd.read_parquet(path) for split, path in split_paths.items()
+    }
+    rows = [
+        _time_split_row(domain=domain, split=split, dataframe=dataframe)
+        for split, dataframe in split_frames.items()
+    ]
+
+    if injected_split_frames:
+        return rows
+
+    time_windows = read_time_windows(time_windows_path or input_paths.time_windows)
+    target_users = read_target_users(target_users_path or input_paths.target_users)
+    for split, dataframe in time_windows.groupby("split", sort=True):
+        split_users = target_users.loc[target_users["split"].astype(str) == str(split)]
+        rows.append(
+            _time_split_row(
+                domain="recommendation",
+                split=str(split),
+                dataframe=dataframe,
+                user_count=split_users["customer_id"].nunique(),
+            )
+        )
+    return rows
+
+
+def build_attribute_graph_summary_rows(
+    graph_frames: dict[str, pd.DataFrame] | None = None,
+    *,
+    graph_paths: dict[str, Path | str] | None = None,
+) -> list[dict[str, object]]:
+    default_graph_paths = default_report_input_paths().graph_artifacts
+    graph_paths = {**default_graph_paths, **(graph_paths or {})}
+    graph_frames = graph_frames or {
+        "nodes_article": pd.read_csv(graph_paths["nodes_article"]),
+        "nodes_attribute": read_attribute_nodes(Path(graph_paths["nodes_attribute"])),
+        "edges_article_attribute": read_article_attribute_edges(
+            Path(graph_paths["edges_article_attribute"])
+        ),
+        "edges_attribute_hierarchy": read_attribute_hierarchy_edges(
+            Path(graph_paths["edges_attribute_hierarchy"])
+        ),
+    }
+    rows = [
+        {
+            "entity_type": "article",
+            "attr_type": "",
+            "relation_type": "node",
+            "count": len(graph_frames["nodes_article"]),
+            "path": str(graph_paths["nodes_article"]),
+            "paper_usage": "商品节点规模",
+        },
+        {
+            "entity_type": "attribute",
+            "attr_type": "",
+            "relation_type": "node",
+            "count": len(graph_frames["nodes_attribute"]),
+            "path": str(graph_paths["nodes_attribute"]),
+            "paper_usage": "属性节点规模",
+        },
+        {
+            "entity_type": "attribute",
+            "attr_type": "",
+            "relation_type": "hierarchy",
+            "count": len(graph_frames["edges_attribute_hierarchy"]),
+            "path": str(graph_paths["edges_attribute_hierarchy"]),
+            "paper_usage": "属性层级边规模",
+        },
+    ]
+    edge_frame = graph_frames["edges_article_attribute"]
+    for attr_type, group in edge_frame.groupby("attr_type", sort=True):
+        rows.append(
+            {
+                "entity_type": "article_attribute_edge",
+                "attr_type": str(attr_type),
+                "relation_type": "article_attribute",
+                "count": len(group),
+                "path": str(graph_paths["edges_article_attribute"]),
+                "paper_usage": "商品-属性边规模",
+            }
+        )
+    return rows
+
+
+def build_trend_feature_summary_rows() -> list[dict[str, object]]:
+    feature_specs = [
+        ("level", "heat_t", "trend_model_samples", True, "当前周属性热度"),
+        ("level", "share_t", "trend_model_samples", True, "当前周属性份额"),
+        ("lag", "lag_1_heat", "trend_model_samples", True, "上一周属性热度"),
+        ("lag", "lag_2_heat", "trend_model_samples", True, "前两周属性热度"),
+        ("lag", "lag_4_heat", "trend_model_samples", True, "前四周属性热度"),
+        ("growth", "growth_1w", "trend_model_samples", True, "一周热度变化"),
+        ("growth", "growth_4w", "trend_model_samples", True, "四周热度变化"),
+        ("history", "history_total_heat_t", "trend_model_samples", True, "历史累计热度"),
+        (
+            "history",
+            "history_active_weeks_t",
+            "trend_model_samples",
+            True,
+            "历史活跃周数",
+        ),
+        (
+            "label",
+            "target_growth",
+            "trend_model_samples",
+            False,
+            "下一周趋势增长标签",
+        ),
+    ]
+    return [
+        {
+            "feature_group": feature_group,
+            "feature_name": feature_name,
+            "source_table": source_table,
+            "model_input": model_input,
+            "description": description,
+        }
+        for feature_group, feature_name, source_table, model_input, description in feature_specs
+    ]
+
+
+def build_representative_trend_attributes(
+    trend_view: pd.DataFrame,
+    *,
+    week_id: int | None = None,
+    week_ids: list[int] | None = None,
+    top_n: int = 8,
+) -> pd.DataFrame:
+    required_columns = {
+        "week_id",
+        "attr_type",
+        "attr_value",
+        "pred_target_growth",
+        "heat_t",
+        "is_trend_eligible_t",
+    }
+    missing_columns = sorted(required_columns - set(trend_view.columns))
+    if missing_columns:
+        raise ValueError(f"代表趋势属性缺少字段: {missing_columns}")
+    if week_id is not None and week_ids is not None:
+        raise ValueError("week_id 和 week_ids 不能同时传入")
+    selected_weeks: list[int] | None = None
+    if week_id is not None:
+        selected_weeks = [int(week_id)]
+    if week_ids is not None:
+        selected_weeks = sorted({int(value) for value in week_ids})
+
+    filtered = trend_view.loc[
+        trend_view["is_trend_eligible_t"].astype(bool)
+    ].copy()
+    filtered["week_id"] = filtered["week_id"].astype(int)
+    if selected_weeks is not None:
+        filtered = filtered.loc[filtered["week_id"].isin(selected_weeks)].copy()
+    filtered = filtered.sort_values(
+        ["week_id", "pred_target_growth", "heat_t"],
+        ascending=[True, False, False],
+        kind="mergesort",
+    )
+    per_week = filtered.groupby("week_id", group_keys=False, sort=False).head(top_n)
+    return per_week.sort_values(
+        ["pred_target_growth", "heat_t"],
+        ascending=[False, False],
+        kind="mergesort",
+    ).loc[
+        :,
+        ["week_id", "attr_type", "attr_value", "pred_target_growth", "heat_t"],
+    ]
+
+
+def flatten_experiment_search_results(payload: dict[str, object]) -> pd.DataFrame:
+    rows = []
+    for rank, result in enumerate(payload.get("search_results", []), start=1):
+        if not isinstance(result, dict):
+            raise ValueError(f"search_results[{rank - 1}] 必须是对象")
+        weights = _required_mapping(result, "weights", f"search_results[{rank - 1}]")
+        metrics = _required_mapping(
+            result,
+            "valid_metrics",
+            f"search_results[{rank - 1}]",
+        )
+        rows.append(
+            _recommendation_experiment_row(
+                section="search_results",
+                rank=rank,
+                method=str(result.get("method", "pop_similarity_trend")),
+                split="valid",
+                weights=weights,
+                metrics=metrics,
+            )
+        )
+    return pd.DataFrame(
+        rows,
+        columns=REPORT_TABLE_COLUMNS["recommendation_experiment_summary"],
+    )
+
+
+def flatten_recommendation_experiment_rows(
+    payload: dict[str, object],
+) -> list[dict[str, object]]:
+    rows = flatten_experiment_search_results(payload).to_dict("records")
+    best_weights = payload.get("best_weights", {})
+    if not isinstance(best_weights, dict):
+        raise ValueError("experiment.json best_weights 必须是对象")
+
+    for rank, result in enumerate(payload.get("ablation", []), start=1):
+        if not isinstance(result, dict):
+            raise ValueError(f"ablation[{rank - 1}] 必须是对象")
+        method = str(result.get("method", ""))
+        weights: dict[str, object] = {}
+        if method == "pop_similarity_trend":
+            weights = best_weights
+        rows.append(
+            _recommendation_experiment_row(
+                section="ablation",
+                rank=rank,
+                method=method,
+                split=str(result.get("split", "test")),
+                weights=weights,
+                metrics=result,
+                blank_missing_weights=method != "pop_similarity_trend",
+            )
+        )
+    return rows
+
+
+def _artifact_shape(path: Path) -> tuple[int, int]:
+    if path.suffix == ".csv":
+        dataframe = pd.read_csv(path)
+        return len(dataframe), len(dataframe.columns)
+    if path.suffix == ".parquet":
+        dataframe = pd.read_parquet(path)
+        return len(dataframe), len(dataframe.columns)
+    if path.suffix == ".json":
+        payload = read_json_object(path, artifact_name=path.name)
+        return 1, len(payload)
+    raise ValueError(f"不支持统计的报告 artifact 类型: {path}")
+
+
+def _time_split_row(
+    *,
+    domain: str,
+    split: str,
+    dataframe: pd.DataFrame,
+    user_count: int = 0,
+) -> dict[str, object]:
+    if "week_id" in dataframe.columns:
+        week_ids = dataframe["week_id"].dropna().astype(int)
+    elif {"cutoff_week", "label_week"} <= set(dataframe.columns):
+        week_ids = pd.concat(
+            [dataframe["cutoff_week"], dataframe["label_week"]],
+            ignore_index=True,
+        ).dropna().astype(int)
+    else:
+        raise ValueError("time split summary 缺少 week_id 或 cutoff_week/label_week")
+    return {
+        "domain": domain,
+        "split": split,
+        "week_start": int(week_ids.min()),
+        "week_end": int(week_ids.max()),
+        "week_count": int(week_ids.nunique()),
+        "row_count": len(dataframe),
+        "attribute_count": int(dataframe["attr_id"].nunique())
+        if "attr_id" in dataframe.columns
+        else 0,
+        "user_count": int(user_count),
+    }
+
+
+def _recommendation_experiment_row(
+    *,
+    section: str,
+    rank: int,
+    method: str,
+    split: str,
+    weights: dict[str, object],
+    metrics: dict[str, object],
+    blank_missing_weights: bool = False,
+) -> dict[str, object]:
+    return {
+        "section": section,
+        "rank": rank,
+        "method": method,
+        "split": split,
+        "pop_score": _score_value(weights, "pop_score", blank=blank_missing_weights),
+        "sim_score": _score_value(weights, "sim_score", blank=blank_missing_weights),
+        "trend_score": _score_value(
+            weights,
+            "trend_score",
+            blank=blank_missing_weights,
+        ),
+        "recent_score": _score_value(
+            weights,
+            "recent_score",
+            blank=blank_missing_weights,
+        ),
+        "map_at_12": float(metrics["map_at_12"]),
+        "recall_at_12": float(metrics["recall_at_12"]),
+        "hit_rate_at_12": float(metrics["hit_rate_at_12"]),
+        "ndcg_at_12": float(metrics["ndcg_at_12"]),
+        "coverage": float(metrics["coverage"]),
+    }
+
+
+def _score_value(
+    weights: dict[str, object],
+    key: str,
+    *,
+    blank: bool,
+) -> float | str:
+    if key not in weights:
+        if blank:
+            return ""
+        raise ValueError(f"experiment.json 权重缺少字段: {key}")
+    return float(weights[key])
+
+
+def _required_mapping(
+    payload: dict[str, object],
+    key: str,
+    source_name: str,
+) -> dict[str, object]:
+    value = payload.get(key)
+    if not isinstance(value, dict):
+        raise ValueError(f"{source_name} {key} 必须是对象")
+    return value
+
+
 def _build_trend_metric_rows(
     trend_metric_payloads: list[dict[str, object]],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
@@ -2747,6 +3893,7 @@ def _write_figures(
     feature_importance: pd.DataFrame,
     trend_view: pd.DataFrame,
     search_results: pd.DataFrame,
+    best_weights: dict[str, float],
     *,
     trend_week: int,
     top_k: int,
@@ -2776,7 +3923,8 @@ def _write_figures(
             top_k=top_k,
         ),
         "recommendation_weight_analysis": build_recommendation_weight_analysis_figure(
-            search_results
+            search_results,
+            best_weights=best_weights,
         ),
     }
     output_paths: list[str] = []
