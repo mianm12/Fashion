@@ -684,6 +684,16 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
 `recommendation_items.parquet` 是默认内部长表产物；`recommendation_items.csv`
 仅作为显式导出用途，不是默认推荐输出。
 
+当前 `main` 实验使用 valid split 的 `NDCG@12` 选择
+`pop_similarity_trend` 权重。最近一次有限网格调参搜索 25 组权重，最佳权重为
+`pop_score=0.2`、`sim_score=0.2`、`trend_score=0.1`、`recent_score=0.5`。
+该主模型在 valid split 上达到 `NDCG@12=0.005922`、`MAP@12=0.002745`、
+`Recall@12=0.008566`，高于 `recent_popularity` 的 valid `NDCG@12=0.005715`。
+在 test split 上，调参后主模型达到 `NDCG@12=0.007987`、`MAP@12=0.003703`、
+`Recall@12=0.013685`，明显高于旧主模型结果，但略低于 `recent_popularity`
+的 test `NDCG@12=0.008087`。论文叙述应把它定位为“趋势感知融合主模型”，并保留
+`recent_popularity` 作为强 baseline 对照。
+
 `16_run_recommendation_experiment.py` 默认复用新鲜的输入、候选、feature
 cache 和 method 产物。需要重建时使用明确 force 参数：
 

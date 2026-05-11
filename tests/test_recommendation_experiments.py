@@ -63,6 +63,7 @@ def test_weight_grid_contains_only_valid_normalized_weights() -> None:
     weights = list(iter_weight_grid())
 
     assert weights
+    assert len(weights) <= 30
     assert all(abs(sum(item.values()) - 1.0) <= 1e-9 for item in weights)
     assert all(all(value >= 0.0 for value in item.values()) for item in weights)
     assert {
@@ -71,6 +72,50 @@ def test_weight_grid_contains_only_valid_normalized_weights() -> None:
         "trend_score": 0.2,
         "recent_score": 0.1,
     } in weights
+    assert {
+        "pop_score": 0.4,
+        "sim_score": 0.1,
+        "trend_score": 0.0,
+        "recent_score": 0.5,
+    } in weights
+    assert {
+        "pop_score": 0.3,
+        "sim_score": 0.1,
+        "trend_score": 0.2,
+        "recent_score": 0.4,
+    } in weights
+
+
+def test_select_best_weights_defaults_to_ndcg_at_12() -> None:
+    results = [
+        {
+            "grid_index": 0,
+            "weights": {
+                "pop_score": 0.4,
+                "sim_score": 0.3,
+                "trend_score": 0.2,
+                "recent_score": 0.1,
+            },
+            "valid_metrics": {"map_at_12": 0.30, "ndcg_at_12": 0.10},
+        },
+        {
+            "grid_index": 1,
+            "weights": {
+                "pop_score": 0.3,
+                "sim_score": 0.1,
+                "trend_score": 0.2,
+                "recent_score": 0.4,
+            },
+            "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.20},
+        },
+    ]
+
+    assert select_best_weights(results) == {
+        "pop_score": 0.3,
+        "sim_score": 0.1,
+        "trend_score": 0.2,
+        "recent_score": 0.4,
+    }
 
 
 def test_select_best_weights_uses_stable_grid_order_for_ties() -> None:
@@ -97,7 +142,7 @@ def test_select_best_weights_uses_stable_grid_order_for_ties() -> None:
         },
     ]
 
-    assert select_best_weights(results) == {
+    assert select_best_weights(results, metric_name="map_at_12") == {
         "pop_score": 0.4,
         "sim_score": 0.3,
         "trend_score": 0.2,
@@ -213,7 +258,7 @@ def test_experiment_payload_records_force_status_and_timings() -> None:
                     "trend_score": 0.2,
                     "recent_score": 0.1,
                 },
-                "valid_metrics": {"map_at_12": 0.1},
+                "valid_metrics": {"map_at_12": 0.1, "ndcg_at_12": 0.1},
             }
         ],
         trend_payload={"method": "pop_similarity_trend", "metrics": {}},
@@ -406,7 +451,7 @@ def test_force_candidates_rebuilds_candidates_cache_and_methods(monkeypatch) -> 
                     "trend_score": 0.2,
                     "recent_score": 0.1,
                 },
-                "valid_metrics": {"map_at_12": 0.1},
+                "valid_metrics": {"map_at_12": 0.1, "ndcg_at_12": 0.1},
             }
         ],
     )
@@ -508,7 +553,7 @@ def test_experiment_records_missing_candidate_and_cache_as_rebuilt(
                     "trend_score": 0.2,
                     "recent_score": 0.1,
                 },
-                "valid_metrics": {"map_at_12": 0.1},
+                "valid_metrics": {"map_at_12": 0.1, "ndcg_at_12": 0.1},
             }
         ],
     )

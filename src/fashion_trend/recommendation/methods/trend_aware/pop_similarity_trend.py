@@ -19,10 +19,10 @@ class PopSimilarityTrendMethod:
     default_candidate_strategy: str = "default"
     default_weights: dict[str, float] = field(
         default_factory=lambda: {
-            "pop_score": 0.35,
-            "sim_score": 0.35,
-            "trend_score": 0.25,
-            "recent_score": 0.05,
+            "pop_score": 0.2,
+            "sim_score": 0.2,
+            "trend_score": 0.1,
+            "recent_score": 0.5,
         }
     )
     required_features: tuple[str, ...] = (

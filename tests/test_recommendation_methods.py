@@ -95,10 +95,10 @@ def test_pop_similarity_trend_uses_default_candidates_and_trend_score() -> None:
         "recent_score",
     )
     assert method.default_weights == {
-        "pop_score": 0.35,
-        "sim_score": 0.35,
-        "trend_score": 0.25,
-        "recent_score": 0.05,
+        "pop_score": 0.2,
+        "sim_score": 0.2,
+        "trend_score": 0.1,
+        "recent_score": 0.5,
     }
 
 

@@ -1164,8 +1164,8 @@ $$
 你最终要证明：
 
 ```text
-加入趋势分之后，推荐结果在 Recall@12 / MAP@12 / Coverage 上有一定提升，
-或者至少推荐列表更具有趋势解释性。
+加入趋势分之后，推荐结果在 NDCG@12 / Recall@12 / MAP@12 / Coverage 上有一定提升，
+或者至少推荐列表更具有趋势解释性，并能和 recent_popularity 强 baseline 做实证对照。
 ```
 
 ---
@@ -1177,7 +1177,7 @@ $$
 | MAP@12             |   必须 | 与 H&M 原任务风格一致 |
 | Recall@12          |   必须 | 推荐命中能力        |
 | HitRate@12         |   必须 | 用户级是否命中       |
-| NDCG@12            |   建议 | 排名质量          |
+| NDCG@12            |   必须 | 排名质量；推荐主模型调参的主选择指标 |
 | Coverage           |   建议 | 推荐商品覆盖度       |
 | Long-tail Coverage |   可选 | 是否推荐长尾商品      |
 
@@ -1455,6 +1455,14 @@ hm-fashion-trend-rec/
 | 推荐评价        | `src/15_eval_recommendations.py --method <method>` | `outputs/recommendation/<method>/metrics.json`                                                             |
 | 推荐实验        | `src/16_run_recommendation_experiment.py --experiment main` | `outputs/recommendation/experiments/<experiment_id>/experiment.json`                                       |
 | 报告导出        | 后续编号入口                         | figures、tables、case studies                                                                              |
+
+当前 `main` 推荐实验使用 valid split 的 `NDCG@12` 选择
+`pop_similarity_trend` 权重。2026-05-11 的有限网格调参搜索 25 组权重，最佳权重为
+`pop_score=0.2`、`sim_score=0.2`、`trend_score=0.1`、`recent_score=0.5`。
+该主模型 valid `NDCG@12=0.005922`，高于 `recent_popularity` 的
+valid `NDCG@12=0.005715`；test `NDCG@12=0.007987`，明显高于旧主模型，
+但略低于 `recent_popularity` 的 test `NDCG@12=0.008087`。报告中应把
+`recent_popularity` 作为强 baseline，而不是把趋势感知模型描述成所有指标均最优。
 
 ---
 
