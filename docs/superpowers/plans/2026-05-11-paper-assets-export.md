@@ -409,6 +409,7 @@ from fashion_trend.reports.loaders import (
     build_lightgbm_prediction_sample_view,
     flatten_recommendation_metrics,
     flatten_trend_metrics,
+    flatten_trend_metrics_by_attr_type,
     read_json_object,
 )
 
@@ -543,6 +544,40 @@ def test_flatten_trend_metrics_extracts_report_columns() -> None:
             "precision_at_10": 0.5,
             "recall_at_10": 0.6,
             "run_id": "run-1",
+        }
+    ]
+
+
+def test_flatten_trend_metrics_by_attr_type_extracts_design_columns() -> None:
+    payload = {
+        "model_name": "lightgbm",
+        "by_attr_type": {
+            "test": {
+                "colour_group_name": {
+                    "mae": 0.11,
+                    "rmse": 0.21,
+                    "spearman": 0.31,
+                    "ndcg_at_k": {"10": 0.41},
+                    "precision_at_k": {"10": 0.51},
+                    "recall_at_k": {"10": 0.61},
+                }
+            }
+        },
+    }
+
+    rows = flatten_trend_metrics_by_attr_type(payload)
+
+    assert rows == [
+        {
+            "model_name": "lightgbm",
+            "split": "test",
+            "attr_type": "colour_group_name",
+            "mae": 0.11,
+            "rmse": 0.21,
+            "spearman": 0.31,
+            "ndcg_at_10": 0.41,
+            "precision_at_10": 0.51,
+            "recall_at_10": 0.61,
         }
     ]
 
@@ -715,6 +750,35 @@ def flatten_trend_metrics(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "run_id": "" if run_id is None else str(run_id),
             }
         )
+    return rows
+
+
+def flatten_trend_metrics_by_attr_type(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    model_name = str(payload.get("model_name"))
+    rows: list[dict[str, Any]] = []
+    for split, attr_type_metrics in sorted(
+        _required_dict(payload, "by_attr_type").items()
+    ):
+        attr_payload = _as_dict(attr_type_metrics, f"by_attr_type.{split}")
+        for attr_type, metrics in sorted(attr_payload.items()):
+            metric_payload = _as_dict(metrics, f"by_attr_type.{split}.{attr_type}")
+            rows.append(
+                {
+                    "model_name": model_name,
+                    "split": split,
+                    "attr_type": attr_type,
+                    "mae": _finite_number(metric_payload, "mae"),
+                    "rmse": _finite_number(metric_payload, "rmse"),
+                    "spearman": _finite_number(metric_payload, "spearman"),
+                    "ndcg_at_10": _metric_at_k(metric_payload, "ndcg_at_k", "10"),
+                    "precision_at_10": _metric_at_k(
+                        metric_payload,
+                        "precision_at_k",
+                        "10",
+                    ),
+                    "recall_at_10": _metric_at_k(metric_payload, "recall_at_k", "10"),
+                }
+            )
     return rows
 
 
@@ -1290,6 +1354,23 @@ def test_save_report_figure_honors_requested_formats(
         assert paths[suffix].stat().st_size > 0
     for suffix in unexpected_suffixes:
         assert not paths[suffix].exists()
+
+
+def test_save_report_figure_rejects_duplicate_formats(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "fashion_trend.reports.plotting.available_cjk_fonts",
+        lambda: ["DejaVu Sans"],
+    )
+    configure_matplotlib_for_reports()
+    figure, axis = plt.subplots()
+    axis.plot([0, 1], [0, 1])
+    paths = {"svg": tmp_path / "figure.svg", "png": tmp_path / "figure.png"}
+
+    try:
+        with pytest.raises(ValueError, match="不能重复"):
+            save_report_figure(figure, paths, formats=("svg", "svg"))
+    finally:
+        plt.close(figure)
 ```
 
 - [ ] **Step 2: Run failing tests**
@@ -1359,6 +1440,8 @@ def save_report_figure(
     unknown_formats = sorted(set(formats) - allowed_formats)
     if not formats or unknown_formats:
         raise ValueError(f"figure formats 只支持 svg,png: {formats}")
+    if len(set(formats)) != len(formats):
+        raise ValueError(f"figure formats 不能重复: {formats}")
     missing_paths = sorted(set(formats) - set(output_paths))
     if missing_paths:
         raise ValueError(f"图表输出路径缺少格式: {missing_paths}")
@@ -2182,6 +2265,8 @@ Append to `tests/test_reports_runner.py`:
 import importlib
 from pathlib import Path
 
+import pytest
+
 
 def test_export_paper_assets_cli_passes_args(monkeypatch) -> None:
     module = importlib.import_module("17_export_paper_assets")
@@ -2214,6 +2299,13 @@ def test_export_paper_assets_cli_passes_args(monkeypatch) -> None:
     assert captured["config"].trend_week == 102
     assert captured["config"].figure_formats == ("svg", "png")
     assert captured["config"].output_dir == Path("outputs/reports-paper")
+
+
+def test_parse_figure_formats_rejects_duplicates() -> None:
+    module = importlib.import_module("17_export_paper_assets")
+
+    with pytest.raises(ValueError, match="不能重复"):
+        module._parse_figure_formats("svg,svg")
 ```
 
 - [ ] **Step 2: Run failing CLI test**
@@ -2221,7 +2313,7 @@ def test_export_paper_assets_cli_passes_args(monkeypatch) -> None:
 Run:
 
 ```sh
-uv run pytest tests/test_reports_runner.py::test_export_paper_assets_cli_passes_args -q
+uv run pytest tests/test_reports_runner.py::test_export_paper_assets_cli_passes_args tests/test_reports_runner.py::test_parse_figure_formats_rejects_duplicates -q
 ```
 
 Expected: FAIL because `src/17_export_paper_assets.py` does not exist.
@@ -2284,6 +2376,8 @@ def _parse_figure_formats(value: str) -> tuple[str, ...]:
     allowed = {"svg", "png"}
     if not formats or not set(formats).issubset(allowed):
         raise ValueError(f"figure-format 只支持 svg,png: {value}")
+    if len(set(formats)) != len(formats):
+        raise ValueError(f"figure-format 不能重复: {value}")
     return formats
 
 
@@ -2327,26 +2421,108 @@ git commit -m "feat(reports): 添加论文素材导出入口"
 Append to `tests/test_reports_runner.py`:
 
 ```python
+from types import SimpleNamespace
+
 import pandas as pd
 
+from fashion_trend.reports.tables import REPORT_TABLE_COLUMNS
 
-def test_run_paper_assets_export_writes_non_empty_manifest(tmp_path) -> None:
+
+def test_run_paper_assets_export_uses_monkeypatched_small_data(
+    tmp_path,
+    monkeypatch,
+) -> None:
     from fashion_trend.reports import runner
+
+    figure_names = (
+        "data_pipeline",
+        "attribute_graph_schema",
+        "trend_curve_examples",
+        "lightgbm_feature_importance",
+        "trend_model_metrics",
+        "recommendation_method_metrics",
+        "topk_trend_attributes",
+        "recommendation_weight_analysis",
+    )
+    fake_inputs = SimpleNamespace(
+        input_artifacts={"predictions": "outputs/models/lightgbm/predictions.csv"},
+        report_table_rows={name: [{"row": 1}] for name in REPORT_TABLE_COLUMNS},
+        trend_metrics=pd.DataFrame(),
+        recommendation_metrics=pd.DataFrame(),
+        feature_importance=pd.DataFrame(),
+        trend_view=pd.DataFrame(),
+        search_results=pd.DataFrame(),
+        recommendation_items=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        representative_trends=pd.DataFrame(),
+    )
+
+    monkeypatch.setattr(runner, "configure_matplotlib_for_reports", lambda: "Test Font")
+    monkeypatch.setattr(runner, "_load_report_inputs", lambda: fake_inputs)
+
+    def fake_write_tables(report_table_rows, *, output_root):
+        assert output_root == tmp_path
+        assert set(report_table_rows) == set(REPORT_TABLE_COLUMNS)
+        paths = [
+            str(output_root / "tables" / f"{name}.{suffix}")
+            for name in REPORT_TABLE_COLUMNS
+            for suffix in ("csv", "md")
+        ]
+        return paths, {name: 1 for name in REPORT_TABLE_COLUMNS}
+
+    def fake_write_figures(
+        *args,
+        trend_week,
+        top_k,
+        figure_formats,
+        output_root,
+    ):
+        assert trend_week == 103
+        assert top_k == 10
+        assert figure_formats == ("svg",)
+        assert output_root == tmp_path
+        return [
+            str(output_root / "figures" / f"{name}.{suffix}")
+            for name in figure_names
+            for suffix in figure_formats
+        ]
+
+    def fake_write_cases(*args, case_count, output_root):
+        assert case_count == 3
+        assert output_root == tmp_path
+        paths = [
+            str(output_root / "case_studies" / f"case_{index:02d}.{suffix}")
+            for index in range(1, 4)
+            for suffix in ("json", "md")
+        ]
+        return paths, ["customer-a", "customer-b", "customer-c"]
+
+    monkeypatch.setattr(runner, "_write_tables", fake_write_tables)
+    monkeypatch.setattr(runner, "_write_figures", fake_write_figures)
+    monkeypatch.setattr(runner, "_write_cases", fake_write_cases)
 
     payload = runner.run_paper_assets_export(
         runner.PaperAssetsExportConfig(
             case_count=3,
             top_k=10,
             trend_week=103,
+            figure_formats=("svg",),
             output_dir=tmp_path,
         )
     )
 
     assert payload["schema_version"] == "paper_assets_manifest/v1"
+    assert payload["table_count"] == 16
+    assert payload["figure_count"] == 8
+    assert payload["case_count"] == 3
+    assert set(payload["row_counts"]) == set(REPORT_TABLE_COLUMNS)
+    assert all(path.endswith(".svg") for path in payload["output_artifacts"]["figures"])
     assert (tmp_path / "manifest.json").exists()
 ```
 
-This test is intentionally shallow until all real artifact reads are wired. After wiring real reads, replace monkeypatching with fixture path injection if the runner accepts path config.
+This test must not read `data/` or `outputs/`, must not require a real CJK font, and must not run real Matplotlib rendering. Keep real artifact validation in Task 10. Task 9 should introduce a private `_load_report_inputs()` seam that returns all DataFrames, JSON payloads, `input_artifacts`, and `report_table_rows`; this test monkeypatches that seam and the writer helpers to verify orchestration counts and argument propagation only.
 
 - [ ] **Step 2: Extend figures module with remaining chart builders**
 
@@ -2515,6 +2691,7 @@ Modify `src/fashion_trend/reports/runner.py` to:
 
 - Configure matplotlib once at the beginning.
 - Read trend metrics for `last_week`, `previous_growth`, `moving_average`, `lightgbm`.
+- Flatten trend metrics twice: `flatten_trend_metrics()` for `trend_model_metrics`, and `flatten_trend_metrics_by_attr_type()` for `trend_metrics_by_attr_type`.
 - Read recommendation metrics for all five methods.
 - Build and write all eight design tables: `data_artifact_summary`, `time_split_summary`, `attribute_graph_summary`, `trend_feature_summary`, `trend_model_metrics`, `trend_metrics_by_attr_type`, `recommendation_method_metrics`, and `recommendation_experiment_summary`.
 - Read feature importance and export `lightgbm_feature_importance`.
@@ -2526,9 +2703,22 @@ Modify `src/fashion_trend/reports/runner.py` to:
 
 Keep the function small enough by adding private helpers with concrete return contracts:
 
-`report_table_rows` must be built before writing and must include all eight table names in `REPORT_TABLE_COLUMNS`. Use these sources: core artifact paths and row/column counts for `data_artifact_summary`; split metadata plus split parquet row counts for `time_split_summary`; graph node/edge artifacts for `attribute_graph_summary`; documented feature groups for `trend_feature_summary`; trend metrics JSON for `trend_model_metrics` and `trend_metrics_by_attr_type`; method metrics JSON for `recommendation_method_metrics`; and `experiment.json` top-level `search_results`, `ablation`, and `best_weights` for `recommendation_experiment_summary`. For `search_results`, flatten each row's `weights` into `pop_score/sim_score/trend_score/recent_score` and `valid_metrics` into metrics columns with `section="search_results"` and `split="valid"`. For `ablation`, use top-level metric fields with `section="ablation"` and use `best_weights` only for the selected trend method row; otherwise leave weight columns blank when a component is not applicable. For case studies, build `article_attributes` from `data/processed/graph/edges_article_attribute.csv` and build `representative_trends` from the same LightGBM prediction + sample join view used by `topk_trend_attributes`. Every table, figure, case, and manifest write must pass `config.output_dir` through the path helpers so `--output-dir` controls the complete export tree.
+`_load_report_inputs()` must be the only helper that reads real artifacts. It returns the DataFrames and JSON-derived rows needed by `_write_tables()`, `_write_figures()`, and `_write_cases()`, making Task 9 unit tests independent from local `data/`, `outputs/`, and CJK fonts.
+
+`report_table_rows` must be built before writing and must include all eight table names in `REPORT_TABLE_COLUMNS`. Use these sources: core artifact paths and row/column counts for `data_artifact_summary`; split metadata plus split parquet row counts for `time_split_summary`; graph node/edge artifacts for `attribute_graph_summary`; documented feature groups for `trend_feature_summary`; `flatten_trend_metrics()` for `trend_model_metrics`; `flatten_trend_metrics_by_attr_type()` for `trend_metrics_by_attr_type`; method metrics JSON for `recommendation_method_metrics`; and `experiment.json` top-level `search_results`, `ablation`, and `best_weights` for `recommendation_experiment_summary`. For `search_results`, flatten each row's `weights` into `pop_score/sim_score/trend_score/recent_score` and `valid_metrics` into metrics columns with `section="search_results"` and `split="valid"`. For `ablation`, use top-level metric fields with `section="ablation"` and use `best_weights` only for the selected trend method row; otherwise leave weight columns blank when a component is not applicable. For case studies, build `article_attributes` from `data/processed/graph/edges_article_attribute.csv` and build `representative_trends` from the same LightGBM prediction + sample join view used by `topk_trend_attributes`. Every table, figure, case, and manifest write must pass `config.output_dir` through the path helpers so `--output-dir` controls the complete export tree.
 
 ```python
+def _build_trend_metric_rows(
+    trend_metric_payloads: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    metric_rows: list[dict[str, object]] = []
+    attr_type_rows: list[dict[str, object]] = []
+    for payload in trend_metric_payloads:
+        metric_rows.extend(flatten_trend_metrics(payload))
+        attr_type_rows.extend(flatten_trend_metrics_by_attr_type(payload))
+    return metric_rows, attr_type_rows
+
+
 def _write_tables(
     report_table_rows: dict[str, list[dict[str, object]]],
     *,
