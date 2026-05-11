@@ -12,7 +12,7 @@
 - 每张图同时导出 SVG 和 PNG。
 - 表格同时导出 CSV 和 Markdown。
 - 图表语言采用双语偏中文：标题、图例和说明使用中文，模型名、指标名、字段名保留英文。
-- 新增 `matplotlib` 作为 reports 阶段绘图依赖；后续只有在明确需要更复杂图布局时才评估其他依赖。
+- 新增 `matplotlib` 作为 reports 阶段唯一新增依赖；Markdown 表格使用项目内简单 pipe-table writer，不依赖 `tabulate` 或 `pandas.DataFrame.to_markdown()`。
 - 第一版导出 3 个可复现筛选出来的用户推荐案例。
 - 采用 `reports` 领域包 + 单一编号导出入口，不使用一次性 notebook 或把图表逻辑塞回 trend / recommendation。
 
@@ -122,6 +122,10 @@ Markdown 表格用于论文粘贴和人工审阅，CSV 用于复核和后续制�
 - 数值列保留原始浮点精度到 CSV；Markdown 可以按论文展示需要格式化到固定小数位。
 - 缺少某张表的必需列必须失败，不能由实现临时省略列。
 - `recommendation_experiment_summary` 只能总结当前 `experiment.json` 已保存的 valid grid 与 ablation，不虚构不存在的 test grid 指标。
+- Markdown 不能调用 `DataFrame.to_markdown()`，因为它隐式依赖当前项目未声明的 `tabulate`。
+- 实现项目内 `write_markdown_table()` 或等价 helper，只支持本阶段需要的 GitHub Flavored Markdown pipe table：表头、分隔行、字符串转义、空值显示、数值格式化和稳定列顺序。
+- 该 helper 必须对单元格中的换行和 `|` 做安全转义，避免生成无法复制到论文草稿中的破损表格。
+- 如果后续决定使用 `tabulate`，必须作为单独依赖决策写入 spec / plan，并更新 `pyproject.toml` 与 `uv.lock`；本设计第一版不引入。
 
 ### `figures.py`
 
@@ -151,6 +155,8 @@ Markdown 表格用于论文粘贴和人工审阅，CSV 用于复核和后续制�
 - 如果后续实现提供 `--allow-missing-cjk-font` 之类显式参数，才允许降级为 manifest warning；默认论文导出不允许悄悄生成缺字图。
 
 测试需要包含一个最小中文图渲染 smoke：生成含中文标题、英文指标名和负数坐标轴的 SVG + PNG，并确认文件非空。该 smoke 不需要验证字体视觉效果，但要覆盖字体发现、`unicode_minus` 配置和双格式写出链路。
+
+除 `matplotlib` 外，本阶段不新增 `tabulate`、`seaborn`、`plotly`、`altair`、`networkx` 或 `Pillow`。如果后续某张图确实需要额外依赖，必须先更新设计或实施计划，说明用途和影响范围。
 
 ### `cases.py`
 
@@ -282,6 +288,7 @@ uv run python src/17_export_paper_assets.py
 - loader 缺失路径、schema 错误、dtype 保留和非法 JSON。
 - LightGBM predictions 与 trend samples join key 重复、缺失或字段不一致时失败。
 - 表格生成的列、行数和 Markdown 输出。
+- Markdown pipe-table writer 覆盖 `|`、换行、空值、数值格式化和列顺序，不依赖 `tabulate`。
 - figure 导出同时生成 SVG 和 PNG，且文件非空。
 - 绘图环境 smoke 覆盖中文标题、英文指标名、负数坐标轴、CJK 字体发现和 `axes.unicode_minus = False`。
 - case selector 能选出 3 个合法案例，并在案例不足时失败。
