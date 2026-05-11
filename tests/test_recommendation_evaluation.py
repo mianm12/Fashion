@@ -402,10 +402,15 @@ def test_eval_cli_helper_fails_when_recommendable_pool_cache_missing(
         tmp_path / "features" / "metadata.json",
     )
 
-    with pytest.raises(RuntimeError, match="16_run_recommendation_experiment.py"):
+    with pytest.raises(RuntimeError) as exc_info:
         eval_module.read_cached_recommendable_pool_for_evaluation(
             pd.DataFrame(columns=["split", "cutoff_week", "label_week"])
         )
+    message = str(exc_info.value)
+    assert "16_run_recommendation_experiment.py" in message
+    assert "--force-cache" in message
+    assert "--force-rebuild-all" in message
+    assert "--experiment main --force`" not in message
 
 
 def _capture_recommendable_pool(

@@ -110,7 +110,8 @@ def _missing_recommendable_pool_cache_message() -> str:
     return (
         "recommendable_pool feature cache 缺失或已过期。"
         "请先运行 `uv run python src/16_run_recommendation_experiment.py "
-        "--experiment main --force` 重建缓存；15 不会静默重建。"
+        "--experiment main --force-cache` 重建缓存；如果候选也已过期，"
+        "请改用 `--force-candidates` 或 `--force-rebuild-all`；15 不会静默重建。"
     )
 
 
