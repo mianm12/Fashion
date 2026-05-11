@@ -708,7 +708,7 @@ Top-12 推荐及解释字段：
 - trend 分在该窗口中提供稳定的补充信号，但不是单独决定排序的主要因素。
 - 命中商品 `0915526001` 和 `0916468003` 都是 `Solid` 图案，并且与用户历史偏好有重叠。
 
-当前已补 1 个完整案例；如果论文展示篇幅允许，后续可从同一窗口中再选 1-2 个命中用户做补充案例。
+当前 reports 导出阶段已按可复现规则生成 3 个推荐解释案例，文件位于 `outputs/reports/case_studies/`。
 
 ## 7. 最终论文素材清单
 
@@ -726,18 +726,22 @@ Top-12 推荐及解释字段：
 | 推荐主实验权重表 | `outputs/recommendation/experiments/main/experiment.json` | 可写 |
 | 消融实验表 | `outputs/recommendation/experiments/main/experiment.json` 的 `ablation` | 可写 |
 
-### 7.2 必备图或案例
+### 7.2 已导出的核心图表与案例
 
-| 图或案例 | 建议内容 | 状态 |
-| --- | --- | --- |
-| 数据处理流程图 | 原始数据到趋势推荐的整体链路 | 需要整理 |
-| 属性层次图示意图 | 商品节点、属性节点、层级边 | 需要整理 |
-| 属性热度时间序列图 | 选择颜色、品类、图案等典型属性 | 已有 `Light Green` 文本表；图仍需导出 |
-| Top-K 趋势属性榜 | valid/test 中预测上升属性 | 已补 week 103 颜色、品类、图案榜单 |
-| LightGBM 特征重要性图 | `feature_importance.csv` | 可导出 |
-| 趋势模型指标柱状图 | baseline vs LightGBM | 可导出 |
-| 推荐方法指标柱状图 | 五种推荐方法对比 | 可导出 |
-| 用户推荐案例 | 用户历史偏好、趋势属性、Top-12 推荐列表 | 已补 1 个命中案例；可继续扩到 3 个 |
+`src/17_export_paper_assets.py` 当前会导出 8 张核心图，每张同时生成 SVG 和 PNG。默认输出目录为 `outputs/reports/figures/`：
+
+| 图表 | 内容 | SVG | PNG |
+| --- | --- | --- | --- |
+| 数据处理流程图 | 原始数据、属性图、趋势预测、推荐实验到论文素材的整体链路 | `outputs/reports/figures/data_pipeline.svg` | `outputs/reports/figures/data_pipeline.png` |
+| 属性层次图示意图 | 商品节点、属性节点、属性层级边和商品-属性边 | `outputs/reports/figures/attribute_graph_schema.svg` | `outputs/reports/figures/attribute_graph_schema.png` |
+| 典型趋势属性曲线 | 代表性趋势属性最近 8 周的热度、预测份额和预测增长 | `outputs/reports/figures/trend_curve_examples.svg` | `outputs/reports/figures/trend_curve_examples.png` |
+| LightGBM 特征重要性图 | `feature_importance.csv` 中 normalized gain Top-N | `outputs/reports/figures/lightgbm_feature_importance.svg` | `outputs/reports/figures/lightgbm_feature_importance.png` |
+| 趋势模型指标柱状图 | `last_week`、`previous_growth`、`moving_average`、`lightgbm` 的 NDCG@10 对比 | `outputs/reports/figures/trend_model_metrics.svg` | `outputs/reports/figures/trend_model_metrics.png` |
+| 推荐方法指标柱状图 | 五种推荐方法的 NDCG@12 对比 | `outputs/reports/figures/recommendation_method_metrics.svg` | `outputs/reports/figures/recommendation_method_metrics.png` |
+| Top-K 趋势属性榜 | test week 103 下颜色、品类、图案等趋势属性 Top-K | `outputs/reports/figures/topk_trend_attributes.svg` | `outputs/reports/figures/topk_trend_attributes.png` |
+| 推荐权重分析图 | trend 权重与 valid NDCG@12，以及主实验权重构成 | `outputs/reports/figures/recommendation_weight_analysis.svg` | `outputs/reports/figures/recommendation_weight_analysis.png` |
+
+案例导出位于 `outputs/reports/case_studies/`，当前包含 `case_01`、`case_02`、`case_03` 的 JSON 和 Markdown。每个案例包含用户历史偏好、代表性趋势属性、Top-12 推荐商品、命中标记、商品属性和分数分解。
 
 ### 7.3 可直接引用的核心观点
 
@@ -755,7 +759,7 @@ Top-12 推荐及解释字段：
 
 | 优先级 | 任务 | 说明 |
 | --- | --- | --- |
-| 高 | 运行报告导出命令 | 生成论文 figures、tables、3 个推荐解释案例和 manifest |
+| 高 | 按需重新运行报告导出命令 | 已生成论文 figures、tables、3 个推荐解释案例和 manifest；论文提交前可重新运行确保产物最新 |
 | 中 | 写实验局限性 | 推荐指标绝对值较低、近期热门强、未做深度推荐 |
 | 中 | 补严格推荐消融 | 当前缺少独立 `w/o Similarity`、`w/o Recent` 和每组权重 test 指标 |
 | 低 | 更多模型扩展 | 不建议作为当前论文主线继续扩 |
@@ -767,8 +771,8 @@ Top-12 推荐及解释字段：
 | `w/o Similarity` 独立消融 | grid 中存在 `sim_score=0` 组合，但没有命名为独立消融产物 | 如论文要写消融小节，单独保存该版本 valid/test 指标 |
 | `w/o Recent` 独立消融 | 当前 25 组 grid 没有 `recent_score=0` 组合 | 需要新增权重组合并评价 |
 | 每组 trend 权重的 test 指标 | 当前 grid search 只保存 valid 指标 | 若要严谨比较不同 trend 权重，应补 test 评价 |
-| 趋势属性可视化图 | reports 阶段已提供导出入口 | 最终提交前运行 `src/17_export_paper_assets.py` 生成 |
-| 推荐解释案例扩展 | reports 阶段已支持 3 个案例导出 | 最终提交前运行 `src/17_export_paper_assets.py` 生成 |
+| 趋势属性可视化图 | 已导出 `trend_curve_examples` 和 `topk_trend_attributes` | 论文排版时选择 SVG 或 PNG |
+| 推荐解释案例扩展 | 已导出 3 个案例 | 论文正文可选 1 个详细展示，附录可放其余案例 |
 
 ## 9. 风险与论文表述边界
 
