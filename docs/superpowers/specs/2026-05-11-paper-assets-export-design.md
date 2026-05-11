@@ -156,7 +156,7 @@ Markdown 表格用于论文粘贴和人工审阅，CSV 用于复核和后续制�
 
 测试需要包含一个最小中文图渲染 smoke：生成含中文标题、英文指标名和负数坐标轴的 SVG + PNG，并确认文件非空。该 smoke 不需要验证字体视觉效果，但要覆盖字体发现、`unicode_minus` 配置和双格式写出链路。
 
-除 `matplotlib` 外，本阶段不新增 `tabulate`、`seaborn`、`plotly`、`altair`、`networkx` 或 `Pillow`。如果后续某张图确实需要额外依赖，必须先更新设计或实施计划，说明用途和影响范围。
+除 `matplotlib` 外，本阶段不直接声明 `tabulate`、`seaborn`、`plotly`、`altair`、`networkx` 或 `Pillow`。`Pillow` 作为 `matplotlib` 的传递依赖进入 `uv.lock` 是预期行为，但 reports 代码不直接导入或使用 `PIL`。如果后续某张图确实需要额外直接依赖，必须先更新设计或实施计划，说明用途和影响范围。
 
 ### `cases.py`
 

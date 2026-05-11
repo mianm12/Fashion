@@ -85,7 +85,7 @@ Run:
 uv sync
 ```
 
-Expected: command succeeds and `uv.lock` includes `matplotlib` and its transitive dependencies. Do not add `tabulate`, `seaborn`, `plotly`, `altair`, `networkx`, or `Pillow` unless the spec is explicitly changed.
+Expected: command succeeds and `uv.lock` includes `matplotlib` and its transitive dependencies. Do not directly declare `tabulate`, `seaborn`, `plotly`, `altair`, `networkx`, or `Pillow` unless the spec is explicitly changed. `Pillow` may appear in `uv.lock` as a `matplotlib` transitive dependency; that is expected, but reports code must not directly import or use `PIL`.
 
 - [ ] **Step 3: Verify imports**
 
@@ -106,7 +106,7 @@ matplotlib True
 tabulate False
 ```
 
-If `tabulate True` appears only as a transitive dependency, do not use it; the reports table writer must remain dependency-free.
+If `tabulate True` appears only as a transitive dependency, do not use it; the reports table writer must remain dependency-free. `PIL/Pillow` import availability is not a failure condition because Matplotlib 3.10 lists Pillow as a required runtime dependency.
 
 - [ ] **Step 4: Review and commit**
 
@@ -597,7 +597,12 @@ def read_json_object(path: Path, *, artifact_name: str) -> dict[str, Any]:
 
 def read_feature_importance(path: Path) -> pd.DataFrame:
     dataframe = pd.read_csv(path)
-    required = {"feature", "importance_gain", "importance_split", "importance_gain_normalized"}
+    required = {
+        "feature",
+        "split_importance",
+        "gain_importance",
+        "normalized_gain_importance",
+    }
     missing = sorted(required - set(dataframe.columns))
     if missing:
         raise ValueError(f"LightGBM feature_importance 缺少列: {missing}")
@@ -767,12 +772,29 @@ from __future__ import annotations
 import pandas as pd
 
 from fashion_trend.reports.tables import (
+    REPORT_TABLE_COLUMNS,
+    REPORT_TABLE_SORT_COLUMNS,
     RECOMMENDATION_METHOD_METRICS_COLUMNS,
     TREND_MODEL_METRICS_COLUMNS,
+    build_report_table,
     build_recommendation_method_metrics_table,
     build_trend_model_metrics_table,
     write_report_table,
 )
+
+
+def test_report_table_contracts_cover_design_outputs() -> None:
+    assert set(REPORT_TABLE_COLUMNS) == {
+        "data_artifact_summary",
+        "time_split_summary",
+        "attribute_graph_summary",
+        "trend_feature_summary",
+        "trend_model_metrics",
+        "trend_metrics_by_attr_type",
+        "recommendation_method_metrics",
+        "recommendation_experiment_summary",
+    }
+    assert set(REPORT_TABLE_SORT_COLUMNS) == set(REPORT_TABLE_COLUMNS)
 
 
 def test_build_trend_model_metrics_table_uses_contract_order() -> None:
@@ -815,6 +837,95 @@ def test_build_recommendation_method_metrics_table_uses_contract_order() -> None
 
     assert tuple(table.columns) == RECOMMENDATION_METHOD_METRICS_COLUMNS
     assert table.loc[0, "method"] == "pop_similarity_trend"
+
+
+def test_build_report_table_selects_each_design_contract() -> None:
+    samples = {
+        "data_artifact_summary": {
+            "artifact_name": "trend_model_samples",
+            "path": "data/processed/features/trend_model_samples.parquet",
+            "format": "parquet",
+            "row_count": 59200,
+            "column_count": 22,
+            "key_columns": "week_id, attr_id, attr_type, attr_value",
+            "notes": "trend features",
+        },
+        "time_split_summary": {
+            "split": "test",
+            "start_week": 96,
+            "end_week": 104,
+            "week_count": 8,
+            "sample_count": 5920,
+            "attr_count": 740,
+        },
+        "attribute_graph_summary": {
+            "node_type": "article",
+            "edge_type": "article_attribute",
+            "count": 105542,
+            "unique_article_count": 105542,
+            "unique_attribute_count": 740,
+            "notes": "published graph",
+        },
+        "trend_feature_summary": {
+            "split": "test",
+            "row_count": 5920,
+            "attr_count": 740,
+            "eligible_row_count": 84,
+            "mean_heat_t": 123.4,
+            "mean_share_t": 0.01,
+            "mean_target_growth": 0.03,
+        },
+        "trend_model_metrics": {
+            "model_name": "lightgbm",
+            "split": "test",
+            "mae": 0.1,
+            "rmse": 0.2,
+            "spearman": 0.3,
+            "ndcg_at_10": 0.4,
+            "precision_at_10": 0.5,
+            "recall_at_10": 0.6,
+            "run_id": "run-1",
+        },
+        "trend_metrics_by_attr_type": {
+            "model_name": "lightgbm",
+            "split": "test",
+            "attr_type": "colour_group_name",
+            "row_count": 80,
+            "mae": 0.1,
+            "rmse": 0.2,
+            "spearman": 0.3,
+            "ndcg_at_10": 0.4,
+            "run_id": "run-1",
+        },
+        "recommendation_method_metrics": {
+            "method": "pop_similarity_trend",
+            "split": "test",
+            "map_at_12": 0.1,
+            "recall_at_12": 0.2,
+            "hit_rate_at_12": 0.3,
+            "ndcg_at_12": 0.4,
+            "coverage": 0.5,
+            "user_count": 10,
+            "missing_recommendation_user_count": 0,
+        },
+        "recommendation_experiment_summary": {
+            "experiment_id": "main",
+            "run_id": "weight-001",
+            "method": "pop_similarity_trend",
+            "split": "valid",
+            "trend_weight": 0.15,
+            "map_at_12": 0.1,
+            "recall_at_12": 0.2,
+            "hit_rate_at_12": 0.3,
+            "ndcg_at_12": 0.4,
+            "coverage": 0.5,
+            "is_selected": True,
+        },
+    }
+
+    for table_name, row in samples.items():
+        table = build_report_table([row], table_name=table_name)
+        assert tuple(table.columns) == REPORT_TABLE_COLUMNS[table_name]
 
 
 def test_write_report_table_writes_csv_and_markdown(tmp_path) -> None:
@@ -874,6 +985,40 @@ import pandas as pd
 from fashion_trend.foundation.io import write_csv_atomic, write_text_atomic
 from fashion_trend.reports.markdown import markdown_table
 
+DATA_ARTIFACT_SUMMARY_COLUMNS = (
+    "artifact_name",
+    "path",
+    "format",
+    "row_count",
+    "column_count",
+    "key_columns",
+    "notes",
+)
+TIME_SPLIT_SUMMARY_COLUMNS = (
+    "split",
+    "start_week",
+    "end_week",
+    "week_count",
+    "sample_count",
+    "attr_count",
+)
+ATTRIBUTE_GRAPH_SUMMARY_COLUMNS = (
+    "node_type",
+    "edge_type",
+    "count",
+    "unique_article_count",
+    "unique_attribute_count",
+    "notes",
+)
+TREND_FEATURE_SUMMARY_COLUMNS = (
+    "split",
+    "row_count",
+    "attr_count",
+    "eligible_row_count",
+    "mean_heat_t",
+    "mean_share_t",
+    "mean_target_growth",
+)
 TREND_MODEL_METRICS_COLUMNS = (
     "model_name",
     "split",
@@ -883,6 +1028,17 @@ TREND_MODEL_METRICS_COLUMNS = (
     "ndcg_at_10",
     "precision_at_10",
     "recall_at_10",
+    "run_id",
+)
+TREND_METRICS_BY_ATTR_TYPE_COLUMNS = (
+    "model_name",
+    "split",
+    "attr_type",
+    "row_count",
+    "mae",
+    "rmse",
+    "spearman",
+    "ndcg_at_10",
     "run_id",
 )
 RECOMMENDATION_METHOD_METRICS_COLUMNS = (
@@ -896,28 +1052,62 @@ RECOMMENDATION_METHOD_METRICS_COLUMNS = (
     "user_count",
     "missing_recommendation_user_count",
 )
+RECOMMENDATION_EXPERIMENT_SUMMARY_COLUMNS = (
+    "experiment_id",
+    "run_id",
+    "method",
+    "split",
+    "trend_weight",
+    "map_at_12",
+    "recall_at_12",
+    "hit_rate_at_12",
+    "ndcg_at_12",
+    "coverage",
+    "is_selected",
+)
+
+REPORT_TABLE_COLUMNS = {
+    "data_artifact_summary": DATA_ARTIFACT_SUMMARY_COLUMNS,
+    "time_split_summary": TIME_SPLIT_SUMMARY_COLUMNS,
+    "attribute_graph_summary": ATTRIBUTE_GRAPH_SUMMARY_COLUMNS,
+    "trend_feature_summary": TREND_FEATURE_SUMMARY_COLUMNS,
+    "trend_model_metrics": TREND_MODEL_METRICS_COLUMNS,
+    "trend_metrics_by_attr_type": TREND_METRICS_BY_ATTR_TYPE_COLUMNS,
+    "recommendation_method_metrics": RECOMMENDATION_METHOD_METRICS_COLUMNS,
+    "recommendation_experiment_summary": RECOMMENDATION_EXPERIMENT_SUMMARY_COLUMNS,
+}
+REPORT_TABLE_SORT_COLUMNS = {
+    "data_artifact_summary": ("artifact_name",),
+    "time_split_summary": ("split",),
+    "attribute_graph_summary": ("node_type", "edge_type"),
+    "trend_feature_summary": ("split",),
+    "trend_model_metrics": ("model_name", "split"),
+    "trend_metrics_by_attr_type": ("model_name", "split", "attr_type"),
+    "recommendation_method_metrics": ("method", "split"),
+    "recommendation_experiment_summary": ("experiment_id", "run_id", "method", "split"),
+}
 
 
-def build_trend_model_metrics_table(rows: list[dict[str, Any]]) -> pd.DataFrame:
+def build_report_table(rows: list[dict[str, Any]], *, table_name: str) -> pd.DataFrame:
+    if table_name not in REPORT_TABLE_COLUMNS:
+        raise ValueError(f"未知报告表格: {table_name}")
     dataframe = pd.DataFrame(rows)
     return _select_and_sort(
         dataframe,
-        columns=TREND_MODEL_METRICS_COLUMNS,
-        sort_columns=("model_name", "split"),
-        table_name="trend_model_metrics",
+        columns=REPORT_TABLE_COLUMNS[table_name],
+        sort_columns=REPORT_TABLE_SORT_COLUMNS[table_name],
+        table_name=table_name,
     )
+
+
+def build_trend_model_metrics_table(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    return build_report_table(rows, table_name="trend_model_metrics")
 
 
 def build_recommendation_method_metrics_table(
     rows: list[dict[str, Any]],
 ) -> pd.DataFrame:
-    dataframe = pd.DataFrame(rows)
-    return _select_and_sort(
-        dataframe,
-        columns=RECOMMENDATION_METHOD_METRICS_COLUMNS,
-        sort_columns=("method", "split"),
-        table_name="recommendation_method_metrics",
-    )
+    return build_report_table(rows, table_name="recommendation_method_metrics")
 
 
 def write_report_table(
@@ -1105,7 +1295,7 @@ def save_report_figure(figure: Figure, output_paths: dict[str, Path]) -> list[Pa
 
 - [ ] **Step 4: Implement initial figure builders**
 
-Create `src/fashion_trend/reports/figures.py` with the first three reusable chart functions:
+Create `src/fashion_trend/reports/figures.py` with the first four reusable chart functions:
 
 ```python
 from __future__ import annotations
@@ -1145,20 +1335,78 @@ def build_feature_importance_figure(
     top_n: int = 15,
 ) -> Figure:
     top_features = (
-        feature_importance.sort_values("importance_gain_normalized", ascending=False)
+        feature_importance.sort_values("normalized_gain_importance", ascending=False)
         .head(top_n)
-        .sort_values("importance_gain_normalized")
+        .sort_values("normalized_gain_importance")
     )
     figure, axis = plt.subplots(figsize=(8, 5.5))
-    axis.barh(top_features["feature"], top_features["importance_gain_normalized"])
+    axis.barh(top_features["feature"], top_features["normalized_gain_importance"])
     axis.set_title("LightGBM 特征重要性 Top-N")
     axis.set_xlabel("normalized gain")
     axis.set_ylabel("feature")
     figure.tight_layout()
     return figure
+
+
+def build_trend_curve_examples_figure(
+    trend_view: pd.DataFrame,
+    *,
+    week_id: int,
+    lookback_weeks: int = 8,
+    top_n: int = 3,
+) -> Figure:
+    current = trend_view.loc[
+        (trend_view["week_id"].astype(int) == week_id)
+        & (trend_view["is_trend_eligible_t"].astype(bool))
+    ].copy()
+    examples = (
+        current.sort_values("pred_target_growth", ascending=False)
+        .drop_duplicates("attr_type")
+        .head(top_n)
+    )
+    if examples.empty:
+        raise ValueError(f"week_id={week_id} 没有可绘制的趋势曲线案例。")
+
+    figure, axes = plt.subplots(
+        len(examples),
+        1,
+        figsize=(9, 2.7 * len(examples)),
+        sharex=True,
+    )
+    if len(examples) == 1:
+        axes = [axes]
+
+    min_week = week_id - lookback_weeks + 1
+    for axis, row in zip(axes, examples.itertuples(index=False)):
+        history = trend_view.loc[
+            (trend_view["attr_id"].astype(str) == str(row.attr_id))
+            & (trend_view["attr_type"].astype(str) == str(row.attr_type))
+            & (trend_view["attr_value"].astype(str) == str(row.attr_value))
+            & (trend_view["week_id"].astype(int).between(min_week, week_id))
+        ].sort_values("week_id")
+        axis.plot(history["week_id"], history["heat_t"], marker="o", label="heat_t")
+        axis.plot(
+            history["week_id"],
+            history["pred_share_t1"],
+            marker="s",
+            label="pred_share_t1",
+        )
+        axis.bar(
+            history["week_id"],
+            history["pred_target_growth"],
+            alpha=0.25,
+            label="pred_target_growth",
+        )
+        axis.set_title(f"{row.attr_type}: {row.attr_value}")
+        axis.set_ylabel("value")
+        axis.legend(loc="best", fontsize=8)
+    axes[-1].set_xlabel("week_id")
+    figure.suptitle("典型趋势属性最近 8 周曲线")
+    figure.tight_layout()
+    return figure
 ```
 
-Task 9 will call these functions from the runner and add the remaining five figure builders in the same module.
+Task 9 will call these functions from the runner and add the remaining four figure builders in the same module.
 
 - [ ] **Step 5: Run plotting tests**
 
@@ -1200,6 +1448,7 @@ import pandas as pd
 
 from fashion_trend.reports.cases import (
     build_case_payload,
+    render_case_markdown,
     select_recommendation_cases,
 )
 
@@ -1286,6 +1535,37 @@ def _profiles() -> pd.DataFrame:
     )
 
 
+def _article_attributes() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "article_id": "0000000001",
+                "attr_type": "colour_group_name",
+                "attr_value": "Black",
+            },
+            {
+                "article_id": "0000000001",
+                "attr_type": "product_group_name",
+                "attr_value": "Garment Upper body",
+            },
+        ]
+    )
+
+
+def _representative_trends() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "week_id": 103,
+                "attr_type": "colour_group_name",
+                "attr_value": "Black",
+                "pred_target_growth": 0.31,
+                "heat_t": 1200.0,
+            }
+        ]
+    )
+
+
 def test_select_recommendation_cases_prioritizes_hits() -> None:
     selected = select_recommendation_cases(
         recommendation_items=_items(),
@@ -1317,12 +1597,33 @@ def test_build_case_payload_marks_hits() -> None:
         recommendation_items=_items(),
         evaluation_labels=_labels(),
         user_profile=_profiles(),
+        article_attributes=_article_attributes(),
+        representative_trends=_representative_trends(),
     )
 
     assert payload["customer_id"] == "customer-a"
     assert payload["hit_count"] == 1
     assert payload["recommendations"][0]["is_hit"] is True
+    assert payload["recommendations"][0]["attributes"]["colour_group_name"] == "Black"
     assert payload["profile"][0]["attr_value"] == "Black"
+    assert payload["representative_trends"][0]["attr_value"] == "Black"
+
+
+def test_render_case_markdown_includes_explanations() -> None:
+    payload = build_case_payload(
+        case_key=("customer-a", "test", 103, 104),
+        recommendation_items=_items(),
+        evaluation_labels=_labels(),
+        user_profile=_profiles(),
+        article_attributes=_article_attributes(),
+        representative_trends=_representative_trends(),
+    )
+
+    text = render_case_markdown(payload)
+
+    assert "# 推荐案例" in text
+    assert "代表性趋势属性" in text
+    assert "商品属性" in text
 ```
 
 - [ ] **Step 2: Run failing tests**
@@ -1347,6 +1648,13 @@ from typing import Any
 import pandas as pd
 
 CASE_KEY_COLUMNS = ("customer_id", "split", "cutoff_week", "label_week")
+CORE_ARTICLE_ATTR_TYPES = (
+    "product_group_name",
+    "product_type_name",
+    "graphical_appearance_name",
+    "colour_group_name",
+    "department_name",
+)
 
 
 def select_recommendation_cases(
@@ -1407,6 +1715,8 @@ def build_case_payload(
     recommendation_items: pd.DataFrame,
     evaluation_labels: pd.DataFrame,
     user_profile: pd.DataFrame,
+    article_attributes: pd.DataFrame,
+    representative_trends: pd.DataFrame,
 ) -> dict[str, Any]:
     customer_id, split, cutoff_week, label_week = case_key
     item_mask = _case_mask(recommendation_items, case_key)
@@ -1418,6 +1728,7 @@ def build_case_payload(
         ["preference_score", "purchase_count"],
         ascending=[False, False],
     )
+    attrs_by_article = _article_attributes_by_article(article_attributes)
     recommendations = []
     for row in items.itertuples(index=False):
         article_id = str(row.article_id)
@@ -1432,6 +1743,7 @@ def build_case_payload(
                 "trend_score": float(row.trend_score),
                 "recent_score": float(row.recent_score),
                 "candidate_sources": str(row.candidate_sources),
+                "attributes": attrs_by_article.get(article_id, {}),
             }
         )
     return {
@@ -1450,8 +1762,92 @@ def build_case_payload(
             }
             for row in profile.head(5).itertuples(index=False)
         ],
+        "representative_trends": _representative_trend_rows(
+            representative_trends,
+            week_id=cutoff_week,
+        ),
         "recommendations": recommendations,
     }
+
+
+def render_case_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# 推荐案例 {payload['customer_id']}",
+        "",
+        f"- split: {payload['split']}",
+        f"- cutoff_week: {payload['cutoff_week']}",
+        f"- label_week: {payload['label_week']}",
+        f"- hit_count: {payload['hit_count']}",
+        "",
+        "## 用户偏好属性",
+    ]
+    for row in payload["profile"]:
+        lines.append(
+            "- {attr_type}: {attr_value} "
+            "(score={preference_score:.4f}, count={purchase_count})".format(**row)
+        )
+    lines.extend(["", "## 代表性趋势属性"])
+    for row in payload["representative_trends"]:
+        lines.append(
+            "- {attr_type}: {attr_value} "
+            "(pred_growth={pred_target_growth:.4f}, heat_t={heat_t:.2f})".format(**row)
+        )
+    lines.extend(["", "## 推荐商品与解释"])
+    for row in payload["recommendations"]:
+        attrs = ", ".join(
+            f"{name}={value}" for name, value in sorted(row["attributes"].items())
+        )
+        lines.append(
+            "- rank {rank}: {article_id} hit={is_hit} score={score:.4f}; "
+            "pop={pop_score:.4f}, sim={sim_score:.4f}, trend={trend_score:.4f}, "
+            "recent={recent_score:.4f}; sources={candidate_sources}; "
+            "商品属性: {attrs}".format(attrs=attrs or "未补全", **row)
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _article_attributes_by_article(
+    article_attributes: pd.DataFrame,
+) -> dict[str, dict[str, str]]:
+    required = {"article_id", "attr_type", "attr_value"}
+    missing = sorted(required - set(article_attributes.columns))
+    if missing:
+        raise ValueError(f"商品属性表缺少列: {missing}")
+    scoped = article_attributes.loc[
+        article_attributes["attr_type"].astype(str).isin(CORE_ARTICLE_ATTR_TYPES)
+    ]
+    result: dict[str, dict[str, str]] = {}
+    for row in scoped.itertuples(index=False):
+        result.setdefault(str(row.article_id), {})[str(row.attr_type)] = str(
+            row.attr_value
+        )
+    return result
+
+
+def _representative_trend_rows(
+    representative_trends: pd.DataFrame,
+    *,
+    week_id: int,
+    top_n: int = 5,
+) -> list[dict[str, Any]]:
+    required = {"week_id", "attr_type", "attr_value", "pred_target_growth", "heat_t"}
+    missing = sorted(required - set(representative_trends.columns))
+    if missing:
+        raise ValueError(f"代表性趋势属性缺少列: {missing}")
+    scoped = representative_trends.loc[
+        representative_trends["week_id"].astype(int) == week_id
+    ].sort_values("pred_target_growth", ascending=False)
+    if scoped.empty:
+        raise ValueError(f"week_id={week_id} 缺少代表性趋势属性。")
+    return [
+        {
+            "attr_type": str(row.attr_type),
+            "attr_value": str(row.attr_value),
+            "pred_target_growth": float(row.pred_target_growth),
+            "heat_t": float(row.heat_t),
+        }
+        for row in scoped.head(top_n).itertuples(index=False)
+    ]
 
 
 def _case_mask(dataframe: pd.DataFrame, case_key: tuple[str, str, int, int]) -> pd.Series:
@@ -2032,34 +2428,28 @@ Modify `src/fashion_trend/reports/runner.py` to:
 - Configure matplotlib once at the beginning.
 - Read trend metrics for `last_week`, `previous_growth`, `moving_average`, `lightgbm`.
 - Read recommendation metrics for all five methods.
-- Build and write `trend_model_metrics` and `recommendation_method_metrics`.
+- Build and write all eight design tables: `data_artifact_summary`, `time_split_summary`, `attribute_graph_summary`, `trend_feature_summary`, `trend_model_metrics`, `trend_metrics_by_attr_type`, `recommendation_method_metrics`, and `recommendation_experiment_summary`.
 - Read feature importance and export `lightgbm_feature_importance`.
-- Read LightGBM predictions and trend samples, build join view, export `topk_trend_attributes`.
+- Read LightGBM predictions and trend samples, build join view, export `trend_curve_examples` and `topk_trend_attributes`.
 - Read experiment JSON, export `recommendation_weight_analysis` and table rows.
-- Select and write 3 case studies.
+- Select and write 3 case studies with representative trend attributes and product attributes.
 - Build manifest with real inputs/outputs/warnings.
 
 Keep the function small enough by adding private helpers with concrete return contracts:
 
+`report_table_rows` must be built before writing and must include all eight table names in `REPORT_TABLE_COLUMNS`. Use these sources: core artifact paths and row/column counts for `data_artifact_summary`; split metadata plus split parquet row counts for `time_split_summary`; graph node/edge artifacts for `attribute_graph_summary`; `trend_model_samples` grouped by split for `trend_feature_summary`; trend metrics JSON for `trend_model_metrics` and `trend_metrics_by_attr_type`; method metrics JSON for `recommendation_method_metrics`; and `experiment.json` `weight_search` / `ablation` rows for `recommendation_experiment_summary`. For case studies, build `article_attributes` from `data/processed/graph/edges_article_attribute.csv` and build `representative_trends` from the same LightGBM prediction + sample join view used by `topk_trend_attributes`.
+
 ```python
-def _write_metric_tables(
-    trend_metric_rows: list[dict[str, object]],
-    recommendation_metric_rows: list[dict[str, object]],
+def _write_tables(
+    report_table_rows: dict[str, list[dict[str, object]]],
 ) -> tuple[list[str], dict[str, int]]:
-    trend_table = build_trend_model_metrics_table(trend_metric_rows)
-    recommendation_table = build_recommendation_method_metrics_table(
-        recommendation_metric_rows
-    )
+    missing_tables = sorted(set(REPORT_TABLE_COLUMNS) - set(report_table_rows))
+    if missing_tables:
+        raise ValueError(f"报告表格缺少设计要求的表: {missing_tables}")
     output_paths: list[str] = []
     row_counts: dict[str, int] = {}
-    for name, table, columns in [
-        ("trend_model_metrics", trend_table, TREND_MODEL_METRICS_COLUMNS),
-        (
-            "recommendation_method_metrics",
-            recommendation_table,
-            RECOMMENDATION_METHOD_METRICS_COLUMNS,
-        ),
-    ]:
+    for name, columns in REPORT_TABLE_COLUMNS.items():
+        table = build_report_table(report_table_rows[name], table_name=name)
         written = write_report_table(
             table,
             columns=columns,
@@ -2083,6 +2473,12 @@ def _write_figures(
     figure_builders = {
         "data_pipeline": build_data_pipeline_figure(),
         "attribute_graph_schema": build_attribute_graph_schema_figure(),
+        "trend_curve_examples": build_trend_curve_examples_figure(
+            trend_view,
+            week_id=trend_week,
+            lookback_weeks=8,
+            top_n=3,
+        ),
         "lightgbm_feature_importance": build_feature_importance_figure(
             feature_importance,
             top_n=15,
@@ -2111,6 +2507,8 @@ def _write_cases(
     recommendation_items: pd.DataFrame,
     evaluation_labels: pd.DataFrame,
     user_profile: pd.DataFrame,
+    article_attributes: pd.DataFrame,
+    representative_trends: pd.DataFrame,
     *,
     case_count: int,
 ) -> tuple[list[str], list[str]]:
@@ -2128,6 +2526,8 @@ def _write_cases(
             recommendation_items=recommendation_items,
             evaluation_labels=evaluation_labels,
             user_profile=user_profile,
+            article_attributes=article_attributes,
+            representative_trends=representative_trends,
         )
         case_id = f"case_{index:02d}"
         paths = case_study_output_paths(case_id)
