@@ -706,15 +706,37 @@ uv run python src/16_run_recommendation_experiment.py --experiment main --force-
 uv run python src/16_run_recommendation_experiment.py --experiment main --force-rebuild-all
 ```
 
+### 15. 论文图表与案例导出
+
+reports 阶段只读取已经发布的稳定数据、模型和推荐 artifact，不重新训练模型，也不重跑推荐方法。入口为：
+
+```sh
+uv run python src/17_export_paper_assets.py
+```
+
+默认输出：
+
+```text
+outputs/reports/figures/*.svg
+outputs/reports/figures/*.png
+outputs/reports/tables/*.csv
+outputs/reports/tables/*.md
+outputs/reports/case_studies/*.json
+outputs/reports/case_studies/*.md
+outputs/reports/manifest.json
+```
+
+本阶段使用 `matplotlib` 导出静态 SVG/PNG 图表；Markdown 表格由项目内 writer 生成，不依赖 `tabulate`。如果本机缺少可用 CJK 字体，导出会 fail-fast，避免生成缺字的中文论文图。
+
 ## 后续阶段
 
 趋势模型训练与评价框架已经落地到 `last_week`、`previous_growth`、`moving_average`
-三类必须 baseline、`lightgbm` 主模型和推荐离线实验，README 继续按计划记录后续边界：
+三类必须 baseline、`lightgbm` 主模型、推荐离线实验和论文素材导出，README 继续按计划记录后续边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
 | 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现并完成首轮 stable 调参；后续可考虑更多监督模型或 EWMA 等增强 baseline |
-| 推荐实验增强 | 推荐消融、案例展示和报告素材 | 当前已支持轻量离线 Top-12、单方法评价和 `main` 实验；后续可补充更多展示和报告导出 |
+| 推荐实验增强 | 推荐消融和案例展示 | 当前已支持轻量离线 Top-12、单方法评价、`main` 实验和 reports 导出；后续可补充更严格的命名消融 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
 
@@ -730,9 +752,9 @@ uv run python src/16_run_recommendation_experiment.py --experiment main --force-
 - `catalog/`：商品表清洗和静态属性图。
 - `trend/`：属性热度、标签、样本、时间切分、趋势模型训练和趋势评价。
 - `recommendation/`：推荐契约、路径、reader、时间窗口、输入构建、候选召回、排序特征、方法注册、推荐评价和实验编排。
-- `reports/`：预留报告输出路径和只读边界；图表、表格和案例导出尚未实现。
+- `reports/`：论文图表、表格、案例和 manifest 导出；只读消费稳定 artifact，不作为在线 dashboard。
 
-当前已实现的 `src/00_*.py` 到 `src/16_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
+当前已实现的 `src/00_*.py` 到 `src/17_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
 
 趋势共享实现位于 `src/fashion_trend/trend/` 子包。`heat/`、`labels/`、`features/`、`splits/`、`training/`、`evaluation/` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/baselines/` 存放当前 baseline，`trend/models/supervised/` 存放 LightGBM 等监督模型；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 

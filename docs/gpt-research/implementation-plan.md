@@ -1363,14 +1363,21 @@ hm-fashion-trend-rec/
 │
 │   └── reports/
 │       ├── figures/
-│       │   ├── attribute_graph_schema.png
-│       │   ├── trend_curve_examples.png
-│       │   ├── feature_importance.png
-│       │   └── recommendation_case.png
+│       │   ├── data_pipeline.svg
+│       │   ├── data_pipeline.png
+│       │   ├── attribute_graph_schema.svg
+│       │   ├── trend_curve_examples.svg
+│       │   └── ...
 │       ├── tables/
-│       │   ├── rec_eval_results.csv
-│       │   └── ablation_results.csv
-│       └── case_studies/
+│       │   ├── trend_model_metrics.csv
+│       │   ├── trend_model_metrics.md
+│       │   ├── recommendation_method_metrics.csv
+│       │   └── ...
+│       ├── case_studies/
+│       │   ├── case_01.json
+│       │   ├── case_01.md
+│       │   └── ...
+│       └── manifest.json
 │
 ├── src/
 │   ├── fashion_trend/
@@ -1412,6 +1419,7 @@ hm-fashion-trend-rec/
 │   ├── 14_rerank_recommendations.py
 │   ├── 15_eval_recommendations.py
 │   ├── 16_run_recommendation_experiment.py
+│   ├── 17_export_paper_assets.py
 │   └── ...
 │
 ├── app/
@@ -1426,7 +1434,7 @@ hm-fashion-trend-rec/
 └── README.md
 ```
 
-当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/16_*.py`。后续报告和更多模型入口继续按编号脚本约定新增；内部计算事实按业务域进入 `src/fashion_trend/`。默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training/`，趋势评价在 `src/fashion_trend/trend/evaluation/`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`；推荐时间窗口、输入、候选、排序、方法、评价和实验编排位于 `src/fashion_trend/recommendation/`。
+当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/17_*.py`。报告导出入口为 `src/17_export_paper_assets.py`，只读取已发布稳定 artifact，输出论文 figures、tables、case studies 和 manifest，不训练模型、不重跑推荐方法，也不是在线 dashboard。内部计算事实按业务域进入 `src/fashion_trend/`。默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training/`，趋势评价在 `src/fashion_trend/trend/evaluation/`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`；推荐时间窗口、输入、候选、排序、方法、评价和实验编排位于 `src/fashion_trend/recommendation/`；论文素材读取、表格、图表、案例和 manifest 编排位于 `src/fashion_trend/reports/`。
 
 ---
 
@@ -1454,7 +1462,7 @@ hm-fashion-trend-rec/
 | 推荐重排序       | `src/14_rerank_recommendations.py --method <method>` | `outputs/recommendation/<method>/recommendations.csv`, `recommendation_items.parquet`, `params.json`, `metadata.json` |
 | 推荐评价        | `src/15_eval_recommendations.py --method <method>` | `outputs/recommendation/<method>/metrics.json`                                                             |
 | 推荐实验        | `src/16_run_recommendation_experiment.py --experiment main` | `outputs/recommendation/experiments/<experiment_id>/experiment.json`                                       |
-| 报告导出        | 后续编号入口                         | figures、tables、case studies                                                                              |
+| 报告导出        | `src/17_export_paper_assets.py` | `outputs/reports/figures/*.{svg,png}`, `outputs/reports/tables/*.{csv,md}`, `outputs/reports/case_studies/*.{json,md}`, `outputs/reports/manifest.json` |
 
 当前 `main` 推荐实验使用 valid split 的 `NDCG@12` 选择
 `pop_similarity_trend` 权重。2026-05-11 的有限网格调参搜索 25 组权重，最佳权重为
