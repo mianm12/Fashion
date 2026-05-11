@@ -5,6 +5,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "kagglehub>=1.0.1",
     "lightgbm>=4.6.0",
+    "matplotlib>=3.10.0",
     "numpy>=2.2.6",
     "pandas>=2.3.3",
     "pyarrow>=24.0.0",
