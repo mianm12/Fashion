@@ -4,12 +4,12 @@ import pandas as pd
 import pytest
 
 from fashion_trend.reports.tables import (
+    RECOMMENDATION_METHOD_METRICS_COLUMNS,
     REPORT_TABLE_COLUMNS,
     REPORT_TABLE_SORT_COLUMNS,
-    RECOMMENDATION_METHOD_METRICS_COLUMNS,
     TREND_MODEL_METRICS_COLUMNS,
-    build_report_table,
     build_recommendation_method_metrics_table,
+    build_report_table,
     build_trend_model_metrics_table,
     write_report_table,
 )

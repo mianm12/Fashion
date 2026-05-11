@@ -17,7 +17,9 @@ from fashion_trend.reports.plotting import (
 
 
 def test_configure_matplotlib_requires_cjk_font(monkeypatch) -> None:
-    monkeypatch.setattr("fashion_trend.reports.plotting.available_cjk_fonts", lambda: [])
+    monkeypatch.setattr(
+        "fashion_trend.reports.plotting.available_cjk_fonts", lambda: []
+    )
 
     try:
         configure_matplotlib_for_reports()

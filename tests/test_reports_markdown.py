@@ -53,8 +53,7 @@ def test_markdown_table_handles_empty_frame() -> None:
     dataframe = pd.DataFrame(columns=["name", "value"])
 
     assert markdown_table(dataframe, columns=("name", "value")) == (
-        "| name | value |\n"
-        "| --- | --- |\n"
+        "| name | value |\n" "| --- | --- |\n"
     )
 
 
@@ -91,13 +90,23 @@ def test_default_report_input_paths_cover_core_sources() -> None:
     assert paths.lightgbm_predictions.as_posix().endswith(
         "outputs/models/lightgbm/predictions.csv"
     )
-    assert paths.trend_metrics["lightgbm"].as_posix().endswith(
-        "outputs/metrics/lightgbm/trend_metrics.json"
+    assert (
+        paths.trend_metrics["lightgbm"]
+        .as_posix()
+        .endswith("outputs/metrics/lightgbm/trend_metrics.json")
     )
-    assert paths.recommendation_items["pop_similarity_trend"].as_posix().endswith(
-        "outputs/recommendation/pop_similarity_trend/recommendation_items.parquet"
+    assert (
+        paths.recommendation_items["pop_similarity_trend"]
+        .as_posix()
+        .endswith(
+            "outputs/recommendation/pop_similarity_trend/recommendation_items.parquet"
+        )
     )
-    assert paths.recommendation_items_csv["pop_similarity_trend"].as_posix().endswith(
-        "outputs/recommendation/pop_similarity_trend/recommendation_items.csv"
+    assert (
+        paths.recommendation_items_csv["pop_similarity_trend"]
+        .as_posix()
+        .endswith(
+            "outputs/recommendation/pop_similarity_trend/recommendation_items.csv"
+        )
     )
     assert "trend_model_samples" in paths.data_artifacts

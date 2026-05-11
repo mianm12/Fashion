@@ -6,7 +6,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-from matplotlib import font_manager, pyplot as plt  # noqa: E402
+from matplotlib import font_manager
+from matplotlib import pyplot as plt  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
 CJK_FONT_CANDIDATES = (
