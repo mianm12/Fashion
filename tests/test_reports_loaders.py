@@ -285,6 +285,28 @@ def test_flatten_trend_metrics_by_attr_type_extracts_design_columns() -> None:
     ]
 
 
+def test_flatten_trend_metrics_by_attr_type_allows_undefined_spearman() -> None:
+    payload = {
+        "model_name": "last_week",
+        "by_attr_type": {
+            "valid": {
+                "index_group_name": {
+                    "mae": 0.11,
+                    "rmse": 0.21,
+                    "spearman": None,
+                    "ndcg_at_k": {"10": 0.41},
+                    "precision_at_k": {"10": 0.51},
+                    "recall_at_k": {"10": 0.61},
+                }
+            }
+        },
+    }
+
+    rows = flatten_trend_metrics_by_attr_type(payload)
+
+    assert rows[0]["spearman"] == ""
+
+
 def test_flatten_recommendation_metrics_requires_method() -> None:
     payload = {
         "metrics": {

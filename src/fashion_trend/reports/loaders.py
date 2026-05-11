@@ -158,7 +158,7 @@ def flatten_trend_metrics_by_attr_type(payload: dict[str, Any]) -> list[dict[str
                     "attr_type": attr_type,
                     "mae": _finite_number(metric_payload, "mae"),
                     "rmse": _finite_number(metric_payload, "rmse"),
-                    "spearman": _finite_number(metric_payload, "spearman"),
+                    "spearman": _optional_finite_number(metric_payload, "spearman"),
                     "ndcg_at_10": _metric_at_k(metric_payload, "ndcg_at_k", "10"),
                     "precision_at_10": _metric_at_k(
                         metric_payload,
@@ -272,6 +272,14 @@ def _finite_number(payload: dict[str, Any], key: str) -> float:
     if not np.isfinite(value):
         raise ValueError(f"metrics payload 字段不是有限数值: {key}")
     return value
+
+
+def _optional_finite_number(payload: dict[str, Any], key: str) -> float | str:
+    if key not in payload:
+        raise ValueError(f"metrics payload 缺少字段: {key}")
+    if payload[key] is None:
+        return ""
+    return _finite_number(payload, key)
 
 
 def _non_negative_integer(payload: dict[str, Any], key: str) -> int:
