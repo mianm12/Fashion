@@ -15,6 +15,7 @@ BUSINESS_DOMAINS = {
     "trend",
     "recommendation",
     "reports",
+    "presentation",
 }
 
 HISTORICAL_ROOT_MODULE_NAMES = {
@@ -59,6 +60,20 @@ REPORTS_PUBLIC_IMPORTS = {
     "fashion_trend.trend.readers",
     "fashion_trend.recommendation.contracts",
     "fashion_trend.recommendation.readers",
+}
+
+PRESENTATION_PUBLIC_IMPORTS = {
+    "fashion_trend.transactions.contracts",
+    "fashion_trend.transactions.readers",
+    "fashion_trend.catalog.contracts",
+    "fashion_trend.catalog.readers",
+    "fashion_trend.trend.schema",
+    "fashion_trend.trend.predictions",
+    "fashion_trend.trend.readers",
+    "fashion_trend.recommendation.contracts",
+    "fashion_trend.recommendation.readers",
+    "fashion_trend.reports.loaders",
+    "fashion_trend.reports.paths",
 }
 
 FOUNDATION_PATH_ALLOWED_EXPORTS = {
@@ -408,6 +423,7 @@ def test_datasets_depends_only_on_foundation() -> None:
             "fashion_trend.trend",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
+            "fashion_trend.presentation",
         ),
     )
 
@@ -421,6 +437,7 @@ def test_catalog_depends_only_on_foundation() -> None:
             "fashion_trend.trend",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
+            "fashion_trend.presentation",
         ),
     )
 
@@ -434,6 +451,7 @@ def test_transactions_depends_only_on_foundation() -> None:
             "fashion_trend.trend",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
+            "fashion_trend.presentation",
         ),
     )
 
@@ -445,6 +463,7 @@ def test_trend_depends_only_on_stable_input_domains() -> None:
             "fashion_trend.datasets",
             "fashion_trend.recommendation",
             "fashion_trend.reports",
+            "fashion_trend.presentation",
         ),
     )
 
@@ -456,6 +475,7 @@ def test_recommendation_imports_only_public_upstream_surfaces() -> None:
             "fashion_trend.transactions",
             "fashion_trend.catalog",
             "fashion_trend.trend",
+            "fashion_trend.presentation",
         },
         RECOMMENDATION_PUBLIC_UPSTREAM_IMPORTS,
     )
@@ -469,6 +489,7 @@ def test_recommendation_does_not_import_trend_training_or_models() -> None:
             "fashion_trend.trend.evaluation.runner",
             "fashion_trend.trend.models",
             "fashion_trend.catalog.graph.builders",
+            "fashion_trend.presentation",
         },
     )
 
@@ -482,8 +503,47 @@ def test_reports_imports_only_public_read_only_surfaces() -> None:
             "fashion_trend.catalog",
             "fashion_trend.trend",
             "fashion_trend.recommendation",
+            "fashion_trend.presentation",
         },
         REPORTS_PUBLIC_IMPORTS,
+    )
+
+
+def test_presentation_is_tracked_as_business_domain() -> None:
+    assert "presentation" in BUSINESS_DOMAINS
+
+
+def test_presentation_imports_only_public_read_only_surfaces() -> None:
+    assert_package_imports_only_allowed_upstream(
+        "presentation",
+        {
+            "fashion_trend.datasets",
+            "fashion_trend.transactions",
+            "fashion_trend.catalog",
+            "fashion_trend.trend",
+            "fashion_trend.recommendation",
+            "fashion_trend.reports",
+        },
+        PRESENTATION_PUBLIC_IMPORTS,
+    )
+
+
+def test_presentation_does_not_import_core_runners_or_builders() -> None:
+    assert_package_does_not_import(
+        "presentation",
+        {
+            "fashion_trend.datasets",
+            "fashion_trend.transactions.weekly",
+            "fashion_trend.catalog.graph.builders",
+            "fashion_trend.trend.training",
+            "fashion_trend.trend.models",
+            "fashion_trend.trend.evaluation.runner",
+            "fashion_trend.recommendation.runner",
+            "fashion_trend.recommendation.retrieval",
+            "fashion_trend.recommendation.ranking",
+            "fashion_trend.recommendation.experiments",
+            "fashion_trend.reports.runner",
+        },
     )
 
 
