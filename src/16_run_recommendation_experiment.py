@@ -3,8 +3,17 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from fashion_trend.catalog.paths import GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH
-from fashion_trend.catalog.readers import read_article_attribute_edges
+import pandas as pd
+
+from fashion_trend.catalog.paths import (
+    ARTICLES_CLEAN_PATH,
+    GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH,
+)
+from fashion_trend.catalog.readers import (
+    read_article_attribute_edges,
+    read_clean_articles,
+)
+from fashion_trend.datasets.paths import RAW_CUSTOMERS_PATH
 from fashion_trend.foundation import logging as log
 from fashion_trend.recommendation.experiments.runner import (
     RecommendationExperimentContext,
@@ -53,10 +62,17 @@ def main() -> int:
                     GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH
                 ),
                 trend_predictions=read_trend_model_predictions(trend_prediction_path),
+                customers=pd.read_csv(
+                    RAW_CUSTOMERS_PATH,
+                    dtype={"customer_id": "string"},
+                ),
+                clean_articles=read_clean_articles(ARTICLES_CLEAN_PATH),
                 input_paths={
                     "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
                     "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
                     "trend_predictions": str(trend_prediction_path),
+                    "raw_customers": str(RAW_CUSTOMERS_PATH),
+                    "clean_articles": str(ARTICLES_CLEAN_PATH),
                 },
                 trend_model_source=str(trend_prediction_path),
             ),

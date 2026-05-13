@@ -13,6 +13,7 @@ import pandas as pd
 from fashion_trend.foundation.artifacts import validate_safe_path_segment
 from fashion_trend.foundation.io import write_json_atomic
 from fashion_trend.recommendation.contracts import (
+    CUSTOMER_AGE_BUCKETS,
     RECOMMENDATION_CANDIDATES_PER_SOURCE,
     RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
     RECOMMENDATION_TOP_K,
@@ -44,6 +45,9 @@ from fashion_trend.recommendation.freshness import (
     assert_fresh_metadata,
 )
 from fashion_trend.recommendation.inputs import (
+    ARTICLE_PRODUCT_MAP_SCHEMA_VERSION,
+    CUSTOMER_AGE_BUCKET_ALGORITHM_VERSION,
+    CUSTOMER_PROFILE_SCHEMA_VERSION,
     RecommendationInputArtifacts,
     build_and_write_recommendation_inputs,
 )
@@ -56,6 +60,8 @@ from fashion_trend.recommendation.outputs import (
     format_recommendation_items,
 )
 from fashion_trend.recommendation.paths import (
+    ARTICLE_PRODUCT_MAP_PATH,
+    CUSTOMER_PROFILE_PATH,
     EVALUATION_LABELS_PATH,
     FEATURE_CACHE_METADATA_PATH,
     RECOMMEND_METADATA_PATH,
@@ -72,7 +78,9 @@ from fashion_trend.recommendation.perf import StageTimer
 from fashion_trend.recommendation.ranking.backfill import append_backfill_items
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.readers import (
+    read_article_product_map,
     read_candidate_items,
+    read_customer_profile,
     read_evaluation_labels,
     read_recommendations,
     read_target_users,
@@ -85,6 +93,7 @@ from fashion_trend.recommendation.retrieval.candidates import (
     candidate_input_paths_for_strategy,
 )
 from fashion_trend.recommendation.runner import (
+    BACKFILL_MODE_BY_METHOD,
     build_cached_feature_frame_for_window,
     build_cached_recommendation_result_for_window,
     feature_artifact_paths_for_method_window,
@@ -111,6 +120,8 @@ class RecommendationExperimentContext:
     trend_predictions: pd.DataFrame
     input_paths: dict[str, str] | None = None
     trend_model_source: str | None = None
+    customers: pd.DataFrame | None = None
+    clean_articles: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -170,13 +181,26 @@ def ensure_or_build_recommendation_inputs(
             target_users=read_target_users(TARGET_USERS_PATH),
             evaluation_labels=read_evaluation_labels(EVALUATION_LABELS_PATH),
             user_profile=read_user_profile(USER_PROFILE_PATH),
+            customer_profile=(
+                read_customer_profile(CUSTOMER_PROFILE_PATH)
+                if CUSTOMER_PROFILE_PATH.exists()
+                else None
+            ),
+            article_product_map=(
+                read_article_product_map(ARTICLE_PRODUCT_MAP_PATH)
+                if ARTICLE_PRODUCT_MAP_PATH.exists()
+                else None
+            ),
         )
 
+    _require_optional_recommendation_input_frames(context)
     return build_and_write_recommendation_inputs(
         transactions=context.transactions,
         article_attributes=context.article_attributes,
         trend_predictions=context.trend_predictions,
         input_paths=_upstream_input_paths(context),
+        customers=context.customers,
+        clean_articles=context.clean_articles,
     )
 
 
@@ -203,6 +227,8 @@ def ensure_or_build_candidate_items(
         windows=inputs.time_windows,
         target_users=inputs.target_users,
         user_profile=inputs.user_profile,
+        customer_profile=inputs.customer_profile,
+        article_product_map=inputs.article_product_map,
         input_paths=input_paths,
     )
     return read_candidate_items(path)
@@ -239,6 +265,8 @@ def ensure_or_build_feature_cache_for_strategy(
         article_attributes=context.article_attributes,
         user_profile=inputs.user_profile,
         trend_predictions=context.trend_predictions,
+        customer_profile=inputs.customer_profile,
+        article_product_map=inputs.article_product_map,
         input_paths=input_paths,
     )
 
@@ -579,7 +607,7 @@ def build_recommendation_result_in_memory(
             candidates=window_candidates,
             context=window_context,
             weights=dict(weights),
-            backfill_mode="recent",
+            backfill_mode=BACKFILL_MODE_BY_METHOD.get(method_name),
         )
         recommendation_chunks.append(result.recommendations)
         item_chunks.append(result.recommendation_items)
@@ -688,13 +716,15 @@ def build_recommendation_result_from_prepared_windows(
             top_k=RECOMMENDATION_TOP_K,
             required_features=method.required_features,
         )
-        ranked = append_backfill_items(
-            window_context,
-            prepared.candidates,
-            ranked,
-            weights,
-            "recent",
-        )
+        backfill_mode = BACKFILL_MODE_BY_METHOD.get(method_name)
+        if backfill_mode is not None:
+            ranked = append_backfill_items(
+                window_context,
+                prepared.candidates,
+                ranked,
+                weights,
+                backfill_mode,
+            )
         recommendation_items = format_recommendation_items(ranked)
         recommendation_chunks.append(
             build_recommendations_csv(recommendation_items, RECOMMENDATION_TOP_K)
@@ -956,6 +986,15 @@ def run_recommendation_experiment(
 ) -> dict[str, Any]:
     validate_safe_path_segment(experiment_id, "experiment_id")
     force_methods = tuple(force_methods)
+    if experiment_id == "recommendation_enhanced":
+        return run_recommendation_enhanced_experiment(
+            context=context,
+            force_experiment=force_experiment,
+            force_methods=force_methods,
+            force_cache=force_cache,
+            force_candidates=force_candidates,
+            force_rebuild_all=force_rebuild_all,
+        )
     _validate_force_methods(force_methods)
     stage_status: list[dict[str, Any]] = []
     timings: list[dict[str, Any]] = []
@@ -1166,6 +1205,14 @@ def run_recommendation_experiment(
     )
     write_json_atomic(payload, experiment_dir(experiment_id) / "experiment.json")
     return payload
+
+
+def run_recommendation_enhanced_experiment(*args, **kwargs) -> dict[str, Any]:
+    from fashion_trend.recommendation.experiments.enhanced_runner import (
+        run_recommendation_enhanced_experiment as _run_enhanced_experiment,
+    )
+
+    return _run_enhanced_experiment(*args, **kwargs)
 
 
 def _filter_split(dataframe: pd.DataFrame, split: str) -> pd.DataFrame:
@@ -1442,8 +1489,7 @@ def _search_cache_input_artifacts(
         if missing_candidate_columns:
             details.append(f"candidates missing {missing_candidate_columns}")
         raise ValueError(
-            "search cache input artifacts require window columns: "
-            + "; ".join(details)
+            "search cache input artifacts require window columns: " + "; ".join(details)
         )
 
     feature_artifacts: list[str] = []
@@ -1540,27 +1586,35 @@ def _weights_match_current_grid(
 def _recommendation_inputs_are_fresh(
     context: RecommendationExperimentContext,
 ) -> bool:
-    if not all(
-        path.exists()
-        for path in (
-            TIME_WINDOWS_PATH,
-            TARGET_USERS_PATH,
-            EVALUATION_LABELS_PATH,
-            USER_PROFILE_PATH,
-            RECOMMEND_METADATA_PATH,
-        )
-    ):
+    include_customer_profile = _context_includes_customer_profile(context)
+    include_article_product_map = _context_includes_article_product_map(context)
+    required_paths = [
+        TIME_WINDOWS_PATH,
+        TARGET_USERS_PATH,
+        EVALUATION_LABELS_PATH,
+        USER_PROFILE_PATH,
+        RECOMMEND_METADATA_PATH,
+    ]
+    if include_customer_profile:
+        required_paths.append(CUSTOMER_PROFILE_PATH)
+    if include_article_product_map:
+        required_paths.append(ARTICLE_PRODUCT_MAP_PATH)
+    if not all(path.exists() for path in required_paths):
         return False
     try:
         assert_fresh_metadata(
             metadata_path=RECOMMEND_METADATA_PATH,
             expected_input_artifacts=_upstream_input_paths(context),
-            expected_output_artifacts=_recommendation_input_output_artifacts(),
+            expected_output_artifacts=_recommendation_input_output_artifacts(
+                include_customer_profile=include_customer_profile,
+                include_article_product_map=include_article_product_map,
+            ),
             expected_schema_version=1,
             expected_algorithm_version="recommendation-inputs-v1",
-            expected_config={
-                "profile_top_attributes": RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
-            },
+            expected_config=_recommendation_input_config(
+                include_customer_profile=include_customer_profile,
+                include_article_product_map=include_article_product_map,
+            ),
             stale_message=lambda reason: f"recommendation inputs are stale: {reason}",
         )
     except RuntimeError:
@@ -1613,10 +1667,16 @@ def _experiment_input_paths(
         "target_users": str(TARGET_USERS_PATH),
         "evaluation_labels": str(EVALUATION_LABELS_PATH),
         "user_profile": str(USER_PROFILE_PATH),
+        "customer_profile": str(CUSTOMER_PROFILE_PATH),
+        "article_product_map": str(ARTICLE_PRODUCT_MAP_PATH),
         "recommendation_inputs": str(RECOMMEND_METADATA_PATH),
         "default_candidates": str(candidate_items_path("default")),
         "default_candidate_metadata": str(
             candidate_items_path("default").with_name("metadata.json")
+        ),
+        "enhanced_default_candidates": str(candidate_items_path("enhanced_default")),
+        "enhanced_default_candidate_metadata": str(
+            candidate_items_path("enhanced_default").with_name("metadata.json")
         ),
         "similarity_candidates": str(candidate_items_path("similarity")),
         "similarity_candidate_metadata": str(
@@ -1758,17 +1818,88 @@ def _upstream_input_paths(context: RecommendationExperimentContext) -> dict[str,
     return {
         key: value
         for key, value in dict(context.input_paths or {}).items()
-        if key in {"weekly_transactions", "article_attributes", "trend_predictions"}
+        if key
+        in {
+            "weekly_transactions",
+            "article_attributes",
+            "trend_predictions",
+            "raw_customers",
+            "clean_articles",
+        }
     }
 
 
-def _recommendation_input_output_artifacts() -> dict[str, str]:
-    return {
+def _context_includes_customer_profile(
+    context: RecommendationExperimentContext,
+) -> bool:
+    return "raw_customers" in dict(context.input_paths or {})
+
+
+def _context_includes_article_product_map(
+    context: RecommendationExperimentContext,
+) -> bool:
+    return "clean_articles" in dict(context.input_paths or {})
+
+
+def _require_optional_recommendation_input_frames(
+    context: RecommendationExperimentContext,
+) -> None:
+    missing = []
+    if _context_includes_customer_profile(context) and context.customers is None:
+        missing.append("customers")
+    if (
+        _context_includes_article_product_map(context)
+        and context.clean_articles is None
+    ):
+        missing.append("clean_articles")
+    if missing:
+        raise FileNotFoundError(
+            "recommendation input rebuild requires loaded optional frames: "
+            f"{', '.join(missing)}"
+        )
+
+
+def _recommendation_input_output_artifacts(
+    *,
+    include_customer_profile: bool,
+    include_article_product_map: bool,
+) -> dict[str, str]:
+    artifacts = {
         "time_windows": str(TIME_WINDOWS_PATH),
         "target_users": str(TARGET_USERS_PATH),
         "evaluation_labels": str(EVALUATION_LABELS_PATH),
         "user_profile": str(USER_PROFILE_PATH),
     }
+    if include_customer_profile:
+        artifacts["customer_profile"] = str(CUSTOMER_PROFILE_PATH)
+    if include_article_product_map:
+        artifacts["article_product_map"] = str(ARTICLE_PRODUCT_MAP_PATH)
+    return artifacts
+
+
+def _recommendation_input_config(
+    *,
+    include_customer_profile: bool,
+    include_article_product_map: bool,
+) -> dict[str, object]:
+    config: dict[str, object] = {
+        "profile_top_attributes": RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
+    }
+    if include_customer_profile:
+        config.update(
+            {
+                "customer_profile_schema_version": CUSTOMER_PROFILE_SCHEMA_VERSION,
+                "customer_age_bucket_algorithm_version": (
+                    CUSTOMER_AGE_BUCKET_ALGORITHM_VERSION
+                ),
+                "customer_age_buckets": list(CUSTOMER_AGE_BUCKETS),
+            }
+        )
+    if include_article_product_map:
+        config["article_product_map_schema_version"] = (
+            ARTICLE_PRODUCT_MAP_SCHEMA_VERSION
+        )
+    return config
 
 
 def _method_output_artifacts(method_name: str) -> dict[str, str]:

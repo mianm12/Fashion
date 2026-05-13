@@ -11,9 +11,17 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from fashion_trend.recommendation.contracts import CANDIDATE_ITEM_COLUMNS
+from fashion_trend.recommendation.contracts import (
+    CANDIDATE_ITEM_COLUMNS,
+    ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
+)
+from fashion_trend.recommendation.experiments import enhanced_runner
 from fashion_trend.recommendation.experiments import runner as experiment_runner
 from fashion_trend.recommendation.experiments.ablation import build_ablation_summary
+from fashion_trend.recommendation.experiments.enhanced_grid_search import (
+    iter_enhanced_weight_grid,
+    select_best_enhanced_weights,
+)
 from fashion_trend.recommendation.experiments.grid_search import (
     iter_weight_grid,
     select_best_weights,
@@ -153,6 +161,433 @@ def test_select_best_weights_uses_stable_grid_order_for_ties() -> None:
 def test_select_best_weights_rejects_empty_grid_results() -> None:
     with pytest.raises(ValueError, match="empty"):
         select_best_weights([])
+
+
+def test_enhanced_weight_grid_has_at_most_32_normalized_rows() -> None:
+    weights = list(iter_enhanced_weight_grid())
+
+    assert weights
+    assert len(weights) <= 32
+    assert all(tuple(item) == ENHANCED_RECOMMENDATION_SCORE_COLUMNS for item in weights)
+    assert all(abs(sum(item.values()) - 1.0) <= 1e-9 for item in weights)
+    assert all(all(value >= 0.0 for value in item.values()) for item in weights)
+
+
+def test_enhanced_selects_best_weights_by_valid_map_then_ndcg() -> None:
+    low_map = {
+        "grid_index": 0,
+        "weights": dict(iter_enhanced_weight_grid()[0]),
+        "valid_metrics": {"map_at_12": 0.10, "ndcg_at_12": 0.90},
+    }
+    best_tie_break = {
+        "grid_index": 2,
+        "weights": dict(iter_enhanced_weight_grid()[2]),
+        "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.70},
+    }
+    earlier_grid = {
+        "grid_index": 1,
+        "weights": dict(iter_enhanced_weight_grid()[1]),
+        "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.60},
+    }
+
+    assert select_best_enhanced_weights(
+        [low_map, best_tie_break, earlier_grid]
+    ) == dict(iter_enhanced_weight_grid()[2])
+    grid_order_tie = {
+        "grid_index": 1,
+        "weights": dict(iter_enhanced_weight_grid()[1]),
+        "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.70},
+    }
+    assert select_best_enhanced_weights([best_tie_break, grid_order_tie]) == dict(
+        iter_enhanced_weight_grid()[1]
+    )
+
+
+def test_recommendation_enhanced_dispatch_does_not_call_main_runner(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "run_recommendation_enhanced_experiment",
+        lambda **kwargs: calls.append(("enhanced", kwargs))
+        or {"experiment_id": "recommendation_enhanced"},
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "ensure_or_build_recommendation_inputs",
+        lambda *args, **kwargs: pytest.fail("main runner path should not run"),
+    )
+
+    payload = run_recommendation_experiment(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        ),
+        experiment_id="recommendation_enhanced",
+        force_experiment=True,
+        force_cache=True,
+    )
+
+    assert payload == {"experiment_id": "recommendation_enhanced"}
+    assert calls[0][0] == "enhanced"
+    assert calls[0][1]["force_experiment"] is True
+    assert calls[0][1]["force_cache"] is True
+
+
+def test_recommendation_enhanced_payload_records_valid_test_metrics(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(
+            [
+                {"split": "valid", "cutoff_week": 10, "label_week": 11},
+                {"split": "test", "cutoff_week": 11, "label_week": 12},
+            ]
+        ),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "c1",
+                "article_id": "0000000001",
+                "source": "reorder",
+                "source_rank": 1,
+            }
+        ]
+    )
+    writes: list[tuple[dict[str, object], object]] = []
+
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_recommendation_inputs",
+        lambda context, force=False: inputs,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_candidate_items",
+        lambda strategy, context, inputs, force=False: candidates,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_feature_cache_for_strategy",
+        lambda strategy, context, inputs, candidates, force=False: None,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "enhanced_feature_cache_partitions_exist",
+        lambda candidates: True,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_comparison_methods",
+        lambda context, inputs, force=False: [
+            {"method": "recent_popularity", "metrics": {"valid": {}, "test": {}}},
+            {"method": "pop_similarity", "metrics": {"valid": {}, "test": {}}},
+            {"method": "pop_similarity_trend", "metrics": {"valid": {}, "test": {}}},
+        ],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_enhanced_weight_grid_on_valid",
+        lambda weight_grid, context, inputs, candidates, force=False: [
+            {
+                "grid_index": 0,
+                "weights": dict(weight_grid[0]),
+                "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.30},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_enhanced_weights_by_split",
+        lambda **kwargs: {
+            "valid": {"map_at_12": 0.20, "ndcg_at_12": 0.30},
+            "test": {"map_at_12": 0.25, "ndcg_at_12": 0.35},
+        },
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "experiment_dir",
+        lambda experiment_id: tmp_path / "experiments" / experiment_id,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "write_json_atomic",
+        lambda payload, path: writes.append((payload, path)),
+    )
+
+    payload = enhanced_runner.run_recommendation_enhanced_experiment(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        )
+    )
+
+    assert payload["experiment_id"] == "recommendation_enhanced"
+    assert payload["selection_metric"] == "map_at_12"
+    assert payload["tie_break"] == "ndcg_at_12"
+    assert "valid" in payload["metrics"]["enhanced_pop_similarity_trend"]
+    assert "test" in payload["metrics"]["enhanced_pop_similarity_trend"]
+    assert payload["experiment_path"] == str(
+        tmp_path / "experiments" / "recommendation_enhanced" / "experiment.json"
+    )
+    assert writes == [
+        (
+            payload,
+            tmp_path / "experiments" / "recommendation_enhanced" / "experiment.json",
+        )
+    ]
+
+
+def test_recommendation_enhanced_does_not_publish_pop_similarity_trend_stable(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        enhanced_runner,
+        "publish_trend_method_with_weights",
+        lambda *args, **kwargs: pytest.fail(
+            "enhanced experiment must not publish stable"
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "run_recommendation_method_by_window",
+        lambda *args, **kwargs: pytest.fail(
+            "enhanced experiment must not write stable"
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_recommendation_inputs",
+        lambda context, force=False: RecommendationInputArtifacts(
+            time_windows=pd.DataFrame(),
+            target_users=pd.DataFrame(),
+            evaluation_labels=pd.DataFrame(),
+            user_profile=pd.DataFrame(),
+        ),
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_candidate_items",
+        lambda strategy, context, inputs, force=False: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_feature_cache_for_strategy",
+        lambda strategy, context, inputs, candidates, force=False: None,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "enhanced_feature_cache_partitions_exist",
+        lambda candidates: True,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_comparison_methods",
+        lambda context, inputs, force=False: [],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_enhanced_weight_grid_on_valid",
+        lambda weight_grid, context, inputs, candidates, force=False: [
+            {
+                "grid_index": 0,
+                "weights": dict(weight_grid[0]),
+                "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.30},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_enhanced_weights_by_split",
+        lambda **kwargs: {"valid": {}, "test": {}},
+    )
+    monkeypatch.setattr(enhanced_runner, "write_json_atomic", lambda *args: None)
+
+    payload = enhanced_runner.run_recommendation_enhanced_experiment(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        )
+    )
+
+    assert payload["metrics"]["enhanced_pop_similarity_trend"] == {
+        "valid": {},
+        "test": {},
+    }
+
+
+def test_enhanced_candidate_build_receives_customer_and_product_artifacts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    inputs = _enhanced_input_artifacts()
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "candidate_items_path",
+        lambda strategy: tmp_path / "candidates" / strategy / "candidate_items.parquet",
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "build_and_write_candidate_items",
+        lambda **kwargs: captured.update(kwargs),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "read_candidate_items",
+        lambda path: pd.DataFrame(),
+    )
+
+    ensure_or_build_candidate_items(
+        "enhanced_default",
+        _enhanced_artifact_context(),
+        inputs,
+        force=True,
+    )
+
+    assert captured["customer_profile"] is inputs.customer_profile
+    assert captured["article_product_map"] is inputs.article_product_map
+
+
+def test_enhanced_feature_cache_build_receives_customer_and_product_artifacts(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    inputs = _enhanced_input_artifacts()
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "_feature_cache_manifest_can_merge",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "build_and_write_feature_cache_for_strategy",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    ensure_or_build_feature_cache_for_strategy(
+        "enhanced_default",
+        _enhanced_artifact_context(),
+        inputs,
+        pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "cutoff_week": 10,
+                    "label_week": 11,
+                    "strategy": "enhanced_default",
+                    "customer_id": "u1",
+                    "article_id": "0000000001",
+                }
+            ]
+        ),
+        force=True,
+    )
+
+    assert captured["customer_profile"] is inputs.customer_profile
+    assert captured["article_product_map"] is inputs.article_product_map
+
+
+def test_enhanced_in_memory_weight_run_disables_method_backfill(
+    monkeypatch,
+) -> None:
+    captured_backfill_modes: list[object] = []
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(
+            [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+        ),
+        target_users=pd.DataFrame(
+            [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+        ),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(
+            [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+        ),
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "u1",
+                "article_id": "0000000001",
+            }
+        ]
+    )
+
+    def fake_build_cached_result(**kwargs):
+        captured_backfill_modes.append(kwargs["backfill_mode"])
+        return SimpleNamespace(
+            recommendations=pd.DataFrame(),
+            recommendation_items=pd.DataFrame(),
+            metadata={},
+        )
+
+    monkeypatch.setattr(
+        experiment_runner,
+        "build_cached_recommendation_result_for_window",
+        fake_build_cached_result,
+    )
+
+    experiment_runner.build_recommendation_result_in_memory(
+        method_name="enhanced_pop_similarity_trend",
+        weights=dict(iter_enhanced_weight_grid()[0]),
+        split_filter="valid",
+        context=_enhanced_artifact_context(),
+        inputs=inputs,
+        candidates=candidates,
+    )
+
+    assert captured_backfill_modes == [None]
+
+
+def test_recommendation_inputs_fresh_requires_optional_enhanced_outputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    path_names = {
+        "TIME_WINDOWS_PATH": "time_windows.parquet",
+        "TARGET_USERS_PATH": "target_users.parquet",
+        "EVALUATION_LABELS_PATH": "evaluation_labels.parquet",
+        "USER_PROFILE_PATH": "user_profile.parquet",
+        "RECOMMEND_METADATA_PATH": "metadata.json",
+        "CUSTOMER_PROFILE_PATH": "customer_profile.parquet",
+        "ARTICLE_PRODUCT_MAP_PATH": "article_product_map.parquet",
+    }
+    for attr, name in path_names.items():
+        monkeypatch.setattr(experiment_runner, attr, tmp_path / name)
+    for attr in (
+        "TIME_WINDOWS_PATH",
+        "TARGET_USERS_PATH",
+        "EVALUATION_LABELS_PATH",
+        "USER_PROFILE_PATH",
+        "RECOMMEND_METADATA_PATH",
+    ):
+        getattr(experiment_runner, attr).write_text("stub", encoding="utf-8")
+
+    assert (
+        experiment_runner._recommendation_inputs_are_fresh(_enhanced_artifact_context())
+        is False
+    )
 
 
 def test_generated_run_id_is_safe_path_segment() -> None:
@@ -2188,6 +2623,40 @@ def _cache_build_context(tmp_path) -> RecommendationExperimentContext:
         ),
         input_paths={"trend_predictions": str(predictions_path)},
         trend_model_source=str(predictions_path),
+    )
+
+
+def _enhanced_artifact_context() -> RecommendationExperimentContext:
+    return RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        customers=pd.DataFrame(),
+        clean_articles=pd.DataFrame(),
+        input_paths={
+            "weekly_transactions": "data/interim/transactions_train_weekly.parquet",
+            "article_attributes": "data/processed/graph/edges_article_attribute.csv",
+            "trend_predictions": "outputs/models/lightgbm/predictions.csv",
+            "raw_customers": "data/raw/customers.csv",
+            "clean_articles": "data/interim/articles_clean.csv",
+        },
+    )
+
+
+def _enhanced_input_artifacts() -> RecommendationInputArtifacts:
+    return RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(
+            [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+        ),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+        customer_profile=pd.DataFrame(
+            [{"customer_id": "u1", "age": 25, "age_bucket": "20-29"}]
+        ),
+        article_product_map=pd.DataFrame(
+            [{"article_id": "0000000001", "product_code": "123"}]
+        ),
     )
 
 
