@@ -1,10 +1,10 @@
 # 项目现状与论文素材汇总
 
-更新时间：2026-05-11
+更新时间：2026-05-13
 
 ## 1. 总体结论
 
-当前项目已经完成从 H&M 原始交易数据到属性周级趋势预测，再到轻量 Top-N 推荐实验的主要闭环。项目主线与 `docs/gpt-research/implementation-plan.md` 保持一致：
+当前项目已经完成从 H&M 原始交易数据到属性周级趋势预测，再到轻量 Top-N 推荐实验、论文素材导出和本地答辩展示应用的主要闭环。项目主线与 `docs/gpt-research/implementation-plan.md` 保持一致：
 
 ```text
 H&M articles.csv
@@ -18,7 +18,7 @@ H&M transactions_train.csv
 
 论文应把核心贡献表述为：将 H&M 个性化推荐数据集重新组织为服装属性周级趋势预测任务，并用轻量推荐实验验证趋势预测结果的应用价值。推荐模块是应用验证层，不是完整生产推荐系统，也不是深度召回或在线服务。
 
-当前状态可以开始论文撰写。方法设计、数据处理、趋势预测实验、推荐应用验证都已有可引用产物和指标。后续更适合做论文图表、案例展示和文字整理，而不是继续扩大模型范围。
+当前状态可以开始论文撰写和答辩材料整理。方法设计、数据处理、趋势预测实验、推荐应用验证、静态论文素材和本地展示应用都已有可引用产物。后续更适合做论文排版和文字整理，而不是继续扩大模型范围。
 
 ## 2. 论文需要覆盖的内容
 
@@ -36,7 +36,7 @@ H&M transactions_train.csv
 | 推荐模块 | 候选召回、用户属性偏好、趋势分、线性重排序 | 已具备 |
 | 推荐评价 | MAP@12、Recall@12、HitRate@12、NDCG@12、Coverage | 已具备 |
 | 结果分析 | LightGBM 优于趋势 baseline；趋势推荐与强热门 baseline 的对照 | 已具备 |
-| 案例展示 | Top-K 趋势属性、用户 Top-12 推荐、推荐解释 | 已补文本案例；图表仍需整理 |
+| 案例展示 | Top-K 趋势属性、用户 Top-12 推荐、推荐解释 | 已补文本案例、静态图表和本地展示应用 |
 
 ## 3. 关键数据与产物
 
@@ -743,13 +743,38 @@ Top-12 推荐及解释字段：
 
 案例导出位于 `outputs/reports/case_studies/`，当前包含 `case_01`、`case_02`、`case_03` 的 JSON 和 Markdown。每个案例包含用户历史偏好、代表性趋势属性、Top-12 推荐商品、命中标记、商品属性和分数分解。
 
-### 7.3 可直接引用的核心观点
+### 7.3 本地答辩展示应用
+
+本地答辩展示应用已实现为只读展示层：
+
+| 组成 | 路径 | 说明 |
+| --- | --- | --- |
+| 展示库构建入口 | `src/18_build_defense_app_db.py` | 从稳定 artifact 构建 SQLite，不训练模型、不重跑推荐 |
+| 展示库业务包 | `src/fashion_trend/presentation/` | schema、路径、上游读取、表构建、SQLite writer 和 runner |
+| SQLite 产物 | `outputs/defense_app/fashion_demo.sqlite` | 生成产物，不提交 |
+| 后端 | `apps/defense_app/backend/` | FastAPI 只读查询 SQLite |
+| 前端 | `apps/defense_app/frontend/` | Vue/Vite，只调用 FastAPI `/api` |
+
+运行命令：
+
+```sh
+uv run python src/18_build_defense_app_db.py
+uv run --group app uvicorn app.main:app --reload --app-dir apps/defense_app/backend
+cd apps/defense_app/frontend
+npm install
+npm run dev
+```
+
+展示页面覆盖趋势看板、属性详情、商品属性图、推荐案例列表和推荐解释页。文案边界应保持“本地答辩展示应用、离线趋势预测、轻量 Top-N 推荐实验、推荐解释”，不要把它描述成在线服务、生产推荐平台、实时个性化系统或深度推荐模型。
+
+### 7.4 可直接引用的核心观点
 
 1. 项目不是复现 H&M Kaggle 高分方案，而是将推荐数据重构为属性趋势预测任务。
 2. 属性周热度和趋势标签构成了可解释的服装趋势建模对象。
 3. LightGBM 在趋势预测上显著优于简单历史 baseline，说明结构化属性趋势特征有效。
 4. 趋势分用于推荐时可以提升相对不含趋势分的融合模型，但不应夸大为全面击败近期热门。
 5. 轻量推荐模块的价值在于展示趋势预测的应用路径和解释性，而不是追求复杂推荐系统性能。
+6. 本地展示应用只用于答辩演示和结果审查，不改变论文实验口径。
 
 ## 8. 当前仍需补充的论文工作
 
@@ -759,7 +784,7 @@ Top-12 推荐及解释字段：
 
 | 优先级 | 任务 | 说明 |
 | --- | --- | --- |
-| 高 | 按需重新运行报告导出命令 | 已生成论文 figures、tables、3 个推荐解释案例和 manifest；论文提交前可重新运行确保产物最新 |
+| 高 | 按需重新运行报告导出和展示库构建命令 | 已生成论文 figures、tables、3 个推荐解释案例、manifest 和本地展示库；论文提交或答辩前可重新运行确保产物最新 |
 | 中 | 写实验局限性 | 推荐指标绝对值较低、近期热门强、未做深度推荐 |
 | 中 | 补严格推荐消融 | 当前缺少独立 `w/o Similarity`、`w/o Recent` 和每组权重 test 指标 |
 | 低 | 更多模型扩展 | 不建议作为当前论文主线继续扩 |
@@ -789,10 +814,14 @@ Top-12 推荐及解释字段：
 最近一次项目核查包含：
 
 ```sh
-uv run pytest
+uv run pytest tests/test_presentation_*.py tests/test_architecture_boundaries.py
+uv run --group app pytest apps/defense_app/backend/tests
 uv run python -m compileall -q src
-uv run black --check src tests
-uv run isort --check-only src tests
+uv run --group app python -m compileall -q apps/defense_app/backend
+uv run python src/18_build_defense_app_db.py
+cd apps/defense_app/frontend
+npm run typecheck
+npm run build
 git diff --check
 ```
 
@@ -800,10 +829,13 @@ git diff --check
 
 | 验证 | 结果 |
 | --- | --- |
-| pytest | 499 passed |
-| compileall | 通过 |
-| black check | 143 files would be left unchanged |
-| isort check | 通过 |
+| presentation + architecture pytest | 62 passed |
+| defense app backend pytest | 38 passed |
+| compileall src | 通过 |
+| compileall backend | 通过 |
+| defense app SQLite 构建 | 通过，`demo_users=3`，`recommendation_items=36`，`report_assets=16` |
+| frontend typecheck | 通过 |
+| frontend build | 通过；存在 Vite chunk size warning，不影响构建产物 |
 | diff check | 通过 |
 
 此外，真实 artifact 审计确认：
@@ -812,3 +844,5 @@ git diff --check
 - 趋势预测输出列契约和分布校验通过。
 - 推荐输出 Top-12、rank、重复项、缺失用户检查通过。
 - `article_id` 和 `customer_id` 的字符串语义保持正确。
+- 展示库表结构存在，每个 demo case 均有 12 条推荐项，四类核心趋势属性均已写入。
+- 浏览器 smoke 确认趋势看板、属性详情、商品属性图、推荐案例、推荐解释页和 `/docs` 均可加载。

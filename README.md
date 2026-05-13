@@ -1,6 +1,6 @@
 # Fashion
 
-时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量、属性周热度、趋势 baseline、LightGBM 主模型、趋势评价和轻量离线 Top-N 推荐实验。
+时尚趋势与轻量推荐实验项目，当前围绕 Kaggle H&M 个性化时尚推荐数据集构建周级交易表、商品属性层次图、商品周销量、属性周热度、趋势 baseline、LightGBM 主模型、趋势评价、轻量离线 Top-N 推荐实验、论文素材导出和本地答辩展示应用。
 
 ## 研究主线
 
@@ -16,7 +16,7 @@ H&M transactions_train.csv
     -> 趋势感知 Top-N 推荐
 ```
 
-现阶段已经完成到三类趋势 baseline、LightGBM 主模型、趋势评价和轻量离线推荐闭环：
+现阶段已经完成到三类趋势 baseline、LightGBM 主模型、趋势评价、轻量离线推荐闭环、论文素材导出和本地答辩展示应用：
 
 | 阶段 | 状态 | 主要产物 |
 | :--- | :--- | :--- |
@@ -35,8 +35,10 @@ H&M transactions_train.csv
 | LightGBM 主模型 | 已实现（运行命令后生成） | `outputs/models/lightgbm/predictions.csv`、`params.json`、`metadata.json`、`feature_importance.csv`、`model.txt` |
 | 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json`、`outputs/metrics/lightgbm/trend_metrics.json` |
 | 推荐模块与推荐评价 | 已实现（运行命令后生成） | `outputs/recommendation/<method>/recommendations.csv`、`recommendation_items.parquet`、`params.json`、`metadata.json`、`metrics.json` |
+| 论文素材导出 | 已实现（运行命令后生成） | `outputs/reports/figures/`、`outputs/reports/tables/`、`outputs/reports/case_studies/`、`outputs/reports/manifest.json` |
+| 本地答辩展示应用 | 已实现（运行命令后生成） | `outputs/defense_app/fashion_demo.sqlite`、`apps/defense_app/backend/`、`apps/defense_app/frontend/` |
 
-上表中 baseline、LightGBM、趋势评价和推荐实验的产物是对应训练、评价、推荐命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
+上表中 baseline、LightGBM、趋势评价、推荐实验、论文素材和展示应用的产物是对应训练、评价、推荐、导出或构建命令运行后的标准输出路径；功能已实现，但文件是否已存在取决于当前工作区是否运行过相应命令。
 
 ## 数据集
 
@@ -728,6 +730,31 @@ outputs/reports/manifest.json
 
 本阶段使用 `matplotlib` 导出静态 SVG/PNG 图表；Markdown 表格由项目内 writer 生成，不依赖 `tabulate`。如果本机缺少可用 CJK 字体，导出会 fail-fast，避免生成缺字的中文论文图。
 
+### 16. 本地答辩展示应用
+
+答辩展示应用是 downstream presentation artifact，用于本地展示离线趋势预测、属性图和轻量 Top-N 推荐解释。它不训练模型、不重跑推荐、不作为在线推荐服务或生产平台。先构建只读 SQLite 展示库：
+
+```sh
+uv run python src/18_build_defense_app_db.py
+```
+
+默认生成：
+
+```text
+outputs/defense_app/fashion_demo.sqlite
+```
+
+该 SQLite 文件是生成产物，不应提交。后端只读该 SQLite，前端只调用 FastAPI：
+
+```sh
+uv run --group app uvicorn app.main:app --reload --app-dir apps/defense_app/backend
+cd apps/defense_app/frontend
+npm install
+npm run dev
+```
+
+前端页面覆盖趋势看板、属性详情、商品属性图、推荐案例和推荐解释。详细说明见 `apps/defense_app/README.md`。
+
 ## 后续阶段
 
 趋势模型训练与评价框架已经落地到 `last_week`、`previous_growth`、`moving_average`
@@ -744,7 +771,7 @@ outputs/reports/manifest.json
 
 项目内部代码按业务域组织在 `src/fashion_trend/` 下：
 
-默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。
+默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation、reports 和 presentation 的业务路径由各自领域的 `paths.py` 持有。
 
 - `foundation/`：路径、日志、原子写入、通用校验和 artifact 安全。
 - `datasets/`：原始数据下载、解压和基础检查。
@@ -753,8 +780,11 @@ outputs/reports/manifest.json
 - `trend/`：属性热度、标签、样本、时间切分、趋势模型训练和趋势评价。
 - `recommendation/`：推荐契约、路径、reader、时间窗口、输入构建、候选召回、排序特征、方法注册、推荐评价和实验编排。
 - `reports/`：论文图表、表格、案例和 manifest 导出；只读消费稳定 artifact，不作为在线 dashboard。
+- `presentation/`：本地答辩展示库 schema、上游 artifact 抽取、SQLite 写入和构建 runner；只读消费稳定 artifact。
 
-当前已实现的 `src/00_*.py` 到 `src/17_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
+当前已实现的 `src/00_*.py` 到 `src/18_*.py` 是用户运行入口；后续新增的编号脚本继续沿用同一约定作为流程索引，计算事实位于业务包。保持现有用户命令不变。
+
+本地答辩展示应用位于 `apps/defense_app/`，其中 `backend/` 是只读 FastAPI API，`frontend/` 是 Vue/Vite 前端。该应用依赖 `outputs/defense_app/fashion_demo.sqlite`，不直接读取原始 H&M 数据、训练 run 目录或历史推荐 CSV。
 
 趋势共享实现位于 `src/fashion_trend/trend/` 子包。`heat/`、`labels/`、`features/`、`splits/`、`training/`、`evaluation/` 和 `predictions.py` 分别对应当前趋势流水线阶段与训练/评价共享契约；`trend/models/baselines/` 存放当前 baseline，`trend/models/supervised/` 存放 LightGBM 等监督模型；`trend/__init__.py` 只是包标记，不重新导出旧入口。内部代码必须直接导入具体模块。
 
@@ -777,3 +807,5 @@ uv run pytest
 - `last_week`、`previous_growth` 与 `moving_average` baseline 预测公式、预测表校验、通用训练 runner metadata、artifact 和写出顺序校验。
 - `lightgbm` 主模型的特征准备、延迟原生包导入、metadata 诊断、特征重要性、artifact 和训练/评价 runner 接入校验。
 - 趋势评价的预测读取、输入校验、分组指标、JSON payload、写出边界和 CLI 行为校验。
+- presentation 展示库 schema、表构建、SQLite 写入、架构边界和 `src/18_build_defense_app_db.py` 入口。
+- defense app 后端只读 API、错误响应、推荐解释、metrics summary 和 SQLite 连接边界。
