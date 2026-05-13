@@ -6,8 +6,13 @@ import pandas as pd
 
 from fashion_trend.foundation.artifacts import validate_safe_path_segment
 from fashion_trend.recommendation.contracts import (
+    ARTICLE_PRODUCT_MAP_COLUMNS,
+    ARTICLE_PRODUCT_MAP_KEY_COLUMNS,
     CANDIDATE_ITEM_COLUMNS,
     CANDIDATE_ITEM_KEY_COLUMNS,
+    CUSTOMER_AGE_BUCKETS,
+    CUSTOMER_PROFILE_COLUMNS,
+    CUSTOMER_PROFILE_KEY_COLUMNS,
     EVALUATION_LABEL_COLUMNS,
     EVALUATION_LABEL_KEY_COLUMNS,
     RECOMMENDATION_ITEMS_COLUMNS,
@@ -47,6 +52,17 @@ def reject_duplicate_key(
     if duplicated.any():
         sample = dataframe.loc[duplicated, list(key_columns)].head(3).to_dict("records")
         raise ValueError(f"{artifact_name} 存在重复键: {sample}")
+
+
+def reject_missing_key(
+    dataframe: pd.DataFrame,
+    key_columns: tuple[str, ...],
+    artifact_name: str,
+) -> None:
+    missing = dataframe.loc[:, list(key_columns)].isna().any(axis=1)
+    if missing.any():
+        sample = dataframe.loc[missing, list(key_columns)].head(3).to_dict("records")
+        raise ValueError(f"{artifact_name} 存在缺失键: {sample}")
 
 
 def text_dtypes_for_columns(columns: tuple[str, ...]) -> dict[str, str]:
@@ -118,6 +134,47 @@ def read_user_profile(path: Path) -> pd.DataFrame:
     validate_columns(dataframe, USER_PROFILE_COLUMNS, "user_profile")
     dataframe = coerce_article_id_string(dataframe)
     reject_duplicate_key(dataframe, USER_PROFILE_KEY_COLUMNS, "user_profile")
+    return dataframe
+
+
+def read_customer_profile(path: Path) -> pd.DataFrame:
+    dataframe = pd.read_parquet(path)
+    validate_columns(dataframe, CUSTOMER_PROFILE_COLUMNS, "customer_profile")
+    dataframe = coerce_article_id_string(dataframe)
+    reject_missing_key(dataframe, CUSTOMER_PROFILE_KEY_COLUMNS, "customer_profile")
+    reject_duplicate_key(dataframe, CUSTOMER_PROFILE_KEY_COLUMNS, "customer_profile")
+
+    invalid_bucket = ~dataframe["age_bucket"].isin(CUSTOMER_AGE_BUCKETS)
+    if invalid_bucket.any():
+        sample = dataframe.loc[invalid_bucket, ["customer_id", "age_bucket"]]
+        sample_records = sample.head(3).to_dict("records")
+        raise ValueError(f"customer_profile age_bucket 非法: {sample_records}")
+    return dataframe
+
+
+def read_article_product_map(path: Path) -> pd.DataFrame:
+    dataframe = pd.read_parquet(path)
+    validate_columns(dataframe, ARTICLE_PRODUCT_MAP_COLUMNS, "article_product_map")
+    dataframe = coerce_article_id_string(dataframe)
+    reject_missing_key(
+        dataframe,
+        ARTICLE_PRODUCT_MAP_KEY_COLUMNS,
+        "article_product_map",
+    )
+    reject_duplicate_key(
+        dataframe,
+        ARTICLE_PRODUCT_MAP_KEY_COLUMNS,
+        "article_product_map",
+    )
+    missing_product_code = dataframe["product_code"].isna() | (
+        dataframe["product_code"].astype("string").str.strip() == ""
+    )
+    if missing_product_code.any():
+        sample = dataframe.loc[missing_product_code, ["article_id", "product_code"]]
+        raise ValueError(
+            "article_product_map product_code 缺失: "
+            f"{sample.head(3).to_dict('records')}"
+        )
     return dataframe
 
 

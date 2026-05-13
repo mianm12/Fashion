@@ -11,6 +11,15 @@ from fashion_trend.recommendation import contracts, paths, readers
 def test_public_recommendation_contract_constants() -> None:
     assert contracts.RECOMMENDATION_TOP_K == 12
     assert contracts.RECOMMENDATION_ARTICLE_ID_DTYPE == "string"
+    assert contracts.CUSTOMER_AGE_BUCKETS == (
+        "unknown",
+        "0-19",
+        "20-29",
+        "30-39",
+        "40-49",
+        "50-59",
+        "60+",
+    )
     assert contracts.VALID_RECOMMENDATION_SPLITS == ("valid", "test")
     assert contracts.RECOMMENDATION_METHODS == (
         "global_popularity",
@@ -68,6 +77,14 @@ def test_public_recommendation_contract_constants() -> None:
         "attr_type",
         "attr_value",
     )
+    assert contracts.CUSTOMER_PROFILE_COLUMNS == (
+        "customer_id",
+        "age",
+        "age_bucket",
+        "club_member_status",
+        "fashion_news_frequency",
+    )
+    assert contracts.ARTICLE_PRODUCT_MAP_COLUMNS == ("article_id", "product_code")
     assert contracts.CANDIDATE_ITEM_KEY_COLUMNS == (
         "split",
         "cutoff_week",
@@ -219,6 +236,30 @@ def test_parquet_readers_validate_exact_columns_and_duplicates(tmp_path: Path) -
     )
     with pytest.raises(ValueError, match="重复键"):
         readers.read_time_windows(bad_path)
+
+
+def test_read_customer_profile_rejects_invalid_age_bucket(tmp_path: Path) -> None:
+    customer_profile_path = tmp_path / "customer_profile.parquet"
+    _write_parquet(
+        customer_profile_path,
+        contracts.CUSTOMER_PROFILE_COLUMNS,
+        [("0000001", 20, "20s", "ACTIVE", "Regularly")],
+    )
+
+    with pytest.raises(ValueError, match="age_bucket"):
+        readers.read_customer_profile(customer_profile_path)
+
+
+def test_read_article_product_map_rejects_duplicate_article_id(tmp_path: Path) -> None:
+    article_product_map_path = tmp_path / "article_product_map.parquet"
+    _write_parquet(
+        article_product_map_path,
+        contracts.ARTICLE_PRODUCT_MAP_COLUMNS,
+        [("0000000001", "001"), ("0000000001", "002")],
+    )
+
+    with pytest.raises(ValueError, match="重复键"):
+        readers.read_article_product_map(article_product_map_path)
 
 
 def test_candidate_items_reader_validates_strategy_from_path(tmp_path: Path) -> None:

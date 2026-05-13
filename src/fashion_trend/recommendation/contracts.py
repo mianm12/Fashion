@@ -5,6 +5,15 @@ RECOMMENDATION_CANDIDATES_PER_SOURCE = RECOMMENDATION_TOP_K
 RECOMMENDATION_BACKFILL_CANDIDATES_PER_WINDOW = 50
 RECOMMENDATION_PROFILE_TOP_ATTRIBUTES = 3
 RECOMMENDATION_ARTICLE_ID_DTYPE = "string"
+CUSTOMER_AGE_BUCKETS = (
+    "unknown",
+    "0-19",
+    "20-29",
+    "30-39",
+    "40-49",
+    "50-59",
+    "60+",
+)
 
 VALID_RECOMMENDATION_SPLITS = ("valid", "test")
 RECOMMENDATION_METHODS = (
@@ -69,6 +78,14 @@ USER_PROFILE_COLUMNS = (
     "purchase_count",
     "last_purchase_week",
 )
+CUSTOMER_PROFILE_COLUMNS = (
+    "customer_id",
+    "age",
+    "age_bucket",
+    "club_member_status",
+    "fashion_news_frequency",
+)
+ARTICLE_PRODUCT_MAP_COLUMNS = ("article_id", "product_code")
 CANDIDATE_ITEM_COLUMNS = (
     "split",
     "cutoff_week",
@@ -150,11 +167,14 @@ USER_PROFILE_KEY_COLUMNS = (
     "attr_type",
     "attr_value",
 )
+CUSTOMER_PROFILE_KEY_COLUMNS = ("customer_id",)
+ARTICLE_PRODUCT_MAP_KEY_COLUMNS = ("article_id",)
 
 RECOMMENDATION_TEXT_COLUMNS = (
     "split",
     "customer_id",
     "article_id",
+    "product_code",
     "prediction",
     "strategy",
     "method",
@@ -162,4 +182,7 @@ RECOMMENDATION_TEXT_COLUMNS = (
     "primary_source",
     "attr_type",
     "attr_value",
+    "age_bucket",
+    "club_member_status",
+    "fashion_news_frequency",
 )
