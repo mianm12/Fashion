@@ -153,7 +153,7 @@ data/
 
 ## 数据预处理
 
-当前已实现流水线按下面顺序运行：
+当前已实现流水线可按下面顺序从原始数据推进到本地展示库。`12` 号之后的推荐、reports 和展示库构建依赖上游 stable artifact，耗时较长时可按阶段单独运行：
 
 ```sh
 uv run python src/00_download_data.py
@@ -174,6 +174,13 @@ uv run python src/11_eval_trend_model.py --model last_week
 uv run python src/11_eval_trend_model.py --model previous_growth
 uv run python src/11_eval_trend_model.py --model moving_average
 uv run python src/11_eval_trend_model.py --model lightgbm
+uv run python src/12_build_recommendation_inputs.py
+uv run python src/13_build_recommend_candidates.py --strategy default
+uv run python src/14_rerank_recommendations.py --method pop_similarity_trend
+uv run python src/15_eval_recommendations.py --method pop_similarity_trend
+uv run python src/16_run_recommendation_experiment.py --experiment main
+uv run python src/17_export_paper_assets.py
+uv run python src/18_build_defense_app_db.py
 ```
 
 ### 1. transactions_train.csv
@@ -742,9 +749,10 @@ uv run python src/18_build_defense_app_db.py
 
 ```text
 outputs/defense_app/fashion_demo.sqlite
+outputs/defense_app/static/reports/
 ```
 
-该 SQLite 文件是生成产物，不应提交。后端只读该 SQLite，前端只调用 FastAPI：
+SQLite 文件和静态图表副本都是生成产物，不应提交。构建展示库时会从 `outputs/reports/` 复制展示所需图表到 `outputs/defense_app/static/reports/`；构建失败时会回滚旧数据库和旧静态资源。后端只读该 SQLite，前端只调用 FastAPI：
 
 ```sh
 uv run --group app uvicorn app.main:app --reload --app-dir apps/defense_app/backend
@@ -758,12 +766,13 @@ npm run dev
 ## 后续阶段
 
 趋势模型训练与评价框架已经落地到 `last_week`、`previous_growth`、`moving_average`
-三类必须 baseline、`lightgbm` 主模型、推荐离线实验和论文素材导出，README 继续按计划记录后续边界：
+三类必须 baseline、`lightgbm` 主模型、推荐离线实验、论文素材导出和本地答辩展示应用。README 继续记录可选增强边界：
 
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
 | 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现并完成首轮 stable 调参；后续可考虑更多监督模型或 EWMA 等增强 baseline |
-| 推荐实验增强 | 推荐消融和案例展示 | 当前已支持轻量离线 Top-12、单方法评价、`main` 实验和 reports 导出；后续可补充更严格的命名消融 |
+| 推荐实验增强 | 推荐召回、消融和案例证据 | 当前已支持轻量离线 Top-12、单方法评价、`main` 实验、reports 导出和展示应用消费；后续优先补充更强候选召回和更严格的命名消融 |
+| 答辩展示完善 | 演示脚本和少量交互优化 | 当前已具备 SQLite 展示库、FastAPI 后端和 Vue/Vite 前端；后续只做不改变研究结论的展示增强 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
 
@@ -796,6 +805,16 @@ npm run dev
 uv run pytest
 ```
 
+答辩展示应用相关验证需要显式安装和使用应用依赖：
+
+```sh
+uv run --group app pytest apps/defense_app/backend/tests
+uv run --group app python -m compileall -q apps/defense_app/backend
+cd apps/defense_app/frontend
+npm run typecheck
+npm run build
+```
+
 已覆盖的核心逻辑包括：
 
 - articles 清洗字段、缺失值、重复 `article_id` 和文件写出回滚。
@@ -807,5 +826,7 @@ uv run pytest
 - `last_week`、`previous_growth` 与 `moving_average` baseline 预测公式、预测表校验、通用训练 runner metadata、artifact 和写出顺序校验。
 - `lightgbm` 主模型的特征准备、延迟原生包导入、metadata 诊断、特征重要性、artifact 和训练/评价 runner 接入校验。
 - 趋势评价的预测读取、输入校验、分组指标、JSON payload、写出边界和 CLI 行为校验。
+- 推荐输入、候选召回、feature cache、排序打分、方法注册、Top-N 评价、主实验编排和 freshness contract。
+- reports loaders、图表、表格、Markdown、推荐解释案例、manifest 和只读架构边界。
 - presentation 展示库 schema、表构建、SQLite 写入、架构边界和 `src/18_build_defense_app_db.py` 入口。
 - defense app 后端只读 API、错误响应、推荐解释、metrics summary 和 SQLite 连接边界。

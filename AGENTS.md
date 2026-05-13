@@ -2,19 +2,23 @@
 
 ## 项目范围与当前状态
 
-这是一个 Python 3.10-3.12 项目，用于 H&M 时尚趋势预测和轻量推荐实验。当前已实现的流水线覆盖周级数据准备、商品清洗、属性图构建、商品周销量、属性周热度、趋势标签、趋势样本、基于时间的样本切分、三类趋势 baseline、LightGBM 主模型、趋势评价、轻量离线 Top-N 推荐生成、推荐评价，以及论文图表、表格和案例导出。
+这是一个 Python 3.10-3.12 项目，用于 H&M 时尚趋势预测和轻量推荐实验。当前已实现的流水线覆盖周级数据准备、商品清洗、属性图构建、商品周销量、属性周热度、趋势标签、趋势样本、基于时间的样本切分、三类趋势 baseline、LightGBM 主模型、趋势评价、轻量离线 Top-N 推荐生成、推荐评价、论文图表/表格/案例导出、只读 SQLite 展示库构建，以及本地答辩展示应用。
 
 推荐模块已实现为离线实验层，用于把趋势预测结果映射回商品推荐并验证趋势分贡献。不要把它描述成在线服务、深度推荐模型、向量召回系统或完整生产推荐平台。
 
 报告导出模块已实现为只读论文素材层，用于从稳定 artifact 导出静态图表、Markdown/CSV 表格、推荐解释案例和 manifest。不要把它描述成在线 dashboard、交互式展示系统或会重新训练模型的流程。
 
+presentation 模块已实现为本地答辩展示库构建层，用于从稳定 artifact 抽取趋势、属性图、推荐、reports 图表和案例数据，写入 `outputs/defense_app/fashion_demo.sqlite` 并发布展示所需静态图表副本。不要把它描述成训练、推荐重跑、候选构建或在线查询系统。
+
+`apps/defense_app/` 是本地只读展示应用：后端是 FastAPI 查询层，前端是 Vue/Vite 桌面展示界面。它依赖已经构建好的 SQLite 展示库，不直接读取原始 H&M 数据、Parquet/CSV 上游 artifact、训练 run 目录或历史推荐 CSV。
+
 大体量数据集和生成产物位于 `data/` 和 `outputs/`。这些内容应视为运行时产物，不应作为源代码文件处理。
 
-运行时依赖以 `pyproject.toml` 为准，当前包含 `kagglehub`、`lightgbm`、`matplotlib`、`numpy`、`pandas`、`pyarrow` 和 `scikit-learn`。LightGBM 是原生依赖，导入失败时应优先检查本机 native runtime，例如 macOS 上的 `libomp`，不要把缺少 native runtime 误判为 baseline 或 registry 问题。
+运行时依赖以 `pyproject.toml` 为准。核心依赖当前包含 `kagglehub`、`lightgbm`、`matplotlib`、`numpy`、`pandas`、`pyarrow` 和 `scikit-learn`；`app` 依赖组包含 FastAPI 后端所需的 `fastapi` 和 `uvicorn`；`dev` 依赖组包含 `pytest`、`httpx`、`black` 和 `isort`。前端依赖位于 `apps/defense_app/frontend/package.json`，不要在仓库根目录新增 Node 项目。LightGBM 是原生依赖，导入失败时应优先检查本机 native runtime，例如 macOS 上的 `libomp`，不要把缺少 native runtime 误判为 baseline 或 registry 问题。
 
 ## 项目结构与模块组织
 
-`src/00_*.py` 到 `src/17_*.py` 的编号脚本是工作流入口。它们应保持为清晰的编排层：解析参数、按顺序调用包函数、记录日志并返回稳定退出码。核心计算、校验、读取、写入和 artifact 处理应放在 `src/fashion_trend/` 下。
+`src/00_*.py` 到 `src/18_*.py` 的编号脚本是工作流入口。它们应保持为清晰的编排层：解析参数、按顺序调用包函数、记录日志并返回稳定退出码。核心计算、校验、读取、写入和 artifact 处理应放在 `src/fashion_trend/` 下。
 
 包按领域组织：
 
@@ -25,6 +29,13 @@
 - `trend/`：趋势 schema、路径、reader、预测契约、热度、标签、特征、切分、训练、评价和模型实现。
 - `recommendation/`：推荐契约、路径、reader、输入构建、候选召回、重排序方法、评价、实验编排和输出契约。
 - `reports/`：只读论文素材导出，包括报表路径、输入加载、图表、表格、案例、manifest 和导出 runner。
+- `presentation/`：只读答辩展示库构建，包括展示 schema、source artifact 记录、上游 artifact 抽取、表构建、SQLite 写入、静态 reports 资产发布和构建 runner。
+
+本地展示应用位于 `apps/defense_app/`：
+
+- `backend/`：FastAPI 只读 API、Pydantic schema、SQLite repository 和轻量服务层。
+- `frontend/`：Vue 3、TypeScript 和 Vite 桌面展示应用。
+- `README.md`：展示库构建、后端运行、前端运行和视觉 QA 说明。
 
 在 `trend/` 内部保持职责清晰：
 
@@ -60,6 +71,16 @@
 - `manifest.py`：记录参数、输入、输出、行数、案例用户和 warnings。
 - `runner.py`：编排论文素材导出；只能读取稳定 artifact，不能训练模型、重跑推荐方法或构建上游数据。
 
+在 `presentation/` 内部保持职责清晰：
+
+- `paths.py`：展示库输出路径和稳定上游 artifact 路径。
+- `contracts.py`：展示库 schema version、展示限制和主推荐 method。
+- `source_artifacts.py`：记录 source 路径、mtime、size 和 row count。
+- `extractors.py`：只读加载 reports、趋势、推荐、图和商品 artifact。
+- `builders.py`：构建 SQLite 展示表，不写文件。
+- `sqlite_writer.py`：创建 schema、写表、校验和索引。
+- `runner.py`：编排 SQLite 发布和静态 reports 图表复制；失败时回滚旧数据库和旧静态资源。
+
 不要重新引入历史根模块，例如 `fashion_trend.training`、`fashion_trend.evaluation`、`fashion_trend.models`、`fashion_trend.articles` 或 `fashion_trend.data_loader`。当存在具体子模块导入路径时，不要通过 `fashion_trend.trend` facade 导入；架构测试会强制检查直接导入。
 
 ## 构建、测试与开发命令
@@ -69,6 +90,11 @@
 - `uv run pytest tests/test_trend_training.py tests/test_trend_lightgbm.py tests/test_trend_evaluation.py`：针对趋势训练、LightGBM 和评价改动的聚焦验证。
 - `uv run pytest tests/test_recommendation_*.py tests/test_architecture_boundaries.py`：针对推荐输入、召回、排序、方法、评价、实验和架构边界改动的聚焦验证。
 - `uv run pytest tests/test_reports_*.py tests/test_architecture_boundaries.py`：针对论文素材导出、reports 只读边界和架构边界改动的聚焦验证。
+- `uv run pytest tests/test_presentation_*.py tests/test_architecture_boundaries.py`：针对展示库构建、presentation 只读边界和 18 号入口改动的聚焦验证。
+- `uv run --group app pytest apps/defense_app/backend/tests`：针对 FastAPI 后端只读 API、schema、repository 和 service 改动的聚焦验证。
+- `uv run --group app python -m compileall -q apps/defense_app/backend`：后端导入边界或 API 结构改动后的编译检查。
+- `npm --prefix apps/defense_app/frontend run typecheck`：前端 TypeScript 类型检查。
+- `npm --prefix apps/defense_app/frontend run build`：前端生产构建检查。
 - `uv run pytest tests/test_architecture_boundaries.py`：修改包结构、导入路径或 facade 边界时的聚焦验证。
 - `uv run black --check src tests`：检查 Python 格式。
 - `uv run isort --check-only src tests`：使用 Black profile 检查 import 排序。
@@ -128,6 +154,14 @@ uv run python src/17_export_paper_assets.py
 ```
 
 reports 阶段依赖已发布的稳定趋势、推荐、图和数据 artifact。它只读取现有 artifact 并写入 `outputs/reports/`，不训练模型、不重跑推荐方法、不构建上游数据。如果本机缺少可用 CJK 字体，图表导出应 fail-fast，避免生成缺字中文图。
+
+通过 presentation 入口构建本地答辩展示库：
+
+```sh
+uv run python src/18_build_defense_app_db.py
+```
+
+presentation 阶段依赖已发布的稳定趋势、推荐、reports、图和商品 artifact。它只读取现有 artifact，写入 `outputs/defense_app/fashion_demo.sqlite`，并复制展示所需 reports 图表到 `outputs/defense_app/static/reports/`。它不能训练模型、重跑推荐方法、构建候选、重导出 reports 或直接读取原始交易 CSV。
 
 默认运行 `uv run python src/10_train_trend_model.py --model lightgbm` 时，训练参数优先读取 `outputs/models/lightgbm/params.json` 中已经发布的 stable 参数；如果 stable 参数文件不存在，才回退到源码内置默认参数。这条默认训练路径会生成自动 `run_id`，并默认发布到 stable，因此会更新 `outputs/models/lightgbm/`。默认运行 `uv run python src/11_eval_trend_model.py --model lightgbm` 时评价当前 stable 预测，并写入 `outputs/metrics/lightgbm/trend_metrics.json`。
 
@@ -221,6 +255,14 @@ LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。
 
 默认 reports 导出应包含核心图表的 SVG/PNG 双格式、CSV/Markdown 双格式表格、推荐解释案例和 `manifest.json`。Manifest 应记录导出参数、输入 artifact、输出 artifact、表格行数、案例用户和 warnings，方便论文素材审计。
 
+本地答辩展示应用使用：
+
+- `outputs/defense_app/fashion_demo.sqlite`
+- `outputs/defense_app/static/reports/*.svg`
+- `outputs/defense_app/static/reports/*.png`
+
+这些文件都是生成产物，不应提交。展示库应记录 source artifact 的路径、mtime、size 和 row count，并保留 `article_id`、`customer_id`、`attr_id` 的字符串语义。后端默认只读取 `outputs/defense_app/fashion_demo.sqlite`，允许通过 `DEFENSE_APP_DB_PATH` 覆盖路径。
+
 `16_run_recommendation_experiment.py` 的推荐实验 force 语义必须保持精确：
 
 ```sh
@@ -251,22 +293,25 @@ uv run python src/16_run_recommendation_experiment.py --experiment main --force-
 - `recommendation` 和 `reports` 只能读取上游公开契约和 reader，不能依赖核心计算模块。
 - `recommendation` 不能导入 trend training、trend models、trend evaluation runner 或 catalog graph builder；它只能消费上游公开 reader、contract 和已发布 artifact。
 - `reports` 不能导入训练 runner、推荐实验 runner、候选构建、重排序实现或图构建实现；它只能通过 reader、paths 和稳定 artifact 做只读汇总。
+- `presentation` 只能通过公开 reader、contract、reports loaders/paths 和稳定 artifact 做只读抽取；不能导入 datasets 下载、transactions weekly 构建、catalog graph builder、trend training/models/evaluation runner、recommendation runner/retrieval/ranking/experiments 或 reports runner。
+- `apps/defense_app/backend` 只能通过 SQLite repository 查询展示库，不应直接读取 `data/`、`outputs/models/`、`outputs/recommendation/`、`outputs/reports/` 或原始 H&M 文件。
+- `apps/defense_app/frontend` 只调用 FastAPI `/api` 接口，不应直接读取 SQLite、CSV、Parquet、本地文件路径或上游 artifact。
 
 新增功能时，将其放在拥有对应业务事实的领域中。不要让编号脚本成为可复用逻辑的来源。
 
 ## 测试指南
 
-项目使用 pytest。测试文件命名为 `tests/test_*.py`，新增测试应对齐真实流水线阶段：foundation artifact、商品清洗、属性图、商品销量、属性热度、标签、样本、切分、训练、LightGBM、趋势评价、推荐输入、推荐召回、推荐排序、推荐方法、推荐评价、推荐实验、reports 导出或架构边界。
+项目使用 pytest。测试文件命名为 `tests/test_*.py`，新增测试应对齐真实流水线阶段：foundation artifact、商品清洗、属性图、商品销量、属性热度、标签、样本、切分、训练、LightGBM、趋势评价、推荐输入、推荐召回、推荐排序、推荐方法、推荐评价、推荐实验、reports 导出、presentation 展示库、defense app 后端 API 或架构边界。前端变更应至少运行 TypeScript typecheck；影响构建输出、路由或共享组件时运行 frontend build。
 
 除非明确说明是 artifact 验证，否则测试不应依赖真实 H&M 数据集。优先使用小型内存 fixture，以及 `tests/trend_samples.py` 或 `tests/__init__.py` 中的共享 helper。
 
-修复 bug 时，添加或更新一个修复前会失败的回归测试。修改模型、推荐方法、reports 导出或 artifact 契约时，同时验证 happy path 和边界失败，例如非法模型名、非法 method、非法 strategy、非法 `run_id`、缺失 split 列、不安全路径、缺失 eligible 用户、重复推荐商品、Top-K 越界、figure format 重复或非法，以及 prediction/metrics payload 不匹配。
+修复 bug 时，添加或更新一个修复前会失败的回归测试。修改模型、推荐方法、reports 导出、presentation 展示库或 artifact 契约时，同时验证 happy path 和边界失败，例如非法模型名、非法 method、非法 strategy、非法 `run_id`、缺失 split 列、不安全路径、缺失 eligible 用户、重复推荐商品、Top-K 越界、figure format 重复或非法、缺失 source artifact、SQLite schema 不匹配，以及 prediction/metrics payload 不匹配。
 
 ## 文档指南
 
-当命令语法、artifact 路径、模型语义或架构边界变化时，保持 `README.md`、`docs/gpt-research/implementation-plan.md`，以及相关 `docs/superpowers/specs/` 或 `docs/superpowers/plans/` 与 as-built 行为一致。
+当命令语法、artifact 路径、模型语义、展示应用行为或架构边界变化时，保持 `README.md`、`apps/defense_app/README.md`、`docs/gpt-research/implementation-plan.md`，以及相关 `docs/superpowers/specs/` 或 `docs/superpowers/plans/` 与 as-built 行为一致。
 
-不要留下暗示已实现模块仍位于已删除根文件中的历史设计文本。当前趋势训练和评价代码位于 `src/fashion_trend/trend/` 下，推荐代码位于 `src/fashion_trend/recommendation/` 下，论文素材导出代码位于 `src/fashion_trend/reports/` 下。
+不要留下暗示已实现模块仍位于已删除根文件中的历史设计文本。当前趋势训练和评价代码位于 `src/fashion_trend/trend/` 下，推荐代码位于 `src/fashion_trend/recommendation/` 下，论文素材导出代码位于 `src/fashion_trend/reports/` 下，答辩展示库构建代码位于 `src/fashion_trend/presentation/` 下，本地展示应用位于 `apps/defense_app/` 下。
 
 ## Commit 与 Pull Request 指南
 
