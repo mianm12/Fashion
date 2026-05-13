@@ -1434,7 +1434,7 @@ hm-fashion-trend-rec/
 └── README.md
 ```
 
-当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/17_*.py`。报告导出入口为 `src/17_export_paper_assets.py`，只读取已发布稳定 artifact，输出论文 figures、tables、case studies 和 manifest，不训练模型、不重跑推荐方法，也不是在线 dashboard。内部计算事实按业务域进入 `src/fashion_trend/`。默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation 和 reports 的业务路径由各自领域的 `paths.py` 持有。商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training/`，趋势评价在 `src/fashion_trend/trend/evaluation/`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`；推荐时间窗口、输入、候选、排序、方法、评价和实验编排位于 `src/fashion_trend/recommendation/`；论文素材读取、表格、图表、案例和 manifest 编排位于 `src/fashion_trend/reports/`。
+当前实现中，已落地的用户可运行脚本是 `src/00_*.py` 到 `src/18_*.py`。报告导出入口为 `src/17_export_paper_assets.py`，只读取已发布稳定 artifact，输出论文 figures、tables、case studies 和 manifest，不训练模型、不重跑推荐方法，也不是在线 dashboard。展示库构建入口为 `src/18_build_defense_app_db.py`，只读取稳定 artifact 并写入本地只读 SQLite 展示库。内部计算事实按业务域进入 `src/fashion_trend/`。默认路径根常量位于 `foundation.paths`；数据集、交易、catalog、trend、recommendation、reports 和 presentation 的业务路径由各自领域的 `paths.py` 持有。商品清洗和属性图在 `src/fashion_trend/catalog/`，趋势训练 runner 在 `src/fashion_trend/trend/training/`，趋势评价在 `src/fashion_trend/trend/evaluation/`，趋势模型实现和注册表在 `src/fashion_trend/trend/models/`；推荐时间窗口、输入、候选、排序、方法、评价和实验编排位于 `src/fashion_trend/recommendation/`；论文素材读取、表格、图表、案例和 manifest 编排位于 `src/fashion_trend/reports/`；答辩展示库构建位于 `src/fashion_trend/presentation/`。
 
 ---
 
@@ -1456,12 +1456,13 @@ hm-fashion-trend-rec/
 | LightGBM run 评价 | `11_eval_trend_model.py --model lightgbm --run-id <run_id>` | `outputs/metrics/lightgbm/runs/<run_id>/trend_metrics.json` |
 | 已评估 run 发布 | `10_train_trend_model.py --model lightgbm --promote-run <run_id>` | 发布到 `outputs/models/lightgbm/` 和 `outputs/metrics/lightgbm/trend_metrics.json` |
 | 趋势评价        | `11_eval_trend_model.py`            | `outputs/metrics/<model>/trend_metrics.json`                                                               |
-| 推荐输入        | `src/12_build_recommendation_inputs.py` | `time_windows.parquet`, `target_users.parquet`, `evaluation_labels.parquet`, `user_profile.parquet`, `data/processed/recommend/metadata.json` |
+| 推荐输入        | `src/12_build_recommendation_inputs.py` | `time_windows.parquet`, `target_users.parquet`, `evaluation_labels.parquet`, `user_profile.parquet`, `customer_profile.parquet`, `article_product_map.parquet`, `data/processed/recommend/metadata.json` |
 | 候选召回        | `src/13_build_recommend_candidates.py --strategy <strategy>` | `data/processed/recommend/candidates/<strategy>/candidate_items.parquet` |
 | 推荐特征缓存     | `src/16_run_recommendation_experiment.py --experiment main --force-cache` | `data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet` |
 | 推荐重排序       | `src/14_rerank_recommendations.py --method <method>` | `outputs/recommendation/<method>/recommendations.csv`, `recommendation_items.parquet`, `params.json`, `metadata.json` |
 | 推荐评价        | `src/15_eval_recommendations.py --method <method>` | `outputs/recommendation/<method>/metrics.json`                                                             |
 | 推荐实验        | `src/16_run_recommendation_experiment.py --experiment main` | `outputs/recommendation/experiments/<experiment_id>/experiment.json`                                       |
+| 推荐第一阶段增强 | `13_build_recommend_candidates.py --strategy enhanced_default`, `14_rerank_recommendations.py --method enhanced_pop_similarity_trend`, `16_run_recommendation_experiment.py --experiment recommendation_enhanced` | `data/processed/recommend/candidates/enhanced_default/`, `outputs/recommendation/enhanced_pop_similarity_trend/`, `outputs/recommendation/experiments/recommendation_enhanced/` |
 | 报告导出        | `src/17_export_paper_assets.py` | `outputs/reports/figures/*.{svg,png}`, `outputs/reports/tables/*.{csv,md}`, `outputs/reports/case_studies/*.{json,md}`, `outputs/reports/manifest.json` |
 
 当前 `main` 推荐实验使用 valid split 的 `NDCG@12` 选择
@@ -1775,6 +1776,8 @@ data/processed/recommend/time_windows.parquet
 data/processed/recommend/target_users.parquet
 data/processed/recommend/evaluation_labels.parquet
 data/processed/recommend/user_profile.parquet
+data/processed/recommend/customer_profile.parquet
+data/processed/recommend/article_product_map.parquet
 ```
 
 ---
@@ -1799,12 +1802,19 @@ src/13_build_recommend_candidates.py --strategy <strategy>
 近期热门
 用户属性相似
 趋势属性商品
+可选增强来源：复购、同款变体、年龄段热门、偏好属性热门
 ```
 
 输出：
 
 ```text
 data/processed/recommend/candidates/<strategy>/candidate_items.parquet
+```
+
+第一阶段增强候选以独立 strategy 写入：
+
+```text
+data/processed/recommend/candidates/enhanced_default/candidate_items.parquet
 ```
 
 ---
@@ -1834,6 +1844,18 @@ outputs/recommendation/<method>/metadata.json
 
 `recommendation_items.parquet` 是默认内部长表产物；`recommendation_items.csv`
 仅在显式导出时生成。
+
+第一阶段增强 method 为 `enhanced_pop_similarity_trend`，输出仍按 method 隔离：
+
+```text
+outputs/recommendation/enhanced_pop_similarity_trend/recommendations.csv
+outputs/recommendation/enhanced_pop_similarity_trend/recommendation_items.parquet
+outputs/recommendation/enhanced_pop_similarity_trend/params.json
+outputs/recommendation/enhanced_pop_similarity_trend/metadata.json
+outputs/recommendation/enhanced_pop_similarity_trend/metrics.json
+```
+
+该 method 不默认替换 `outputs/recommendation/pop_similarity_trend/`。
 
 格式：
 
@@ -1904,6 +1926,30 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
 `--force-experiment` 只在权重网格和输入、候选、feature cache、趋势预测 fingerprint
 都匹配时复用旧 `search_results`；否则重新计算或由下层 freshness guard 拒绝旧缓存。
 
+第一阶段增强实验已经作为独立可选实验实现：
+
+```sh
+uv run python src/13_build_recommend_candidates.py --strategy enhanced_default
+uv run python src/14_rerank_recommendations.py --method enhanced_pop_similarity_trend
+uv run python src/16_run_recommendation_experiment.py --experiment recommendation_enhanced
+```
+
+它只写入：
+
+```text
+outputs/recommendation/experiments/recommendation_enhanced/experiment.json
+```
+
+`recommendation_enhanced` 不覆盖 `outputs/recommendation/experiments/main/experiment.json`，
+不默认替换 `outputs/recommendation/pop_similarity_trend/`，也不会让 reports 或 defense app
+默认消费增强输出。reports 和 defense app 仍读取稳定默认推荐输出，除非后续显式调整。
+
+论文边界上，增强实验用于证明趋势预测结果在轻量 Top-N 推荐中的应用价值。成功标准是
+`enhanced_pop_similarity_trend` 相对 `pop_similarity_trend` 在 MAP@12 或 NDCG@12 上提升，
+且 `enhanced_default` 候选 recall 相对 `default` 提升；不要求全面超过
+`recent_popularity`。如果严格去趋势 source+score 消融不明显下降，趋势信号只能表述为
+解释性辅助信号，不能写成强因果贡献。
+
 ---
 
 # 18. 实验设计建议
@@ -1927,7 +1973,8 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
 | Global Popularity        | 最简单推荐基线     |
 | Recent Popularity        | 时间感知热门基线    |
 | Pop + Similarity         | 个性化但无趋势     |
-| Pop + Similarity + Trend | 最终趋势感知推荐    |
+| Pop + Similarity + Trend | 默认趋势感知推荐    |
+| Enhanced Pop + Similarity + Trend | 第一阶段增强验证，独立于默认 main 实验 |
 | 不同 $\gamma$ 权重           | 分析趋势分对推荐的影响 |
 
 ---
@@ -1938,6 +1985,8 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
 `Full Model`、严格 `w/o Trend in Rec`、严格 `w/o Similarity`、严格
 `w/o Recent` 和稳定 baseline 对照。`w/o Graph`、`w/o Growth`、`w/o Rank`
 属于趋势模型特征消融，需要重训 LightGBM 变体，不属于本轮推荐消融实现。
+第一阶段增强实验额外包含增强来源和增强分数相关诊断；若严格去趋势 source+score
+消融不明显下降，论文中只能把趋势信号表述为解释性辅助信号。
 
 | 模型版本             | 去掉的部分         | 当前状态       |
 | ---------------- | ------------- | ---------- |
@@ -2095,10 +2144,10 @@ active_weeks >= 8
 # 22. 历史开发顺序与当前下一步
 
 本节保留基础脚本的历史开发顺序，用来说明数据流如何从原始数据推进到趋势训练样本。
-当前实现状态已经推进到 `00` 到 `16` 号入口：基础数据流、三类 baseline、
-LightGBM 主模型、趋势评价和轻量离线推荐实验均已落地。
+当前实现状态已经推进到 `00` 到 `18` 号入口：基础数据流、三类 baseline、
+LightGBM 主模型、趋势评价、轻量离线推荐实验、论文素材导出和本地答辩展示应用均已落地。
 
-推荐模块已包含输入构建、strategy-scoped 候选、method-scoped 推荐输出、单方法评价和 `main` 实验编排。基础脚本的历史顺序如下：
+推荐模块已包含输入构建、strategy-scoped 候选、method-scoped 推荐输出、单方法评价、`main` 实验编排和独立可选的 `recommendation_enhanced` 第一阶段增强实验。基础脚本的历史顺序如下：
 
 ## 第 1 个脚本：`01_data_check.py`
 

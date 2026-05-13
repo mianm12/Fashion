@@ -35,6 +35,7 @@ H&M transactions_train.csv
 | LightGBM 主模型 | 已实现（运行命令后生成） | `outputs/models/lightgbm/predictions.csv`、`params.json`、`metadata.json`、`feature_importance.csv`、`model.txt` |
 | 趋势评价 | 已实现（运行命令后生成） | `outputs/metrics/last_week/trend_metrics.json`、`outputs/metrics/previous_growth/trend_metrics.json`、`outputs/metrics/moving_average/trend_metrics.json`、`outputs/metrics/lightgbm/trend_metrics.json` |
 | 推荐模块与推荐评价 | 已实现（运行命令后生成） | `outputs/recommendation/<method>/recommendations.csv`、`recommendation_items.parquet`、`params.json`、`metadata.json`、`metrics.json` |
+| 推荐第一阶段增强 | 已实现（可选运行命令后生成） | `data/processed/recommend/candidates/enhanced_default/`、`outputs/recommendation/enhanced_pop_similarity_trend/`、`outputs/recommendation/experiments/recommendation_enhanced/` |
 | 论文素材导出 | 已实现（运行命令后生成） | `outputs/reports/figures/`、`outputs/reports/tables/`、`outputs/reports/case_studies/`、`outputs/reports/manifest.json` |
 | 本地答辩展示应用 | 已实现（运行命令后生成） | `outputs/defense_app/fashion_demo.sqlite`、`apps/defense_app/backend/`、`apps/defense_app/frontend/` |
 
@@ -181,6 +182,16 @@ uv run python src/15_eval_recommendations.py --method pop_similarity_trend
 uv run python src/16_run_recommendation_experiment.py --experiment main
 uv run python src/17_export_paper_assets.py
 uv run python src/18_build_defense_app_db.py
+```
+
+第一阶段推荐增强已经作为独立可选实验实现。它不属于默认流水线，不覆盖
+`outputs/recommendation/experiments/main/experiment.json`，也不默认替换
+`outputs/recommendation/pop_similarity_trend/` stable 结果。需要单独审查增强效果时运行：
+
+```sh
+uv run python src/13_build_recommend_candidates.py --strategy enhanced_default
+uv run python src/14_rerank_recommendations.py --method enhanced_pop_similarity_trend
+uv run python src/16_run_recommendation_experiment.py --experiment recommendation_enhanced
 ```
 
 ### 1. transactions_train.csv
@@ -674,6 +685,8 @@ data/processed/recommend/time_windows.parquet
 data/processed/recommend/target_users.parquet
 data/processed/recommend/evaluation_labels.parquet
 data/processed/recommend/user_profile.parquet
+data/processed/recommend/customer_profile.parquet
+data/processed/recommend/article_product_map.parquet
 data/processed/recommend/metadata.json
 data/processed/recommend/candidates/<strategy>/candidate_items.parquet
 data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet
@@ -692,6 +705,16 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
 
 `recommendation_items.parquet` 是默认内部长表产物；`recommendation_items.csv`
 仅作为显式导出用途，不是默认推荐输出。
+
+可选增强路径已经实现：`enhanced_default` 候选会写入
+`data/processed/recommend/candidates/enhanced_default/`，
+`enhanced_pop_similarity_trend` method 会写入
+`outputs/recommendation/enhanced_pop_similarity_trend/`，
+`recommendation_enhanced` 实验只写入
+`outputs/recommendation/experiments/recommendation_enhanced/`。该实验用于第一阶段推荐增强验证，
+与 `main` 实验相互独立，不覆盖 `outputs/recommendation/experiments/main/experiment.json`，
+也不默认替换 `outputs/recommendation/pop_similarity_trend/`。reports 和 defense app 仍消费
+稳定默认输出；除非后续显式调整，论文素材导出和答辩展示库不会读取增强实验输出。
 
 当前 `main` 实验使用 valid split 的 `NDCG@12` 选择
 `pop_similarity_trend` 权重。最近一次有限网格调参搜索 25 组权重，最佳权重为
@@ -784,7 +807,7 @@ npm run dev
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
 | 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现并完成首轮 stable 调参；后续可考虑更多监督模型或 EWMA 等增强 baseline |
-| 推荐实验增强 | 推荐召回、消融和案例证据 | 当前已支持轻量离线 Top-12、单方法评价、`main` 实验、命名消融、reports 导出和展示应用消费；后续优先补充更强候选召回和趋势模型特征消融 |
+| 推荐实验增强 | 推荐召回、消融和案例证据 | 当前已支持轻量离线 Top-12、单方法评价、`main` 实验、命名消融、第一阶段增强可选实验、reports 导出和展示应用消费；后续优先补充趋势模型特征消融或基于真实指标的增强结论收口 |
 | 答辩展示完善 | 演示脚本和少量交互优化 | 当前已具备 SQLite 展示库、FastAPI 后端和 Vue/Vite 前端；后续只做不改变研究结论的展示增强 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。

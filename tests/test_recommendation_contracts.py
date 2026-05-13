@@ -5,7 +5,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from fashion_trend.presentation import contracts as presentation_contracts
+from fashion_trend.presentation import paths as presentation_paths
 from fashion_trend.recommendation import contracts, paths, readers
+from fashion_trend.reports import paths as report_paths
 
 
 def test_public_recommendation_contract_constants() -> None:
@@ -150,6 +153,41 @@ def test_recommendation_paths_are_scoped_by_strategy_method_and_experiment() -> 
     experiment_run = paths.experiment_run_dir("exp_001", "run_001")
     assert str(experiment_run).endswith(
         "outputs/recommendation/experiments/exp_001/runs/run_001"
+    )
+
+
+def test_enhanced_experiment_does_not_change_reports_or_defense_default_method() -> (
+    None
+):
+    report_inputs = report_paths.default_report_input_paths()
+
+    report_recommendation_items = report_inputs.recommendation_items[
+        "pop_similarity_trend"
+    ]
+    assert report_recommendation_items.as_posix().endswith(
+        "outputs/recommendation/pop_similarity_trend/recommendation_items.parquet",
+    )
+    assert report_inputs.recommendation_experiment.as_posix().endswith(
+        "outputs/recommendation/experiments/main/experiment.json"
+    )
+    assert "enhanced_pop_similarity_trend" not in report_inputs.recommendation_items
+
+    assert presentation_contracts.MAIN_RECOMMENDATION_METHOD == "pop_similarity_trend"
+    assert presentation_paths.MAIN_RECOMMENDATION_ITEMS_PATH.as_posix().endswith(
+        "outputs/recommendation/pop_similarity_trend/recommendation_items.parquet"
+    )
+    assert presentation_paths.RECOMMENDATION_EXPERIMENT_PATH.as_posix().endswith(
+        "outputs/recommendation/experiments/main/experiment.json"
+    )
+
+    assert paths.candidate_items_path("enhanced_default") != paths.candidate_items_path(
+        "default"
+    )
+    assert paths.method_output_paths("enhanced_pop_similarity_trend").output_dir != (
+        paths.method_output_paths("pop_similarity_trend").output_dir
+    )
+    assert paths.experiment_dir("recommendation_enhanced") != paths.experiment_dir(
+        "main"
     )
 
 

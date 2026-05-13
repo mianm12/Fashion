@@ -4,7 +4,7 @@
 
 这是一个 Python 3.10-3.12 项目，用于 H&M 时尚趋势预测和轻量推荐实验。当前已实现的流水线覆盖周级数据准备、商品清洗、属性图构建、商品周销量、属性周热度、趋势标签、趋势样本、基于时间的样本切分、三类趋势 baseline、LightGBM 主模型、趋势评价、轻量离线 Top-N 推荐生成、推荐评价、论文图表/表格/案例导出、只读 SQLite 展示库构建，以及本地答辩展示应用。
 
-推荐模块已实现为离线实验层，用于把趋势预测结果映射回商品推荐并验证趋势分贡献。不要把它描述成在线服务、深度推荐模型、向量召回系统或完整生产推荐平台。
+推荐模块已实现为离线实验层，用于把趋势预测结果映射回商品推荐并验证趋势分贡献。第一阶段推荐增强已作为独立可选实验实现，但默认 main、stable、reports 和 defense app 边界不变。不要把它描述成在线服务、深度推荐模型、向量召回系统或完整生产推荐平台。
 
 报告导出模块已实现为只读论文素材层，用于从稳定 artifact 导出静态图表、Markdown/CSV 表格、推荐解释案例和 manifest。不要把它描述成在线 dashboard、交互式展示系统或会重新训练模型的流程。
 
@@ -57,7 +57,7 @@ presentation 模块已实现为本地答辩展示库构建层，用于从稳定 
 - `time_windows.py`：推荐 `cutoff_week`、`label_week` 和 split 窗口逻辑。
 - `retrieval/`：候选召回能力，例如 popularity、attribute similarity 和 trend union。
 - `ranking/`：用户画像、特征、过滤、打分和权重组合。
-- `methods/`：可注册推荐方法，包括 `global_popularity`、`recent_popularity`、`attribute_similarity`、`pop_similarity` 和 `pop_similarity_trend`。
+- `methods/`：可注册推荐方法，包括 `global_popularity`、`recent_popularity`、`attribute_similarity`、`pop_similarity`、`pop_similarity_trend` 和可选增强方法 `enhanced_pop_similarity_trend`。
 - `evaluation/`：Top-N 离线指标、payload 和评价 runner。
 - `experiments/`：权重搜索、消融和主实验编排。
 
@@ -135,17 +135,22 @@ uv run python src/12_build_recommendation_inputs.py
 uv run python src/13_build_recommend_candidates.py --strategy popularity
 uv run python src/13_build_recommend_candidates.py --strategy trend_union
 uv run python src/13_build_recommend_candidates.py --strategy default
+uv run python src/13_build_recommend_candidates.py --strategy enhanced_default
 uv run python src/13_build_recommend_candidates.py --strategy similarity
 uv run python src/14_rerank_recommendations.py --method global_popularity
 uv run python src/14_rerank_recommendations.py --method recent_popularity
 uv run python src/14_rerank_recommendations.py --method attribute_similarity
 uv run python src/14_rerank_recommendations.py --method pop_similarity
 uv run python src/14_rerank_recommendations.py --method pop_similarity_trend
+uv run python src/14_rerank_recommendations.py --method enhanced_pop_similarity_trend
 uv run python src/15_eval_recommendations.py --method pop_similarity_trend
 uv run python src/16_run_recommendation_experiment.py --experiment main
+uv run python src/16_run_recommendation_experiment.py --experiment recommendation_enhanced
 ```
 
 推荐阶段依赖已发布的 LightGBM stable 预测、周级交易和商品属性边。`12_build_recommendation_inputs.py` 默认读取 `outputs/models/lightgbm/predictions.csv`，因此如果该文件缺失，应先运行 LightGBM 训练和评价链路，而不是在推荐层添加 fallback。
+
+`recommendation_enhanced` 是独立可选实验，只写入 `outputs/recommendation/experiments/recommendation_enhanced/`，不覆盖 `outputs/recommendation/experiments/main/experiment.json`，也不默认替换 `outputs/recommendation/pop_similarity_trend/` stable 结果。reports 和 defense app 仍消费稳定默认输出，除非后续显式调整其默认输入。
 
 通过 reports 入口导出论文图表、表格、案例和 manifest：
 
@@ -221,8 +226,11 @@ LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。
 - `data/processed/recommend/target_users.parquet`
 - `data/processed/recommend/evaluation_labels.parquet`
 - `data/processed/recommend/user_profile.parquet`
+- `data/processed/recommend/customer_profile.parquet`
+- `data/processed/recommend/article_product_map.parquet`
 - `data/processed/recommend/metadata.json`
 - `data/processed/recommend/candidates/<strategy>/candidate_items.parquet`
+- `data/processed/recommend/candidates/enhanced_default/candidate_items.parquet`
 - `data/processed/recommend/features/<feature_name>/strategy=<strategy>/split=<split>/cutoff_week=<week>/part.parquet`
 
 推荐 method stable 输出使用：
@@ -233,6 +241,8 @@ LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。
 - `outputs/recommendation/<method>/metadata.json`
 - `outputs/recommendation/<method>/metrics.json`
 
+第一阶段增强 method 输出使用 `outputs/recommendation/enhanced_pop_similarity_trend/`，但这不是默认 stable 主推荐输出。默认主推荐输出仍是 `outputs/recommendation/pop_similarity_trend/`。
+
 推荐实验输出使用：
 
 - `outputs/recommendation/experiments/<experiment_id>/experiment.json`
@@ -240,6 +250,8 @@ LightGBM stable 目录代表当前主结果。Run 目录代表保留的实验。
 - `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/recommendation_items.parquet`
 - `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/params.json`
 - `outputs/recommendation/experiments/<experiment_id>/runs/<run_id>/metadata.json`
+
+第一阶段增强实验输出使用 `outputs/recommendation/experiments/recommendation_enhanced/`。该目录独立于 `outputs/recommendation/experiments/main/`，用于验证增强候选和增强打分，不作为 reports 或 defense app 的默认输入。
 
 推荐结果必须保留 `customer_id`、`article_id` 和 `prediction` 的字符串语义，尤其不能丢失前导 0。`recommendations.csv` 是每个用户窗口一行的 Top-12 短表；`recommendation_items.parquet` 是用于解释、审计和评价的默认内部长表。同一用户窗口内推荐商品不能重复。`recommendation_items.csv` 只有显式导出时才应出现，不能作为默认产物或默认 reader 来源。
 
