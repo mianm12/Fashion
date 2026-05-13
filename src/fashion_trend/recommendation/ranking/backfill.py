@@ -169,8 +169,9 @@ def _select_backfill_items(
         "trend_score",
     ]
     output = selected.loc[:, columns].copy()
-    if ranked.empty:
-        return output
+    for column in ranked.columns:
+        if column not in output.columns:
+            output[column] = 0.0
     return output.loc[:, ranked.columns]
 
 

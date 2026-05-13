@@ -45,6 +45,18 @@ RECOMMENDATION_SCORE_COLUMNS = (
     "trend_score",
     "recent_score",
 )
+ENHANCED_RECOMMENDATION_SCORE_COLUMNS = (
+    "pop_score",
+    "recent_score",
+    "sim_score",
+    "trend_score",
+    "reorder_score",
+    "variant_score",
+    "age_pop_score",
+    "preference_pop_score",
+    "source_rank_score",
+    "source_count_score",
+)
 RECOMMENDATION_CORE_ATTR_TYPES = (
     "product_type_name",
     "colour_group_name",

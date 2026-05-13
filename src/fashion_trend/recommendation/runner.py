@@ -9,6 +9,7 @@ import pandas as pd
 
 from fashion_trend.foundation.io import write_json_atomic
 from fashion_trend.recommendation.contracts import (
+    ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
     RECOMMENDATION_CORE_ATTR_TYPES,
     RECOMMENDATION_TOP_K,
     RECOMMENDATION_TREND_ATTR_WEIGHTS,
@@ -50,13 +51,32 @@ COMMON_METHOD_INPUT_KEYS = (
     "time_windows",
     "target_users",
 )
-SCORE_COLUMNS = ("pop_score", "recent_score", "sim_score", "trend_score")
+SCORE_COLUMNS = ENHANCED_RECOMMENDATION_SCORE_COLUMNS
 FEATURE_REQUIRED_INPUT_KEYS = {
     "candidate_seen_flags": ("weekly_transactions", "candidate_items"),
     "popularity_scores": ("weekly_transactions", "candidate_items"),
     "recent_scores": ("weekly_transactions", "candidate_items"),
     "similarity_scores": ("article_attributes", "user_profile", "candidate_items"),
     "trend_scores": ("article_attributes", "trend_predictions", "candidate_items"),
+    "reorder_scores": ("weekly_transactions", "candidate_items"),
+    "variant_scores": (
+        "weekly_transactions",
+        "article_product_map",
+        "candidate_items",
+    ),
+    "age_popularity_scores": (
+        "weekly_transactions",
+        "customer_profile",
+        "candidate_items",
+    ),
+    "preference_popularity_scores": (
+        "weekly_transactions",
+        "article_attributes",
+        "user_profile",
+        "candidate_items",
+    ),
+    "source_rank_scores": ("candidate_items",),
+    "source_count_scores": ("candidate_items",),
 }
 FEATURE_JOIN_SPECS = {
     "pop_score": (
@@ -81,6 +101,72 @@ FEATURE_JOIN_SPECS = {
     "trend_score": (
         "trend_scores",
         ["split", "cutoff_week", "label_week", "strategy", "article_id"],
+    ),
+    "reorder_score": (
+        "reorder_scores",
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+    ),
+    "variant_score": (
+        "variant_scores",
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+    ),
+    "age_pop_score": (
+        "age_popularity_scores",
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+    ),
+    "preference_pop_score": (
+        "preference_popularity_scores",
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+    ),
+    "source_rank_score": (
+        "source_rank_scores",
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+    ),
+    "source_count_score": (
+        "source_count_scores",
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
     ),
 }
 BACKFILL_MODE_BY_METHOD = {
@@ -160,10 +246,26 @@ def method_input_paths_for_artifacts(
     if (
         "sim_score" in method.required_features
         or "trend_score" in method.required_features
+        or "preference_pop_score" in method.required_features
     ) and "article_attributes" in available_paths:
         selected["article_attributes"] = available_paths["article_attributes"]
     if "sim_score" in method.required_features and "user_profile" in available_paths:
         selected["user_profile"] = available_paths["user_profile"]
+    if (
+        "preference_pop_score" in method.required_features
+        and "user_profile" in available_paths
+    ):
+        selected["user_profile"] = available_paths["user_profile"]
+    if (
+        "variant_score" in method.required_features
+        and "article_product_map" in available_paths
+    ):
+        selected["article_product_map"] = available_paths["article_product_map"]
+    if (
+        "age_pop_score" in method.required_features
+        and "customer_profile" in available_paths
+    ):
+        selected["customer_profile"] = available_paths["customer_profile"]
     strategy = method.default_candidate_strategy
     if strategy is not None:
         selected["candidate_items"] = _candidate_input_path(strategy, available_paths)

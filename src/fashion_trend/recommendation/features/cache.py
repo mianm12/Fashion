@@ -23,6 +23,12 @@ FEATURE_NAMES = (
     "recent_scores",
     "similarity_scores",
     "trend_scores",
+    "reorder_scores",
+    "variant_scores",
+    "age_popularity_scores",
+    "preference_popularity_scores",
+    "source_rank_scores",
+    "source_count_scores",
     "candidate_seen_flags",
     "recommendable_pool",
 )
@@ -46,6 +52,14 @@ ARTICLE_SCORE_FEATURES = {
     "trend_scores": "trend_score",
 }
 CUSTOMER_ARTICLE_SCORE_FEATURES = {"similarity_scores": "sim_score"}
+ENHANCED_CUSTOMER_ARTICLE_SCORE_FEATURES = {
+    "reorder_scores": "reorder_score",
+    "variant_scores": "variant_score",
+    "age_popularity_scores": "age_pop_score",
+    "preference_popularity_scores": "preference_pop_score",
+    "source_rank_scores": "source_rank_score",
+    "source_count_scores": "source_count_score",
+}
 FEATURE_INPUT_KEYS = {
     "candidate_seen_flags": (
         "weekly_transactions",
@@ -71,6 +85,44 @@ FEATURE_INPUT_KEYS = {
     "trend_scores": (
         "article_attributes",
         "trend_predictions",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "reorder_scores": (
+        "weekly_transactions",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "variant_scores": (
+        "weekly_transactions",
+        "article_product_map",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "age_popularity_scores": (
+        "weekly_transactions",
+        "customer_profile",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "preference_popularity_scores": (
+        "weekly_transactions",
+        "article_attributes",
+        "user_profile",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "source_rank_scores": (
+        "weekly_transactions",
+        "article_attributes",
+        "user_profile",
+        "trend_predictions",
+        "customer_profile",
+        "article_product_map",
+        "candidate_items",
+        "candidate_metadata",
+    ),
+    "source_count_scores": (
         "candidate_items",
         "candidate_metadata",
     ),
@@ -355,11 +407,22 @@ def build_and_write_feature_cache_for_strategy(
     article_attributes: pd.DataFrame,
     user_profile: pd.DataFrame | None,
     trend_predictions: pd.DataFrame | None,
+    customer_profile: pd.DataFrame | None = None,
+    article_product_map: pd.DataFrame | None = None,
     input_paths: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Build strategy/window-scoped feature cache partitions for candidates."""
     _require_columns(candidates, CANDIDATE_KEY_COLUMNS, "candidates")
     _validate_candidate_strategy(candidates, strategy)
+    _validate_enhanced_feature_inputs(
+        strategy=strategy,
+        candidates=candidates,
+        user_profile=user_profile,
+        trend_predictions=trend_predictions,
+        customer_profile=customer_profile,
+        article_product_map=article_product_map,
+        input_paths=input_paths or {},
+    )
 
     partitions: dict[str, list[dict[str, object]]] = {}
     output_artifacts: dict[str, str] = {}
@@ -376,12 +439,18 @@ def build_and_write_feature_cache_for_strategy(
             article_attributes,
             user_profile,
             trend_predictions,
+            customer_profile=customer_profile,
+            article_product_map=article_product_map,
         )
         seen_flags = build_candidate_seen_flags(partition_candidates, transactions)
         if len(seen_flags) > len(partition_candidates):
             raise ValueError("candidate_seen_flags rows exceed candidate rows")
 
-        partition_frames = _feature_partition_frames(feature_frame, seen_flags)
+        partition_frames = _feature_partition_frames(
+            feature_frame,
+            seen_flags,
+            strategy,
+        )
         for feature_name, frame in partition_frames.items():
             partition_path = feature_cache_partition_path(
                 feature_name,
@@ -460,6 +529,7 @@ def build_and_write_feature_cache_for_strategy(
 def _feature_partition_frames(
     feature_frame: pd.DataFrame,
     seen_flags: pd.DataFrame,
+    strategy: str,
 ) -> dict[str, pd.DataFrame]:
     frames = {
         feature_name: feature_frame.loc[
@@ -483,6 +553,20 @@ def _feature_partition_frames(
             for feature_name, score_column in CUSTOMER_ARTICLE_SCORE_FEATURES.items()
         }
     )
+    if strategy == "enhanced_default":
+        frames.update(
+            {
+                feature_name: feature_frame.loc[
+                    :,
+                    [*CANDIDATE_KEY_COLUMNS, score_column],
+                ]
+                .drop_duplicates()
+                .reset_index(drop=True)
+                for feature_name, score_column in (
+                    ENHANCED_CUSTOMER_ARTICLE_SCORE_FEATURES.items()
+                )
+            }
+        )
     seen_flag_columns = _seen_flag_columns(seen_flags)
     frames["candidate_seen_flags"] = (
         seen_flags.loc[:, seen_flag_columns].drop_duplicates().reset_index(drop=True)
@@ -498,6 +582,46 @@ def _validate_candidate_strategy(candidates: pd.DataFrame, strategy: str) -> Non
         raise ValueError(
             "candidates strategy must match feature cache strategy: "
             f"expected {strategy}, found {sorted(candidate_strategies)}"
+        )
+
+
+def _validate_enhanced_feature_inputs(
+    *,
+    strategy: str,
+    candidates: pd.DataFrame,
+    user_profile: pd.DataFrame | None,
+    trend_predictions: pd.DataFrame | None,
+    customer_profile: pd.DataFrame | None,
+    article_product_map: pd.DataFrame | None,
+    input_paths: dict[str, str],
+) -> None:
+    if strategy != "enhanced_default" or candidates.empty:
+        return
+
+    missing = []
+    if user_profile is None:
+        missing.append("user_profile")
+    if trend_predictions is None:
+        missing.append("trend_predictions")
+    if customer_profile is None:
+        missing.append("customer_profile")
+    if article_product_map is None:
+        missing.append("article_product_map")
+
+    missing.extend(
+        key
+        for key in (
+            "user_profile",
+            "trend_predictions",
+            "customer_profile",
+            "article_product_map",
+        )
+        if key not in input_paths
+    )
+    if missing:
+        raise FileNotFoundError(
+            "enhanced_default feature cache requires input artifacts: "
+            f"{', '.join(sorted(set(missing)))}"
         )
 
 

@@ -6,12 +6,14 @@ import numpy as np
 import pandas as pd
 
 from fashion_trend.recommendation.contracts import (
+    ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
     RECOMMENDATION_CORE_ATTR_TYPES,
     RECOMMENDATION_TREND_ATTR_WEIGHTS,
 )
+from fashion_trend.recommendation.ranking.enhanced_features import add_enhanced_scores
 
 WINDOW_COLUMNS = ["split", "cutoff_week", "label_week"]
-SCORE_COLUMNS = ["pop_score", "recent_score", "sim_score", "trend_score"]
+SCORE_COLUMNS = list(ENHANCED_RECOMMENDATION_SCORE_COLUMNS)
 
 
 def minmax_normalize_by_group(
@@ -47,6 +49,8 @@ def build_ranking_features(
     article_attributes: pd.DataFrame,
     user_profile: pd.DataFrame | None,
     trend_predictions: pd.DataFrame | None,
+    customer_profile: pd.DataFrame | None = None,
+    article_product_map: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build bounded ranking features for candidate items."""
     feature_frame = candidates.copy()
@@ -57,6 +61,15 @@ def build_ranking_features(
         feature_frame,
         article_attributes,
         trend_predictions,
+    )
+    feature_frame = add_enhanced_scores(
+        feature_frame,
+        transactions,
+        article_attributes,
+        user_profile,
+        trend_predictions,
+        customer_profile,
+        article_product_map,
     )
     _validate_score_bounds(feature_frame, SCORE_COLUMNS)
     return feature_frame
@@ -260,18 +273,6 @@ def _add_article_count_score(
     return merged.drop(columns=["_count"])
 
 
-def _transactions_for_window(
-    transactions: pd.DataFrame,
-    cutoff_week: int,
-    recent_weeks: int | None,
-) -> pd.DataFrame:
-    week_id = pd.to_numeric(transactions["week_id"], errors="raise")
-    mask = week_id <= cutoff_week
-    if recent_weeks is not None:
-        mask &= week_id > cutoff_week - recent_weeks
-    return transactions.loc[mask].copy()
-
-
 def _build_similarity_scores(
     candidates: pd.DataFrame,
     article_attributes: pd.DataFrame,
@@ -331,14 +332,28 @@ def _build_similarity_scores(
     return pd.concat(frames, ignore_index=True)
 
 
-def _require_columns(
-    dataframe: pd.DataFrame,
-    columns: Sequence[str],
-    name: str,
-) -> None:
-    missing = [column for column in columns if column not in dataframe.columns]
-    if missing:
-        raise ValueError(f"{name} missing required columns: {missing}")
+def _transactions_for_window(
+    transactions: pd.DataFrame,
+    cutoff_week: int,
+    recent_weeks: int | None,
+) -> pd.DataFrame:
+    week_id = pd.to_numeric(transactions["week_id"], errors="raise")
+    mask = week_id <= cutoff_week
+    if recent_weeks is not None:
+        mask &= week_id > cutoff_week - recent_weeks
+    return transactions.loc[mask].copy()
+
+
+def _frame_for_window(
+    frame: pd.DataFrame,
+    window: dict[str, object],
+) -> pd.DataFrame:
+    mask = (
+        (frame["split"] == window["split"])
+        & (frame["cutoff_week"] == window["cutoff_week"])
+        & (frame["label_week"] == window["label_week"])
+    )
+    return frame.loc[mask].copy()
 
 
 def _attribute_join_columns(
@@ -361,18 +376,6 @@ def _with_attr_join_ids(dataframe: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def _frame_for_window(
-    frame: pd.DataFrame,
-    window: dict[str, object],
-) -> pd.DataFrame:
-    mask = (
-        (frame["split"] == window["split"])
-        & (frame["cutoff_week"] == window["cutoff_week"])
-        & (frame["label_week"] == window["label_week"])
-    )
-    return frame.loc[mask].copy()
-
-
 def _validate_score_bounds(frame: pd.DataFrame, score_columns: Sequence[str]) -> None:
     for column in score_columns:
         values = pd.to_numeric(frame[column], errors="raise").to_numpy(dtype=float)
@@ -380,6 +383,16 @@ def _validate_score_bounds(frame: pd.DataFrame, score_columns: Sequence[str]) ->
             raise ValueError(f"{column} contains non-finite values")
         if ((values < 0.0) | (values > 1.0)).any():
             raise ValueError(f"{column} must be within [0, 1]")
+
+
+def _require_columns(
+    dataframe: pd.DataFrame,
+    columns: Sequence[str],
+    name: str,
+) -> None:
+    missing = [column for column in columns if column not in dataframe.columns]
+    if missing:
+        raise ValueError(f"{name} missing required columns: {missing}")
 
 
 def _with_string_ids(dataframe: pd.DataFrame) -> pd.DataFrame:

@@ -6,6 +6,8 @@ import pandas as pd
 import pytest
 
 from fashion_trend.recommendation.features.cache import (
+    FEATURE_CACHE_ALGORITHM_VERSION,
+    FEATURE_CACHE_SCHEMA_VERSION,
     FEATURE_NAMES,
     build_and_write_feature_cache_for_strategy,
     build_candidate_seen_flags,
@@ -712,6 +714,130 @@ def test_feature_cache_partition_metadata_records_feature_specific_inputs(
     }
 
 
+def test_enhanced_feature_cache_writes_strategy_scoped_partitions(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    partition_path, _metadata_path = _patch_feature_cache_paths(tmp_path, monkeypatch)
+
+    manifest = build_and_write_feature_cache_for_strategy(
+        strategy="enhanced_default",
+        candidates=_enhanced_candidates(),
+        transactions=_enhanced_transactions(),
+        article_attributes=_enhanced_article_attributes(),
+        user_profile=_enhanced_user_profile(),
+        trend_predictions=_enhanced_trend_predictions(),
+        customer_profile=_enhanced_customer_profile(),
+        article_product_map=_enhanced_article_product_map(),
+        input_paths=_enhanced_input_paths(tmp_path),
+    )
+
+    entry = manifest["entries"]["strategy:enhanced_default"]
+    enhanced_features = {
+        "reorder_scores",
+        "variant_scores",
+        "age_popularity_scores",
+        "preference_popularity_scores",
+        "source_rank_scores",
+        "source_count_scores",
+    }
+    assert enhanced_features.issubset(set(entry["manifest"]["partitions"]))
+    for feature_name in enhanced_features:
+        enhanced_path = partition_path(
+            feature_name,
+            strategy="enhanced_default",
+            split="valid",
+            cutoff_week=10,
+        )
+        default_path = partition_path(
+            feature_name,
+            strategy="default",
+            split="valid",
+            cutoff_week=10,
+        )
+        assert enhanced_path.exists()
+        assert not default_path.exists()
+
+
+def test_enhanced_feature_cache_rejects_default_strategy_reuse() -> None:
+    with pytest.raises(ValueError, match="strategy"):
+        build_and_write_feature_cache_for_strategy(
+            strategy="default",
+            candidates=_enhanced_candidates(),
+            transactions=_enhanced_transactions(),
+            article_attributes=_enhanced_article_attributes(),
+            user_profile=_enhanced_user_profile(),
+            trend_predictions=None,
+            customer_profile=_enhanced_customer_profile(),
+            article_product_map=_enhanced_article_product_map(),
+        )
+
+
+def test_enhanced_feature_metadata_records_algorithm_and_strategy(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _partition_path, metadata_path_for = _patch_feature_cache_paths(
+        tmp_path,
+        monkeypatch,
+    )
+    input_paths = _enhanced_input_paths(tmp_path)
+
+    build_and_write_feature_cache_for_strategy(
+        strategy="enhanced_default",
+        candidates=_enhanced_candidates(),
+        transactions=_enhanced_transactions(),
+        article_attributes=_enhanced_article_attributes(),
+        user_profile=_enhanced_user_profile(),
+        trend_predictions=_enhanced_trend_predictions(),
+        customer_profile=_enhanced_customer_profile(),
+        article_product_map=_enhanced_article_product_map(),
+        input_paths=input_paths,
+    )
+
+    metadata_path = metadata_path_for(
+        "variant_scores",
+        strategy="enhanced_default",
+        split="valid",
+        cutoff_week=10,
+    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    assert metadata["schema_version"] == FEATURE_CACHE_SCHEMA_VERSION
+    assert metadata["algorithm_version"] == FEATURE_CACHE_ALGORITHM_VERSION
+    assert metadata["config"]["feature_name"] == "variant_scores"
+    assert metadata["config"]["strategy"] == "enhanced_default"
+    assert set(metadata["input_artifacts"]) == {
+        "weekly_transactions",
+        "article_product_map",
+        "candidate_items",
+        "candidate_metadata",
+    }
+    assert (
+        metadata["input_artifacts"]["article_product_map"]
+        == input_paths["article_product_map"]
+    )
+
+    source_rank_metadata = json.loads(
+        metadata_path_for(
+            "source_rank_scores",
+            strategy="enhanced_default",
+            split="valid",
+            cutoff_week=10,
+        ).read_text(encoding="utf-8")
+    )
+    assert set(source_rank_metadata["input_artifacts"]) == {
+        "weekly_transactions",
+        "article_attributes",
+        "user_profile",
+        "trend_predictions",
+        "customer_profile",
+        "article_product_map",
+        "candidate_items",
+        "candidate_metadata",
+    }
+
+
 def test_build_feature_cache_accepts_empty_candidates_with_manifest_only(
     tmp_path,
     monkeypatch,
@@ -809,6 +935,214 @@ def _user_profile() -> pd.DataFrame:
             "preference_score": [1.0],
         }
     )
+
+
+def _enhanced_candidates() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            _enhanced_candidate(
+                "0000000001",
+                "reorder|age_popularity|preference_popularity",
+                1,
+                has_reorder_source=True,
+            ),
+            _enhanced_candidate(
+                "0000000002",
+                "reorder|age_popularity",
+                2,
+                has_reorder_source=True,
+            ),
+            _enhanced_candidate(
+                "0000000003",
+                "product_variant|preference_popularity",
+                3,
+            ),
+            _enhanced_candidate("0000000004", "popularity", 4),
+        ]
+    )
+
+
+def _enhanced_candidate(
+    article_id: str,
+    candidate_sources: str,
+    best_source_rank: int,
+    *,
+    has_reorder_source: bool = False,
+) -> dict[str, object]:
+    return {
+        "split": "valid",
+        "cutoff_week": 10,
+        "label_week": 11,
+        "strategy": "enhanced_default",
+        "customer_id": "1",
+        "article_id": article_id,
+        "candidate_sources": candidate_sources,
+        "primary_source": candidate_sources.split("|")[0],
+        "best_source_rank": best_source_rank,
+        "has_reorder_source": has_reorder_source,
+        "allow_seen": has_reorder_source,
+    }
+
+
+def _enhanced_transactions() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"customer_id": "1", "article_id": "0000000001", "week_id": 10},
+            {"customer_id": "1", "article_id": "0000000001", "week_id": 8},
+            {"customer_id": "1", "article_id": "0000000002", "week_id": 9},
+            {"customer_id": "2", "article_id": "0000000001", "week_id": 10},
+            {"customer_id": "2", "article_id": "0000000002", "week_id": 10},
+            {"customer_id": "2", "article_id": "0000000003", "week_id": 9},
+            {"customer_id": "2", "article_id": "0000000003", "week_id": 8},
+            {"customer_id": "2", "article_id": "0000000004", "week_id": 7},
+        ]
+    )
+
+
+def _enhanced_article_attributes() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "article_id": [
+                "0000000001",
+                "0000000002",
+                "0000000003",
+                "0000000004",
+            ],
+            "attr_type": ["colour_group_name"] * 4,
+            "attr_value": ["red", "blue", "red", "red"],
+        }
+    )
+
+
+def _enhanced_user_profile() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "1",
+                "attr_type": "colour_group_name",
+                "attr_value": "red",
+                "preference_score": 1.0,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "1",
+                "attr_type": "colour_group_name",
+                "attr_value": "blue",
+                "preference_score": 0.5,
+            },
+        ]
+    )
+
+
+def _enhanced_trend_predictions() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "split": ["valid"],
+            "week_id": [10],
+            "attr_type": ["colour_group_name"],
+            "attr_value": ["red"],
+            "pred_target_growth": [1.0],
+        }
+    )
+
+
+def _enhanced_customer_profile() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "customer_id": ["1", "2"],
+            "age_bucket": ["20-29", "20-29"],
+        }
+    )
+
+
+def _enhanced_article_product_map() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "article_id": [
+                "0000000001",
+                "0000000002",
+                "0000000003",
+                "0000000004",
+            ],
+            "product_code": ["p1", "p2", "p1", "p2"],
+        }
+    )
+
+
+def _enhanced_input_paths(tmp_path) -> dict[str, str]:
+    return {
+        "weekly_transactions": str(tmp_path / "weekly.parquet"),
+        "article_attributes": str(tmp_path / "article_attributes.csv"),
+        "user_profile": str(tmp_path / "user_profile.parquet"),
+        "trend_predictions": str(tmp_path / "predictions.csv"),
+        "customer_profile": str(tmp_path / "customer_profile.parquet"),
+        "article_product_map": str(tmp_path / "article_product_map.parquet"),
+        "candidate_items": str(tmp_path / "candidate_items.parquet"),
+        "candidate_metadata": str(tmp_path / "candidate_metadata.json"),
+    }
+
+
+def _patch_feature_cache_paths(tmp_path, monkeypatch):
+    feature_root = tmp_path / "features"
+    manifest_path = feature_root / "metadata.json"
+
+    def partition_path(
+        feature_name: str,
+        *,
+        strategy: str,
+        split: str,
+        cutoff_week: int,
+    ):
+        return (
+            feature_root
+            / feature_name
+            / f"strategy={strategy}"
+            / f"split={split}"
+            / f"cutoff_week={int(cutoff_week)}"
+            / "part.parquet"
+        )
+
+    def partition_metadata_path(
+        feature_name: str,
+        *,
+        strategy: str,
+        split: str,
+        cutoff_week: int,
+    ):
+        return partition_path(
+            feature_name,
+            strategy=strategy,
+            split=split,
+            cutoff_week=cutoff_week,
+        ).with_name("metadata.json")
+
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.FEATURE_CACHE_METADATA_PATH",
+        manifest_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.features.cache."
+        "feature_cache_partition_metadata_path",
+        partition_metadata_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.paths.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.paths.feature_cache_partition_metadata_path",
+        partition_metadata_path,
+    )
+    return partition_path, partition_metadata_path
 
 
 def _patch_recommendable_pool_cache_paths(tmp_path, monkeypatch) -> None:
