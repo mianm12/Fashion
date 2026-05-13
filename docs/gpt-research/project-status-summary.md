@@ -577,34 +577,42 @@ uv run python src/16_run_recommendation_experiment.py --experiment main
 | grid search 数量 | 25 |
 | best weights | `pop=0.2, sim=0.2, trend=0.1, recent=0.5` |
 | ablation 行数 | 10 |
+| named_ablation 版本数 | 6 |
+| trend_bucket_best_by_valid 版本数 | 5 |
 | 主选择指标 | valid NDCG@12 |
 
 ### 6.5 消融实验与权重搜索
 
-当前 `outputs/recommendation/experiments/main/experiment.json` 已包含 5 个推荐方法在 valid/test 上的对比，可作为推荐消融的基础表：
+当前 `outputs/recommendation/experiments/main/experiment.json` 已包含稳定方法对比、严格命名消融和 trend weight bucket 代表组合。严格命名消融从当次 `best_weights` 动态派生，不注册新 method，也不写入新的 stable method 目录；`Recent Only` 和 `Pop + Similarity baseline` 是稳定 method baseline，对应 `selection_split=not_applicable`。
 
 | 版本 | 对应方法 | split | MAP@12 | Recall@12 | HitRate@12 | NDCG@12 | Coverage |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Full Model | `pop_similarity_trend` | valid | 0.002745 | 0.008566 | 0.030549 | 0.005922 | 0.000712 |
 | Full Model | `pop_similarity_trend` | test | 0.003703 | 0.013685 | 0.039141 | 0.007987 | 0.000665 |
-| w/o Trend | `pop_similarity` | valid | 0.002120 | 0.005688 | 0.020756 | 0.004269 | 0.004992 |
-| w/o Trend | `pop_similarity` | test | 0.002942 | 0.009438 | 0.027705 | 0.006002 | 0.004565 |
+| w/o Trend in Rec | strict in-memory | valid | 0.002744 | 0.008572 | 0.030567 | 0.005923 | 0.000707 |
+| w/o Trend in Rec | strict in-memory | test | 0.003695 | 0.013685 | 0.039137 | 0.007977 | 0.000656 |
+| w/o Similarity | strict in-memory | valid | 0.002590 | 0.008585 | 0.030611 | 0.005757 | 0.000333 |
+| w/o Similarity | strict in-memory | test | 0.003635 | 0.013694 | 0.039178 | 0.007915 | 0.000265 |
+| w/o Recent | strict in-memory | valid | 0.001891 | 0.005037 | 0.018274 | 0.003787 | 0.005147 |
+| w/o Recent | strict in-memory | test | 0.002534 | 0.008045 | 0.024082 | 0.005157 | 0.004766 |
 | Recent Only | `recent_popularity` | valid | 0.002512 | 0.008691 | 0.031059 | 0.005715 | 0.000206 |
 | Recent Only | `recent_popularity` | test | 0.003781 | 0.013939 | 0.039935 | 0.008087 | 0.000191 |
+| Pop + Similarity baseline | `pop_similarity` | valid | 0.002120 | 0.005688 | 0.020756 | 0.004269 | 0.004992 |
+| Pop + Similarity baseline | `pop_similarity` | test | 0.002942 | 0.009438 | 0.027705 | 0.006002 | 0.004565 |
 | Global Popularity | `global_popularity` | valid | 0.002102 | 0.006871 | 0.021751 | 0.004402 | 0.000242 |
 | Global Popularity | `global_popularity` | test | 0.002364 | 0.006843 | 0.020430 | 0.004629 | 0.000224 |
 | Attribute Similarity Only | `attribute_similarity` | valid | 0.000058 | 0.000266 | 0.000926 | 0.000149 | 0.005460 |
 | Attribute Similarity Only | `attribute_similarity` | test | 0.000077 | 0.000343 | 0.001103 | 0.000188 | 0.004958 |
 
-不同 `trend_score` 权重在 valid split 上的最好结果如下。当前 grid search 只记录 valid 指标，不记录每组权重的 test 指标：
+不同 `trend_score` 权重下按 valid NDCG@12 选出的代表组合如下。该表表示 `trend_bucket_best_by_valid`，不是固定其他权重的单因素 sweep。
 
-| trend_score | grid_index | pop_score | sim_score | recent_score | MAP@12 | Recall@12 | HitRate@12 | NDCG@12 | Coverage |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0.0 | 4 | 0.4 | 0.1 | 0.5 | 0.002644 | 0.008587 | 0.030613 | 0.005813 | 0.000519 |
-| 0.1 | 10 | 0.2 | 0.2 | 0.5 | 0.002745 | 0.008566 | 0.030549 | 0.005922 | 0.000712 |
-| 0.2 | 7 | 0.2 | 0.1 | 0.5 | 0.002689 | 0.008585 | 0.030608 | 0.005869 | 0.000557 |
-| 0.3 | 8 | 0.2 | 0.0 | 0.5 | 0.002606 | 0.008586 | 0.030614 | 0.005775 | 0.000293 |
-| 0.4 | 24 | 0.3 | 0.0 | 0.3 | 0.002603 | 0.008435 | 0.029916 | 0.005712 | 0.000277 |
+| trend_score | grid_index | pop_score | sim_score | recent_score | valid NDCG@12 | test NDCG@12 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.0 | 4 | 0.4 | 0.1 | 0.5 | 0.005813 | 0.007879 |
+| 0.1 | 10 | 0.2 | 0.2 | 0.5 | 0.005922 | 0.007987 |
+| 0.2 | 7 | 0.2 | 0.1 | 0.5 | 0.005869 | 0.007982 |
+| 0.3 | 8 | 0.2 | 0.0 | 0.5 | 0.005775 | 0.007916 |
+| 0.4 | 24 | 0.3 | 0.0 | 0.3 | 0.005712 | 0.007854 |
 
 valid split 上排名前 10 的权重组合：
 
@@ -621,7 +629,7 @@ valid split 上排名前 10 的权重组合：
 | 13 | 0.4 | 0.1 | 0.1 | 0.4 | 0.002621 | 0.008416 | 0.029912 | 0.005728 | 0.000529 |
 | 11 | 0.3 | 0.2 | 0.1 | 0.4 | 0.002670 | 0.008201 | 0.029291 | 0.005722 | 0.000659 |
 
-当前缺失：严格意义上的 `w/o Similarity`、`w/o Recent`、以及每组 trend 权重的 test 指标尚未作为独立 artifact 保存。当前 grid 中有 `sim_score=0` 的组合，但没有 `recent_score=0` 的组合；如果论文要单独写完整消融小节，建议补跑并保存这些实验。
+当前仍未实现的是趋势模型特征消融，例如 `w/o Graph`、`w/o Growth`、`w/o Rank`，这些需要重训 LightGBM 变体，不属于推荐层命名消融。
 
 ### 6.6 推荐评价指标
 
@@ -786,16 +794,14 @@ npm run dev
 | --- | --- | --- |
 | 高 | 按需重新运行报告导出和展示库构建命令 | 已生成论文 figures、tables、3 个推荐解释案例、manifest 和本地展示库；论文提交或答辩前可重新运行确保产物最新 |
 | 中 | 写实验局限性 | 推荐指标绝对值较低、近期热门强、未做深度推荐 |
-| 中 | 补严格推荐消融 | 当前缺少独立 `w/o Similarity`、`w/o Recent` 和每组权重 test 指标 |
+| 中 | 按需补趋势模型特征消融 | 推荐层严格命名消融已固化；`w/o Graph`、`w/o Growth`、`w/o Rank` 仍需重训趋势模型变体 |
 | 低 | 更多模型扩展 | 不建议作为当前论文主线继续扩 |
 
 当前明确缺失或尚未固化为 artifact 的内容：
 
 | 缺失项 | 当前状态 | 建议处理 |
 | --- | --- | --- |
-| `w/o Similarity` 独立消融 | grid 中存在 `sim_score=0` 组合，但没有命名为独立消融产物 | 如论文要写消融小节，单独保存该版本 valid/test 指标 |
-| `w/o Recent` 独立消融 | 当前 25 组 grid 没有 `recent_score=0` 组合 | 需要新增权重组合并评价 |
-| 每组 trend 权重的 test 指标 | 当前 grid search 只保存 valid 指标 | 若要严谨比较不同 trend 权重，应补 test 评价 |
+| 趋势模型特征消融 | `w/o Graph`、`w/o Growth`、`w/o Rank` 尚未训练独立 LightGBM 变体 | 只有论文明确需要趋势模型消融小节时再补 |
 | 趋势属性可视化图 | 已导出 `trend_curve_examples` 和 `topk_trend_attributes` | 论文排版时选择 SVG 或 PNG |
 | 推荐解释案例扩展 | 已导出 3 个案例 | 论文正文可选 1 个详细展示，附录可放其余案例 |
 
