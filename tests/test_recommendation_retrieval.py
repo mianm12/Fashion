@@ -667,3 +667,309 @@ def test_enhanced_source_order_rejects_unknown_source() -> None:
             strategy="default",
             source_frames=[source.assign(source="missing_source")],
         )
+
+
+def test_age_popularity_uses_age_bucket_and_recent_four_weeks() -> None:
+    from fashion_trend.recommendation.retrieval.customer_segments import (
+        build_age_popularity_candidates,
+    )
+
+    customer_profile = pd.DataFrame(
+        [
+            {"customer_id": "target-20", "age_bucket": "20-29"},
+            {"customer_id": "target-30", "age_bucket": "30-39"},
+            {"customer_id": "hist-20-a", "age_bucket": "20-29"},
+            {"customer_id": "hist-20-b", "age_bucket": "20-29"},
+            {"customer_id": "hist-30", "age_bucket": "30-39"},
+        ]
+    )
+    target_users = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "target-20",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "target-30",
+            },
+        ]
+    )
+    transactions = pd.DataFrame(
+        [
+            {"customer_id": "hist-20-a", "article_id": "0000000001", "week_id": 7},
+            {"customer_id": "hist-20-b", "article_id": "0000000001", "week_id": 10},
+            {"customer_id": "hist-20-a", "article_id": "0000000002", "week_id": 6},
+            {"customer_id": "hist-20-b", "article_id": "0000000003", "week_id": 8},
+            {"customer_id": "hist-30", "article_id": "0000000099", "week_id": 10},
+            {"customer_id": "hist-30", "article_id": "0000000098", "week_id": 11},
+        ]
+    )
+
+    candidates = build_age_popularity_candidates(
+        transactions,
+        customer_profile,
+        sample_window(),
+        target_users,
+    )
+
+    assert set(candidates["source"]) == {"age_popularity"}
+    assert candidates.loc[
+        candidates["customer_id"] == "target-20", "article_id"
+    ].tolist() == ["0000000001", "0000000003"]
+    assert candidates.loc[
+        candidates["customer_id"] == "target-20", "source_rank"
+    ].tolist() == [1, 2]
+    assert candidates.loc[
+        candidates["customer_id"] == "target-30", "article_id"
+    ].tolist() == ["0000000099"]
+
+
+def test_age_popularity_does_not_backfill_global_popularity() -> None:
+    from fashion_trend.recommendation.retrieval.customer_segments import (
+        build_age_popularity_candidates,
+    )
+
+    customer_profile = pd.DataFrame(
+        [{"customer_id": "target", "age_bucket": "60+"}]
+        + [{"customer_id": "global", "age_bucket": "20-29"}]
+        + [{"customer_id": "senior", "age_bucket": "60+"}]
+    )
+    transactions = pd.DataFrame(
+        [
+            {"customer_id": "senior", "article_id": "0000000001", "week_id": 10},
+            *[
+                {
+                    "customer_id": "global",
+                    "article_id": f"{article_id:010d}",
+                    "week_id": 10,
+                }
+                for article_id in range(2, 15)
+            ],
+        ]
+    )
+    target_users = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "target",
+            }
+        ]
+    )
+
+    candidates = build_age_popularity_candidates(
+        transactions,
+        customer_profile,
+        sample_window(),
+        target_users,
+    )
+
+    assert set(candidates["source"]) == {"age_popularity"}
+    assert candidates["article_id"].tolist() == ["0000000001"]
+    assert candidates["source_rank"].tolist() == [1]
+
+
+def test_preference_popularity_uses_top_3_core_attributes() -> None:
+    from fashion_trend.recommendation.retrieval.preference_popularity import (
+        build_preference_popularity_candidates,
+    )
+
+    user_profile = pd.DataFrame(
+        [
+            _profile_row("u1", "product_type_name", "dress", 0.9),
+            _profile_row("u1", "colour_group_name", "black", 0.8),
+            _profile_row("u1", "garment_group_name", "jersey", 0.7),
+            _profile_row("u1", "product_group_name", "tops", 0.6),
+        ]
+    )
+    article_attributes = pd.DataFrame(
+        [
+            {
+                "article_id": "0000000001",
+                "attr_type": "product_type_name",
+                "attr_value": "dress",
+            },
+            {
+                "article_id": "0000000002",
+                "attr_type": "colour_group_name",
+                "attr_value": "black",
+            },
+            {
+                "article_id": "0000000003",
+                "attr_type": "garment_group_name",
+                "attr_value": "jersey",
+            },
+            {
+                "article_id": "0000000004",
+                "attr_type": "product_group_name",
+                "attr_value": "tops",
+            },
+        ]
+    )
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["buyer"] * 4,
+            "article_id": [
+                "0000000001",
+                "0000000002",
+                "0000000003",
+                "0000000004",
+            ],
+            "week_id": [10, 10, 10, 10],
+        }
+    )
+
+    candidates = build_preference_popularity_candidates(
+        transactions,
+        article_attributes,
+        user_profile,
+        sample_window(),
+        sample_targets(),
+    )
+
+    assert set(candidates["source"]) == {"preference_popularity"}
+    assert candidates["article_id"].tolist() == [
+        "0000000001",
+        "0000000002",
+        "0000000003",
+    ]
+    assert "0000000004" not in set(candidates["article_id"])
+    assert candidates["source_rank"].tolist() == [1, 2, 3]
+
+
+def test_preference_popularity_caps_each_attribute_at_top_4_and_window_at_top_12() -> (
+    None
+):
+    from fashion_trend.recommendation.retrieval.preference_popularity import (
+        build_preference_popularity_candidates,
+    )
+
+    attrs = [
+        ("product_type_name", "dress", 0.9, range(1, 6)),
+        ("colour_group_name", "black", 0.8, range(11, 16)),
+        ("garment_group_name", "jersey", 0.7, range(21, 26)),
+    ]
+    user_profile = pd.DataFrame(
+        [
+            _profile_row("u1", attr_type, attr_value, score)
+            for attr_type, attr_value, score, _ in attrs
+        ]
+    )
+    article_attributes = pd.DataFrame(
+        [
+            {
+                "article_id": f"{article_id:010d}",
+                "attr_type": attr_type,
+                "attr_value": attr_value,
+            }
+            for attr_type, attr_value, _, article_ids in attrs
+            for article_id in article_ids
+        ]
+    )
+    transactions = pd.DataFrame(
+        [
+            {
+                "customer_id": f"buyer-{article_id}",
+                "article_id": f"{article_id:010d}",
+                "week_id": 10,
+            }
+            for _, _, _, article_ids in attrs
+            for article_id in article_ids
+        ]
+    )
+
+    candidates = build_preference_popularity_candidates(
+        transactions,
+        article_attributes,
+        user_profile,
+        sample_window(),
+        sample_targets(),
+    )
+
+    assert set(candidates["source"]) == {"preference_popularity"}
+    assert len(candidates) == 12
+    assert candidates["article_id"].tolist() == [
+        "0000000001",
+        "0000000002",
+        "0000000003",
+        "0000000004",
+        "0000000011",
+        "0000000012",
+        "0000000013",
+        "0000000014",
+        "0000000021",
+        "0000000022",
+        "0000000023",
+        "0000000024",
+    ]
+    assert candidates["source_rank"].tolist() == list(range(1, 13))
+
+
+def test_preference_popularity_ignores_non_core_attributes() -> None:
+    from fashion_trend.recommendation.retrieval.preference_popularity import (
+        build_preference_popularity_candidates,
+    )
+
+    user_profile = pd.DataFrame(
+        [
+            _profile_row("u1", "detail_desc", "ignored", 9.0),
+            _profile_row("u1", "product_type_name", "dress", 0.5),
+        ]
+    )
+    article_attributes = pd.DataFrame(
+        [
+            {
+                "article_id": "0000000099",
+                "attr_type": "detail_desc",
+                "attr_value": "ignored",
+            },
+            {
+                "article_id": "0000000001",
+                "attr_type": "product_type_name",
+                "attr_value": "dress",
+            },
+        ]
+    )
+    transactions = pd.DataFrame(
+        [
+            {"customer_id": "buyer", "article_id": "0000000099", "week_id": 10},
+            {"customer_id": "buyer", "article_id": "0000000001", "week_id": 10},
+        ]
+    )
+
+    candidates = build_preference_popularity_candidates(
+        transactions,
+        article_attributes,
+        user_profile,
+        sample_window(),
+        sample_targets(),
+    )
+
+    assert set(candidates["source"]) == {"preference_popularity"}
+    assert candidates["article_id"].tolist() == ["0000000001"]
+
+
+def _profile_row(
+    customer_id: str,
+    attr_type: str,
+    attr_value: str,
+    preference_score: float,
+) -> dict[str, object]:
+    return {
+        "split": "valid",
+        "cutoff_week": 10,
+        "label_week": 11,
+        "customer_id": customer_id,
+        "attr_id": f"{attr_type}:{attr_value}",
+        "attr_type": attr_type,
+        "attr_value": attr_value,
+        "preference_score": preference_score,
+        "purchase_count": 1,
+        "last_purchase_week": 10,
+    }
