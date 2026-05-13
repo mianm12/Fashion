@@ -336,9 +336,7 @@ def test_build_experiment_payload_includes_named_ablation_and_trend_buckets() ->
     )
 
     assert payload["named_ablation"] == [{"variant_id": "full_model"}]
-    assert payload["trend_bucket_best_by_valid"] == [
-        {"variant_id": "trend_bucket_0_1"}
-    ]
+    assert payload["trend_bucket_best_by_valid"] == [{"variant_id": "trend_bucket_0_1"}]
 
 
 @pytest.mark.parametrize(

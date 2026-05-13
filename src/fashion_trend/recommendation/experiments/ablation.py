@@ -39,9 +39,7 @@ def derive_strict_ablation_weights(
 
     derived = {
         feature: (
-            0.0
-            if feature == dropped_feature
-            else weights[feature] / remaining_total
+            0.0 if feature == dropped_feature else weights[feature] / remaining_total
         )
         for feature in SCORE_FEATURES
     }

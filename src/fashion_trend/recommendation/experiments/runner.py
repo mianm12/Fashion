@@ -950,9 +950,7 @@ def run_recommendation_experiment(
         best_weights=best_weights,
         strict_metrics=strict_metrics,
         full_model_metrics=dict(trend_payload["metrics"]),
-        stable_baseline_metrics=_baseline_metrics_for_named_ablation(
-            baseline_payloads
-        ),
+        stable_baseline_metrics=_baseline_metrics_for_named_ablation(baseline_payloads),
     )
     trend_bucket_best_by_valid: list[dict[str, Any]] = []
     for row in select_trend_bucket_representatives(search_results):
