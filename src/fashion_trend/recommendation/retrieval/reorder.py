@@ -16,7 +16,7 @@ def build_reorder_candidates(
     if transactions.empty or target_users.empty:
         return _empty_source_frame()
 
-    transactions = _with_string_ids(transactions)
+    transactions = _prepare_transactions(transactions)
     target_users = _with_string_ids(target_users)
     frames: list[pd.DataFrame] = []
     for window in windows.to_dict("records"):
@@ -26,10 +26,11 @@ def build_reorder_candidates(
         window_transactions = _transactions_for_window(
             transactions,
             cutoff_week=int(window["cutoff_week"]),
+            customer_ids=window_targets["customer_id"],
         )
         if window_transactions.empty:
             continue
-        ranked = _rank_user_history(window_transactions, window_targets, top_n)
+        ranked = _rank_user_history(window_transactions, top_n)
         if ranked.empty:
             continue
         ranked.insert(0, "label_week", window["label_week"])
@@ -42,25 +43,26 @@ def build_reorder_candidates(
 def _transactions_for_window(
     transactions: pd.DataFrame,
     cutoff_week: int,
+    customer_ids: pd.Series,
 ) -> pd.DataFrame:
-    week_id = pd.to_numeric(transactions["week_id"], errors="raise")
-    return transactions.loc[week_id <= cutoff_week].copy()
+    return transactions.loc[
+        transactions["week_id"].le(cutoff_week)
+        & transactions["customer_id"].isin(customer_ids),
+        ["customer_id", "article_id", "week_id"],
+    ]
 
 
 def _rank_user_history(
     transactions: pd.DataFrame,
-    window_targets: pd.DataFrame,
     top_n: int,
 ) -> pd.DataFrame:
-    history = transactions.merge(window_targets, on="customer_id", how="inner")
-    if history.empty:
+    if transactions.empty:
         return pd.DataFrame(
             columns=["customer_id", "article_id", "source", "source_rank"]
         )
 
     ranked = (
-        history.assign(week_id=pd.to_numeric(history["week_id"], errors="raise"))
-        .groupby(["customer_id", "article_id"], as_index=False)
+        transactions.groupby(["customer_id", "article_id"], as_index=False, sort=False)
         .agg(
             last_purchase_week=("week_id", "max"),
             purchase_count=("week_id", "size"),
@@ -75,6 +77,12 @@ def _rank_user_history(
     limited["source"] = "reorder"
     limited["source_rank"] = limited.groupby("customer_id").cumcount() + 1
     return limited.loc[:, ["customer_id", "article_id", "source", "source_rank"]]
+
+
+def _prepare_transactions(transactions: pd.DataFrame) -> pd.DataFrame:
+    result = transactions.loc[:, ["customer_id", "article_id", "week_id"]].copy()
+    result["week_id"] = pd.to_numeric(result["week_id"], errors="raise").astype(int)
+    return result
 
 
 def _target_users_for_window(

@@ -333,36 +333,31 @@ def _aggregate_candidate_sources(
         how="left",
         validate="one_to_one",
     )
-    flag_columns = [_source_flag_column(source) for source in SOURCE_ORDER]
-    for column in flag_columns:
-        result[column] = result[column].fillna(False).astype(bool)
+    result["_source_mask"] = result["_source_mask"].fillna(0).astype("int64")
     result["candidate_sources"] = _compose_candidate_sources(result)
     if strategy == "enhanced_default":
-        result["has_reorder_source"] = result[_source_flag_column("reorder")]
+        result["has_reorder_source"] = _has_source(result["_source_mask"], "reorder")
     return result
 
 
 def _source_presence_flags(sorted_sources: pd.DataFrame) -> pd.DataFrame:
-    presence = sorted_sources.loc[:, list(GROUP_COLUMNS) + ["source"]].drop_duplicates()
-    presence["_present"] = True
-    flags = presence.pivot(
-        index=list(GROUP_COLUMNS),
-        columns="source",
-        values="_present",
-    ).reset_index()
-    flags.columns.name = None
-    for source in SOURCE_ORDER:
-        if source not in flags.columns:
-            flags[source] = False
-    return flags.loc[:, list(GROUP_COLUMNS) + list(SOURCE_ORDER)].rename(
-        columns={source: _source_flag_column(source) for source in SOURCE_ORDER}
+    presence = sorted_sources.loc[
+        :, list(GROUP_COLUMNS) + ["source", "_source_order"]
+    ].drop_duplicates(list(GROUP_COLUMNS) + ["source"])
+    presence["_source_bit"] = (2 ** presence["_source_order"].astype("int64")).astype(
+        "int64"
+    )
+    return (
+        presence.groupby(list(GROUP_COLUMNS), sort=False, as_index=False)["_source_bit"]
+        .sum()
+        .rename(columns={"_source_bit": "_source_mask"})
     )
 
 
 def _compose_candidate_sources(flag_frame: pd.DataFrame) -> pd.Series:
     candidate_sources = pd.Series("", index=flag_frame.index, dtype=object)
     for source in SOURCE_ORDER:
-        present = flag_frame[_source_flag_column(source)]
+        present = _has_source(flag_frame["_source_mask"], source)
         prefix = candidate_sources.where(
             candidate_sources.eq(""), candidate_sources + "|"
         )
@@ -370,8 +365,9 @@ def _compose_candidate_sources(flag_frame: pd.DataFrame) -> pd.Series:
     return candidate_sources
 
 
-def _source_flag_column(source: str) -> str:
-    return f"_has_source_{source}"
+def _has_source(source_mask: pd.Series, source: str) -> pd.Series:
+    source_bit = 1 << SOURCE_ORDER[source]
+    return (source_mask.astype("int64") & source_bit).ne(0)
 
 
 def _require_enhanced_inputs(
