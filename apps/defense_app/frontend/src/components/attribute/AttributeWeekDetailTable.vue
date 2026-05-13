@@ -9,14 +9,14 @@
     <table v-else>
       <thead>
         <tr>
-          <th>week_id</th>
-          <th>heat</th>
-          <th>pred_target_growth</th>
-          <th>actual_target_growth</th>
-          <th>pred_share_t1</th>
-          <th>direction_pred</th>
-          <th>direction_actual</th>
-          <th>direction_match</th>
+          <th>周</th>
+          <th>热度</th>
+          <th>预测增长</th>
+          <th>真实增长</th>
+          <th>预测份额</th>
+          <th>预测方向</th>
+          <th>真实方向</th>
+          <th>方向一致性</th>
         </tr>
       </thead>
       <tbody>

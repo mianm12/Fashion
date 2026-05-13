@@ -7,7 +7,7 @@
           返回趋势看板
         </RouterLink>
         <label class="compact-field">
-          <span>source_week</span>
+          <span>数据源周</span>
           <select v-model.number="sourceWeekInput">
             <option
               v-for="week in resolvedSourceWeeks"
@@ -16,14 +16,6 @@
             >
               第 {{ week }} 周
             </option>
-          </select>
-        </label>
-        <label class="compact-field">
-          <span>最近周数</span>
-          <select v-model.number="weeksInput">
-            <option :value="8">最近 8 周</option>
-            <option :value="12">最近 12 周</option>
-            <option :value="16">最近 16 周</option>
           </select>
         </label>
         <button type="button" class="toolbar-button" @click="loadAttribute">
@@ -36,7 +28,7 @@
     <StatusBlock
       v-if="sourceWeekError"
       type="error"
-      title="source_week 加载失败"
+      title="数据源周加载失败"
       :message="sourceWeekError"
       class="compact-state"
     />
@@ -86,35 +78,35 @@
             title="暂无关联商品"
             class="compact-state"
           />
-          <div v-else class="article-evidence-table">
-            <div class="article-evidence-row article-evidence-head">
-              <span>article_id</span>
-              <span>prod_name</span>
-              <span>product_type</span>
-              <span>colour</span>
-              <span>garment</span>
-              <span>操作</span>
-            </div>
-            <div
-              v-for="article in articles"
-              :key="article.article_id"
-              class="article-evidence-row"
-            >
-              <span>{{ article.article_id }}</span>
-              <strong>{{ article.prod_name ?? "--" }}</strong>
-              <span>{{ article.product_type_name ?? "--" }}</span>
-              <span>{{ article.colour_group_name ?? "--" }}</span>
-              <span>{{ article.garment_group_name ?? "--" }}</span>
-              <RouterLink
-                :to="{
-                  name: 'article-graph',
-                  params: { articleId: article.article_id },
-                  query: graphQuery,
-                }"
+            <div v-else class="article-evidence-table">
+              <div class="article-evidence-row article-evidence-head">
+                <span>商品 ID</span>
+                <span>商品名称</span>
+                <span>品类</span>
+                <span>颜色</span>
+                <span>服装组</span>
+                <span>操作</span>
+              </div>
+              <div
+                v-for="article in articles"
+                :key="article.article_id"
+                class="article-evidence-row"
               >
-                属性图
-              </RouterLink>
-            </div>
+                <span>{{ article.article_id }}</span>
+                <strong>{{ article.prod_name ?? "--" }}</strong>
+                <span>{{ article.product_type_name ?? "--" }}</span>
+                <span>{{ article.colour_group_name ?? "--" }}</span>
+                <span>{{ article.garment_group_name ?? "--" }}</span>
+                <RouterLink
+                  :to="{
+                    name: 'article-graph',
+                    params: { articleId: article.article_id },
+                    query: graphQuery,
+                  }"
+                >
+                  属性图
+                </RouterLink>
+              </div>
           </div>
         </Panel>
 
@@ -181,7 +173,6 @@ const articles = ref<ArticleItem[]>([]);
 const graph = ref<AttributeGraphResponse | null>(null);
 const sourceWeeks = ref<number[]>([]);
 const sourceWeekInput = ref<number | null>(readOptionalInt(route.query.source_week));
-const weeksInput = ref(clampWeeks(readPositiveInt(route.query.weeks, 8)));
 const loading = ref(false);
 const error = ref<string | null>(null);
 const auxiliaryError = ref<string | null>(null);
@@ -207,7 +198,7 @@ const toolbarContext = computed(() => {
 });
 
 const toolbarStatus = computed(() =>
-  detail.value?.latest_trend ? "trend evidence ready" : "attribute lookup",
+  detail.value?.latest_trend ? "趋势证据就绪" : "属性查询",
 );
 
 const currentWindowLabel = computed(() =>
@@ -229,6 +220,7 @@ const graphQuery = computed(() => ({
 onMounted(async () => {
   await loadSourceWeeks();
   isInitializing = false;
+  await updateQuery();
   await loadAttribute();
 });
 
@@ -239,7 +231,7 @@ watch(
   },
 );
 
-watch([sourceWeekInput, weeksInput], () => {
+watch(sourceWeekInput, () => {
   if (isInitializing) {
     return;
   }
@@ -283,7 +275,7 @@ async function loadAttribute() {
     const [heatResult, articleResult, graphResult] = await Promise.allSettled([
       getAttributeHeatSeries(props.attrId, {
         source_week: sourceWeekInput.value ?? undefined,
-        weeks: weeksInput.value,
+        weeks: 8,
       }),
       getAttributeArticles(props.attrId, 12),
       getAttributeGraph(props.attrId),
@@ -323,12 +315,14 @@ async function loadAttribute() {
 }
 
 function updateQuery() {
-  void router.replace({
-    query: {
-      ...route.query,
-      source_week: sourceWeekInput.value ?? undefined,
-      weeks: weeksInput.value,
-    },
+  const query: Record<string, string> = {};
+  if (sourceWeekInput.value) {
+    query.source_week = String(sourceWeekInput.value);
+  }
+  return router.replace({
+    name: "attribute-detail",
+    params: { attrId: props.attrId },
+    query,
   });
 }
 
@@ -338,14 +332,6 @@ function readOptionalInt(value: unknown) {
   }
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function readPositiveInt(value: unknown, fallback: number) {
-  return readOptionalInt(value) ?? fallback;
-}
-
-function clampWeeks(value: number) {
-  return Math.min(16, Math.max(1, value));
 }
 
 function getErrorMessage(value: unknown) {

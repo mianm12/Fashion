@@ -30,7 +30,7 @@
         <span class="case-id">{{ user.case_id }}</span>
         <strong>{{ shortCustomerId(user.customer_id) }}</strong>
         <span class="demo-window">{{ user.split }} · W{{ user.cutoff_week }} -> W{{ user.label_week }}</span>
-        <span class="hit-count">{{ user.hit_count }} hit</span>
+        <span class="hit-count">{{ user.hit_count }} 命中</span>
         <span class="tag-row">
           <span
             v-for="tag in tags(user.primary_tags).slice(0, 3)"

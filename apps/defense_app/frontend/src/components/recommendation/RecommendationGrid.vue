@@ -35,6 +35,7 @@
           :to="{
             name: 'recommendation-explanation',
             params: { caseId, articleId: item.article_id },
+            query: returnQuery,
           }"
         >
           <header>
@@ -67,6 +68,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import type { LocationQueryRaw } from "vue-router";
 
 import StatusBlock from "@/components/ui/StatusBlock.vue";
 import type { RecommendationItem } from "@/types/api";
@@ -77,6 +79,7 @@ const props = defineProps<{
   items: RecommendationItem[];
   loading?: boolean;
   error?: string | null;
+  returnQuery?: LocationQueryRaw;
 }>();
 
 const duplicateCount = computed(() => {

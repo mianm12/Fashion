@@ -11,11 +11,11 @@
     />
     <div v-else class="graph-edge-table">
       <div class="graph-edge-row graph-edge-head">
-        <span>source</span>
-        <span>relation_type</span>
-        <span>target</span>
-        <span>attr_type</span>
-        <span>attr_value</span>
+        <span>源节点</span>
+        <span>关系类型</span>
+        <span>目标节点</span>
+        <span>属性类型</span>
+        <span>属性值</span>
         <span>操作</span>
       </div>
       <div

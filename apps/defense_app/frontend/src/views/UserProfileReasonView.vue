@@ -4,7 +4,7 @@
       <template #actions>
         <RouterLink
           class="toolbar-button"
-          :to="{ name: 'recommendations', query: { case_id: caseId } }"
+          :to="{ name: 'recommendations', query: returnQuery }"
         >
           <ArrowLeft aria-hidden="true" />
           返回推荐展示
@@ -69,7 +69,7 @@
               <strong>{{ item.attr_value }}</strong>
               <span>{{ item.attr_type }}</span>
               <span>{{ formatScore(item.preference_score) }}</span>
-              <span>{{ item.purchase_count }} buys · W{{ item.last_purchase_week }}</span>
+              <span>{{ item.purchase_count }} 次购买 · W{{ item.last_purchase_week }}</span>
             </div>
           </div>
         </Panel>
@@ -188,6 +188,7 @@
           :case-id="caseId"
           :items="recommendations"
           :selected-article-id="props.articleId ?? null"
+          :return-query="route.query"
         />
       </Panel>
     </template>
@@ -197,7 +198,7 @@
 <script setup lang="ts">
 import { ArrowLeft, RefreshCw } from "lucide-vue-next";
 import { computed, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import {
   getDemoUser,
@@ -225,6 +226,7 @@ const props = defineProps<{
 }>();
 
 const router = useRouter();
+const route = useRoute();
 const demoUser = ref<DemoUserItem | null>(null);
 const profile = ref<UserProfileAttribute[]>([]);
 const recommendations = ref<RecommendationItem[]>([]);
@@ -283,8 +285,8 @@ const trendAttrIds = computed(
 
 const toolbarContext = computed(() => {
   const rank = selectedRecommendation.value?.rank
-    ? `rank #${selectedRecommendation.value.rank}`
-    : "rank --";
+    ? `排名 #${selectedRecommendation.value.rank}`
+    : "排名 --";
   const hit = selectedRecommendation.value
     ? selectedRecommendation.value.is_hit
       ? "命中"
@@ -294,8 +296,13 @@ const toolbarContext = computed(() => {
 });
 
 const articlePanelSubtitle = computed(() =>
-  props.articleId ? `article ${props.articleId}` : "请选择推荐商品",
+  props.articleId ? `商品 ${props.articleId}` : "请选择推荐商品",
 );
+
+const returnQuery = computed(() => ({
+  ...route.query,
+  case_id: props.caseId,
+}));
 
 onMounted(() => {
   void loadExplanationFlow();
@@ -365,6 +372,7 @@ function switchArticle() {
       caseId: props.caseId,
       articleId: selectedArticleInput.value,
     },
+    query: route.query,
   });
 }
 

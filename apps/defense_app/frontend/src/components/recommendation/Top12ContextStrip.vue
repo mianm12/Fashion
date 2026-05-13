@@ -3,16 +3,16 @@
     <StatusBlock
       v-if="items.length === 0"
       title="暂无 Top-12 上下文"
-      message="当前 case 没有可展示的推荐列表"
+      message="当前案例没有可展示的推荐列表"
       class="compact-state"
     />
     <div v-else class="top12-context-table">
       <div class="top12-context-row top12-context-head">
-        <span>rank</span>
-        <span>article_id</span>
-        <span>prod_name</span>
-        <span>score</span>
-        <span>hit</span>
+        <span>排名</span>
+        <span>商品 ID</span>
+        <span>商品名称</span>
+        <span>分数</span>
+        <span>命中</span>
         <span>操作</span>
       </div>
       <RouterLink
@@ -23,6 +23,7 @@
         :to="{
           name: 'recommendation-explanation',
           params: { caseId, articleId: item.article_id },
+          query: returnQuery,
         }"
       >
         <strong>#{{ item.rank }}</strong>
@@ -41,11 +42,13 @@
 <script setup lang="ts">
 import StatusBlock from "@/components/ui/StatusBlock.vue";
 import type { RecommendationItem } from "@/types/api";
+import type { LocationQueryRaw } from "vue-router";
 
 defineProps<{
   caseId: string;
   items: RecommendationItem[];
   selectedArticleId?: string | null;
+  returnQuery?: LocationQueryRaw;
 }>();
 
 function formatScore(value: number) {

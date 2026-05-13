@@ -7,7 +7,7 @@
             v-model="searchTerm"
             type="search"
             aria-label="演示用户搜索"
-            placeholder="case_id / customer_id"
+            placeholder="案例 ID / 用户 ID"
           />
           <button type="submit" class="toolbar-button">
             <Search aria-hidden="true" />
@@ -27,7 +27,7 @@
           <span>排序</span>
           <select v-model="sortMode" @change="updateQuery(selectedCaseId)">
             <option value="hits">命中数优先</option>
-            <option value="case_id">case_id</option>
+            <option value="case_id">案例 ID</option>
           </select>
         </label>
         <button type="button" class="toolbar-button" @click="loadUsers">
@@ -57,19 +57,19 @@
         </template>
         <div v-if="selectedUser" class="selected-user-summary">
           <div>
-            <span>case_id</span>
+            <span>案例 ID</span>
             <strong>{{ selectedUser.case_id }}</strong>
           </div>
           <div>
-            <span>customer</span>
+            <span>用户 ID</span>
             <strong>{{ shortCustomerId(selectedUser.customer_id) }}</strong>
           </div>
           <div>
-            <span>hit_count</span>
+            <span>命中数</span>
             <strong>{{ selectedUser.hit_count }}</strong>
           </div>
           <div>
-            <span>window</span>
+            <span>评估窗口</span>
             <strong>W{{ selectedUser.cutoff_week }} -> W{{ selectedUser.label_week }}</strong>
           </div>
           <p>{{ selectedUser.profile_summary }}</p>
@@ -81,18 +81,19 @@
           :items="recommendations"
           :loading="recommendationsLoading"
           :error="recommendationsError"
+          :return-query="route.query"
         />
         <StatusBlock
           v-else
           title="暂无选中用户"
-          message="从左侧演示用户池选择一个 case_id"
+          message="从左侧演示用户池选择一个案例 ID"
           class="compact-state"
         />
       </Panel>
     </div>
 
     <div class="recommendation-evidence-grid">
-      <Panel title="推荐方法指标" subtitle="稳定推荐方法在 test split 上的核心指标">
+      <Panel title="推荐方法指标" subtitle="稳定推荐方法在 test 切分上的核心指标">
         <RecommendationMetricsStrip
           :metrics="recommendationMetrics"
           :loading="metricsLoading"
@@ -114,12 +115,12 @@
         />
         <div v-else class="recommendation-preview-table">
           <div class="recommendation-preview-row recommendation-preview-head">
-            <span>rank</span>
-            <span>article_id</span>
-            <span>score</span>
-            <span>is_hit</span>
-            <span>candidate_sources</span>
-            <span>core_attrs</span>
+            <span>排名</span>
+            <span>商品 ID</span>
+            <span>分数</span>
+            <span>是否命中</span>
+            <span>候选来源</span>
+            <span>核心属性</span>
             <span>操作</span>
           </div>
           <div
@@ -139,6 +140,7 @@
               :to="{
                 name: 'recommendation-explanation',
                 params: { caseId: selectedCaseId, articleId: item.article_id },
+                query: route.query,
               }"
             >
               推荐理由
@@ -220,7 +222,7 @@ const availableTags = computed(() => {
 
 const userPoolSubtitle = computed(() => {
   const tag = tagFilter.value || "全部";
-  const sort = sortMode.value === "case_id" ? "case_id" : "命中数优先";
+  const sort = sortMode.value === "case_id" ? "案例 ID" : "命中数优先";
   return `筛选：${tag} · 排序：${sort}`;
 });
 

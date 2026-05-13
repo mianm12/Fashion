@@ -5,7 +5,7 @@
         <Grid3X3 class="brand-icon" aria-hidden="true" />
         <span class="brand-copy">
           <strong>Fashion Trend Lab</strong>
-          <span>Defense Demo</span>
+          <span>答辩演示</span>
         </span>
       </RouterLink>
 
@@ -33,15 +33,15 @@
         <h2>数据源</h2>
         <div class="status-line">
           <Database aria-hidden="true" />
-          <span>SQLite ready</span>
+          <span>SQLite 就绪</span>
         </div>
         <div class="status-line">
           <Activity aria-hidden="true" />
-          <span>LightGBM stable</span>
+          <span>LightGBM 稳定结果</span>
         </div>
         <div class="status-line">
           <LockKeyhole aria-hidden="true" />
-          <span>pop_similarity_trend</span>
+          <span>推荐方法已发布</span>
         </div>
       </section>
     </aside>

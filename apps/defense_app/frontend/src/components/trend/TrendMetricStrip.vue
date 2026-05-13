@@ -33,7 +33,7 @@
       <MetricTile
         label="Top-K 平均预测分"
         :value="formatNumber(summary?.top_k_average_pred_target_growth)"
-        hint="pred_target_growth"
+        hint="预测增长均值"
         tone="gold"
       >
         <template #icon><Star /></template>
@@ -41,7 +41,7 @@
       <MetricTile
         label="覆盖商品数"
         :value="formatInteger(summary?.covered_article_count)"
-        hint="distinct article_id"
+        hint="去重商品 ID"
         tone="blue"
       >
         <template #icon><PackageCheck /></template>
@@ -49,7 +49,7 @@
       <MetricTile
         label="模型状态"
         :value="summary?.model_status ?? '--'"
-        hint="stable artifact"
+        hint="稳定产物"
         tone="neutral"
       >
         <template #icon><Activity /></template>

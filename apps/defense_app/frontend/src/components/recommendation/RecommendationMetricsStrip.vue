@@ -14,7 +14,7 @@
       class="compact-state"
     />
     <template v-else>
-      <MetricTile label="Method" value="pop_similarity_trend" hint="stable" tone="blue">
+      <MetricTile label="推荐方法" value="pop_similarity_trend" hint="稳定结果" tone="blue">
         <template #icon>
           <GitBranch aria-hidden="true" />
         </template>
@@ -71,7 +71,7 @@ const metricTiles = computed(() =>
       {
         ...config,
         value: formatPercent(metric.metric_value, 2),
-        hint: "test split",
+        hint: "test 切分",
       },
     ];
   }),

@@ -87,12 +87,12 @@ const eligibleHint = computed(() =>
   latestTrend.value ? "来自趋势样本候选标记" : "无趋势榜记录",
 );
 const sourceWeekHint = computed(() =>
-  latestTrend.value?.source_week ? `${formatWeek(latestTrend.value.source_week)} source` : "--",
+  latestTrend.value?.source_week ? `${formatWeek(latestTrend.value.source_week)} 数据源` : "--",
 );
 const targetWeekHint = computed(() =>
-  latestTrend.value?.target_week ? `${formatWeek(latestTrend.value.target_week)} target` : "--",
+  latestTrend.value?.target_week ? `${formatWeek(latestTrend.value.target_week)} 预测目标` : "--",
 );
 const heatWeekHint = computed(() =>
-  latestHeat.value?.week_id ? `${formatWeek(latestHeat.value.week_id)} heat` : "--",
+  latestHeat.value?.week_id ? `${formatWeek(latestHeat.value.week_id)} 热度` : "--",
 );
 </script>

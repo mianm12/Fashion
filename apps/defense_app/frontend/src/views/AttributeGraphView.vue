@@ -1,6 +1,6 @@
 <template>
   <section class="route-page attribute-graph-page">
-    <PageToolbar title="属性图展示" :context="toolbarContext" status="read-only graph">
+    <PageToolbar title="属性图展示" :context="toolbarContext" status="只读图谱">
       <template #actions>
         <form class="graph-toolbar-search" @submit.prevent="runSearch">
           <input
@@ -262,10 +262,12 @@ async function runSearch() {
 }
 
 function selectArticle(articleId: string) {
+  const nextQuery = { ...route.query };
+  delete nextQuery.attr_id;
   void router.push({
     name: "article-graph",
     params: { articleId },
-    query: route.query,
+    query: nextQuery,
   });
 }
 
