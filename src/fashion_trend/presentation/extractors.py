@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+import fashion_trend.recommendation.readers as recommendation_readers
 from fashion_trend.presentation import paths
 from fashion_trend.presentation.demo_cases import build_demo_case_payloads
 from fashion_trend.presentation.source_artifacts import (
@@ -15,16 +16,9 @@ from fashion_trend.recommendation.contracts import (
     EVALUATION_LABEL_COLUMNS,
     EVALUATION_LABEL_KEY_COLUMNS,
     RECOMMENDATION_ITEMS_COLUMNS,
-    RECOMMENDATION_ITEMS_KEY_COLUMNS,
     RECOMMENDATION_TOP_K,
     USER_PROFILE_COLUMNS,
     USER_PROFILE_KEY_COLUMNS,
-)
-from fashion_trend.recommendation.readers import (
-    coerce_article_id_string,
-    reject_duplicate_key,
-    validate_columns,
-    validate_path_value_matches,
 )
 from fashion_trend.reports.loaders import (
     read_feature_importance,
@@ -178,45 +172,36 @@ def filter_frame_to_case_keys(
 
 
 def _read_recommendation_items(path: Path) -> pd.DataFrame:
-    expected_method = path.parent.name
-    dataframe = pd.read_parquet(path, columns=list(RECOMMENDATION_ITEMS_COLUMNS))
-    validate_columns(dataframe, RECOMMENDATION_ITEMS_COLUMNS, "recommendation_items")
-    dataframe = coerce_article_id_string(dataframe)
-    reject_duplicate_key(
-        dataframe,
-        RECOMMENDATION_ITEMS_KEY_COLUMNS,
-        "recommendation_items",
-    )
-    invalid_rank = ~dataframe["rank"].between(1, RECOMMENDATION_TOP_K)
-    if invalid_rank.any():
-        sample = dataframe.loc[invalid_rank, ["customer_id", "article_id", "rank"]]
-        raise ValueError(
-            "recommendation_items rank 超出 Top-K 范围: "
-            f"{sample.head(3).to_dict('records')}"
-        )
-    if not dataframe.empty:
-        validate_path_value_matches(
-            dataframe,
-            "method",
-            expected_method,
-            "recommendation_items",
-        )
-    return dataframe
+    return recommendation_readers.read_recommendation_items(path)
 
 
 def _read_evaluation_labels(path: Path) -> pd.DataFrame:
     dataframe = pd.read_parquet(path, columns=list(EVALUATION_LABEL_COLUMNS))
-    validate_columns(dataframe, EVALUATION_LABEL_COLUMNS, "evaluation_labels")
-    dataframe = coerce_article_id_string(dataframe)
-    reject_duplicate_key(dataframe, EVALUATION_LABEL_KEY_COLUMNS, "evaluation_labels")
+    recommendation_readers.validate_columns(
+        dataframe,
+        EVALUATION_LABEL_COLUMNS,
+        "evaluation_labels",
+    )
+    dataframe = recommendation_readers.coerce_article_id_string(dataframe)
+    recommendation_readers.reject_duplicate_key(
+        dataframe,
+        EVALUATION_LABEL_KEY_COLUMNS,
+        "evaluation_labels",
+    )
     return dataframe
 
 
 def _read_user_profile(path: Path) -> pd.DataFrame:
     dataframe = pd.read_parquet(path, columns=list(USER_PROFILE_COLUMNS))
-    validate_columns(dataframe, USER_PROFILE_COLUMNS, "user_profile")
-    dataframe = coerce_article_id_string(dataframe)
-    reject_duplicate_key(dataframe, USER_PROFILE_KEY_COLUMNS, "user_profile")
+    recommendation_readers.validate_columns(
+        dataframe, USER_PROFILE_COLUMNS, "user_profile"
+    )
+    dataframe = recommendation_readers.coerce_article_id_string(dataframe)
+    recommendation_readers.reject_duplicate_key(
+        dataframe,
+        USER_PROFILE_KEY_COLUMNS,
+        "user_profile",
+    )
     return dataframe
 
 

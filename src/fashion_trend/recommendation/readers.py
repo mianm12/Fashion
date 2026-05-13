@@ -13,6 +13,8 @@ from fashion_trend.recommendation.contracts import (
     CUSTOMER_AGE_BUCKETS,
     CUSTOMER_PROFILE_COLUMNS,
     CUSTOMER_PROFILE_KEY_COLUMNS,
+    ENHANCED_CANDIDATE_ITEM_COLUMNS,
+    ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
     EVALUATION_LABEL_COLUMNS,
     EVALUATION_LABEL_KEY_COLUMNS,
     RECOMMENDATION_ITEMS_COLUMNS,
@@ -182,7 +184,8 @@ def read_candidate_items(path: Path) -> pd.DataFrame:
     expected_strategy = path.parent.name
     validate_safe_path_segment(expected_strategy, "strategy")
     dataframe = pd.read_parquet(path)
-    validate_columns(dataframe, CANDIDATE_ITEM_COLUMNS, "candidate_items")
+    expected_columns = candidate_item_columns_for_strategy(expected_strategy)
+    validate_columns(dataframe, expected_columns, "candidate_items")
     dataframe = coerce_article_id_string(dataframe)
     reject_duplicate_key(dataframe, CANDIDATE_ITEM_KEY_COLUMNS, "candidate_items")
     validate_path_value_matches(
@@ -192,6 +195,12 @@ def read_candidate_items(path: Path) -> pd.DataFrame:
         "candidate_items",
     )
     return dataframe
+
+
+def candidate_item_columns_for_strategy(strategy: str) -> tuple[str, ...]:
+    if strategy == "enhanced_default":
+        return ENHANCED_CANDIDATE_ITEM_COLUMNS
+    return CANDIDATE_ITEM_COLUMNS
 
 
 def read_recommendations(path: Path) -> pd.DataFrame:
@@ -212,7 +221,7 @@ def read_recommendation_items(path: Path) -> pd.DataFrame:
     expected_method = path.parent.name
     validate_safe_path_segment(expected_method, "method")
     dataframe = pd.read_parquet(path)
-    validate_columns(dataframe, RECOMMENDATION_ITEMS_COLUMNS, "recommendation_items")
+    dataframe = normalize_recommendation_items_columns(dataframe)
     dataframe = coerce_article_id_string(dataframe)
     reject_duplicate_key(
         dataframe,
@@ -235,6 +244,33 @@ def read_recommendation_items(path: Path) -> pd.DataFrame:
         "recommendation_items",
     )
     return dataframe
+
+
+def normalize_recommendation_items_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Return recommendation items in the current schema.
+
+    Older stable method artifacts predate enhanced score columns. They remain valid
+    legacy inputs and are normalized by filling the enhanced-only score columns with
+    zero instead of forcing callers to overwrite stable outputs.
+    """
+    result = dataframe.copy()
+    fillable_columns = set(ENHANCED_RECOMMENDATION_SCORE_COLUMNS[4:])
+    missing_columns = [
+        column
+        for column in RECOMMENDATION_ITEMS_COLUMNS
+        if column not in result.columns
+    ]
+    unfillable_columns = [
+        column for column in missing_columns if column not in fillable_columns
+    ]
+    if unfillable_columns:
+        raise ValueError(
+            "recommendation_items 列契约不匹配: "
+            f"expected={RECOMMENDATION_ITEMS_COLUMNS}, actual={tuple(dataframe.columns)}"
+        )
+    for column in missing_columns:
+        result[column] = 0.0
+    return result.loc[:, list(RECOMMENDATION_ITEMS_COLUMNS)]
 
 
 def read_recommendation_result(result_path: Path) -> pd.DataFrame:

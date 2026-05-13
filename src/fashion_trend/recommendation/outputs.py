@@ -13,6 +13,7 @@ from fashion_trend.foundation.io import (
 )
 from fashion_trend.recommendation import paths as recommendation_paths
 from fashion_trend.recommendation.contracts import (
+    ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
     RECOMMENDATION_ITEMS_COLUMNS,
     RECOMMENDATIONS_COLUMNS,
 )
@@ -32,6 +33,12 @@ _RECOMMENDATION_ITEMS_ARROW_SCHEMA = pa.schema(
         ("sim_score", pa.float64()),
         ("trend_score", pa.float64()),
         ("recent_score", pa.float64()),
+        ("reorder_score", pa.float64()),
+        ("variant_score", pa.float64()),
+        ("age_pop_score", pa.float64()),
+        ("preference_pop_score", pa.float64()),
+        ("source_rank_score", pa.float64()),
+        ("source_count_score", pa.float64()),
         ("candidate_sources", pa.string()),
     ]
 )
@@ -59,7 +66,7 @@ def build_recommendations_csv(
 def format_recommendation_items(ranked: pd.DataFrame) -> pd.DataFrame:
     if ranked.empty:
         return pd.DataFrame(columns=RECOMMENDATION_ITEMS_COLUMNS)
-    result = ranked.copy()
+    result = _ensure_recommendation_item_columns(ranked)
     for column in ("customer_id", "article_id", "method", "candidate_sources"):
         result[column] = result[column].astype("string")
     return result.loc[:, list(RECOMMENDATION_ITEMS_COLUMNS)].reset_index(drop=True)
@@ -164,13 +171,30 @@ def _append_csv_rows(dataframe: pd.DataFrame, path) -> None:
 
 
 def _normalize_recommendation_items(dataframe: pd.DataFrame) -> pd.DataFrame:
-    actual_columns = tuple(dataframe.columns)
-    if actual_columns != RECOMMENDATION_ITEMS_COLUMNS:
+    normalized = _ensure_recommendation_item_columns(dataframe)
+    return normalized.loc[:, list(RECOMMENDATION_ITEMS_COLUMNS)]
+
+
+def _ensure_recommendation_item_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
+    result = dataframe.copy()
+    fillable_columns = set(ENHANCED_RECOMMENDATION_SCORE_COLUMNS[4:])
+    missing_columns = [
+        column
+        for column in RECOMMENDATION_ITEMS_COLUMNS
+        if column not in result.columns
+    ]
+    unfillable_columns = [
+        column for column in missing_columns if column not in fillable_columns
+    ]
+    if unfillable_columns:
         raise ValueError(
             "recommendation_items 列契约不匹配: "
-            f"expected={RECOMMENDATION_ITEMS_COLUMNS}, actual={actual_columns}"
+            f"expected={RECOMMENDATION_ITEMS_COLUMNS}, "
+            f"actual={tuple(dataframe.columns)}"
         )
-    return dataframe.loc[:, list(RECOMMENDATION_ITEMS_COLUMNS)]
+    for column in missing_columns:
+        result[column] = 0.0
+    return result
 
 
 def _write_recommendation_items_parquet_atomic(

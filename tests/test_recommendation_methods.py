@@ -11,7 +11,10 @@ import pytest
 from fashion_trend.recommendation import paths as recommendation_paths
 from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
+    ENHANCED_CANDIDATE_ITEM_COLUMNS,
+    ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
     RECOMMENDATION_ITEMS_COLUMNS,
+    RECOMMENDATION_METHODS,
     RECOMMENDATIONS_COLUMNS,
     USER_PROFILE_COLUMNS,
 )
@@ -43,8 +46,10 @@ from fashion_trend.recommendation.retrieval.candidates import (
     build_source_frames_for_frames,
 )
 from fashion_trend.recommendation.runner import (
+    BACKFILL_MODE_BY_METHOD,
     filter_cached_seen_items,
     method_input_artifacts,
+    method_input_paths_for_artifacts,
     run_recommendation_method_by_window,
 )
 from fashion_trend.recommendation.time_windows import build_recommendation_windows
@@ -100,6 +105,190 @@ def test_pop_similarity_trend_uses_default_candidates_and_trend_score() -> None:
         "trend_score": 0.1,
         "recent_score": 0.5,
     }
+
+
+def test_enhanced_pop_similarity_trend_contract() -> None:
+    method = get_recommendation_method("enhanced_pop_similarity_trend")
+
+    assert "enhanced_pop_similarity_trend" in RECOMMENDATION_METHODS
+    assert method.name == "enhanced_pop_similarity_trend"
+    assert method.method_type == "trend_aware"
+    assert method.default_candidate_strategy == "enhanced_default"
+    assert method.required_features == ENHANCED_RECOMMENDATION_SCORE_COLUMNS
+    assert method.default_weights == {
+        "pop_score": 0.14,
+        "recent_score": 0.30,
+        "sim_score": 0.10,
+        "trend_score": 0.08,
+        "reorder_score": 0.16,
+        "variant_score": 0.08,
+        "age_pop_score": 0.04,
+        "preference_pop_score": 0.04,
+        "source_rank_score": 0.03,
+        "source_count_score": 0.03,
+    }
+    assert sum(method.default_weights.values()) == pytest.approx(1.0)
+
+
+def test_enhanced_method_uses_enhanced_default_candidates() -> None:
+    input_paths = method_input_paths_for_artifacts(
+        "enhanced_pop_similarity_trend",
+        {
+            "recommendation_inputs": "data/processed/recommend/metadata.json",
+            "weekly_transactions": "data/interim/transactions_train_weekly.parquet",
+            "time_windows": "data/processed/recommend/time_windows.parquet",
+            "target_users": "data/processed/recommend/target_users.parquet",
+            "article_attributes": "data/processed/graph/edges_article_attribute.csv",
+            "user_profile": "data/processed/recommend/user_profile.parquet",
+            "customer_profile": "data/processed/recommend/customer_profile.parquet",
+            "article_product_map": "data/processed/recommend/article_product_map.parquet",
+            "trend_predictions": "outputs/models/lightgbm/predictions.csv",
+            "feature_cache_metadata": "data/processed/recommend/features/metadata.json",
+            "enhanced_default_candidates": (
+                "data/processed/recommend/candidates/enhanced_default/"
+                "candidate_items.parquet"
+            ),
+            "enhanced_default_candidate_metadata": (
+                "data/processed/recommend/candidates/enhanced_default/metadata.json"
+            ),
+        },
+    )
+
+    assert input_paths["candidate_items"].endswith(
+        "candidates/enhanced_default/candidate_items.parquet"
+    )
+    assert input_paths["candidate_metadata"].endswith(
+        "candidates/enhanced_default/metadata.json"
+    )
+    assert input_paths["customer_profile"].endswith("customer_profile.parquet")
+    assert input_paths["article_product_map"].endswith("article_product_map.parquet")
+    assert input_paths["feature_cache_metadata"].endswith("features/metadata.json")
+    assert input_paths["trend_predictions"].endswith("lightgbm/predictions.csv")
+
+
+def test_enhanced_method_disables_method_level_backfill(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(
+        method_name="enhanced_pop_similarity_trend",
+        candidates=_enhanced_method_candidates(),
+    )
+    _write_enhanced_cache_partitions(tmp_path, monkeypatch, context.candidates)
+
+    result = run_recommendation_method_by_window(
+        method_name="enhanced_pop_similarity_trend",
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        windows=context.windows,
+        target_users=context.target_users,
+        candidates=context.candidates,
+        user_profile=context.user_profile,
+        trend_predictions=_method_trend_predictions(),
+        input_paths=_enhanced_method_input_paths(),
+        trend_model_source="outputs/models/lightgbm/predictions.csv",
+    )
+
+    assert "enhanced_pop_similarity_trend" not in BACKFILL_MODE_BY_METHOD
+    assert result.metadata["backfill_mode"] is None
+    assert result.metadata["backfilled_user_count"] == 0
+    assert result.metadata["still_underfilled_user_count"] == 1
+
+
+def test_enhanced_method_filters_seen_by_source_policy(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(
+        method_name="enhanced_pop_similarity_trend",
+        candidates=_enhanced_method_candidates(),
+    )
+    _write_enhanced_cache_partitions(tmp_path, monkeypatch, context.candidates)
+
+    result = run_recommendation_method_by_window(
+        method_name="enhanced_pop_similarity_trend",
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        windows=context.windows,
+        target_users=context.target_users,
+        candidates=context.candidates,
+        user_profile=context.user_profile,
+        trend_predictions=_method_trend_predictions(),
+        input_paths=_enhanced_method_input_paths(),
+        trend_model_source="outputs/models/lightgbm/predictions.csv",
+    )
+
+    assert result.recommendation_items["article_id"].tolist() == [
+        "0000000001",
+        "0000000003",
+    ]
+
+
+def test_enhanced_method_records_underfilled_diagnostics(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(
+        method_name="enhanced_pop_similarity_trend",
+        candidates=_enhanced_method_candidates(),
+    )
+    _write_enhanced_cache_partitions(tmp_path, monkeypatch, context.candidates)
+
+    result = run_recommendation_method_by_window(
+        method_name="enhanced_pop_similarity_trend",
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        windows=context.windows,
+        target_users=context.target_users,
+        candidates=context.candidates,
+        user_profile=context.user_profile,
+        trend_predictions=_method_trend_predictions(),
+        input_paths=_enhanced_method_input_paths(),
+        trend_model_source="outputs/models/lightgbm/predictions.csv",
+    )
+
+    assert result.metadata["candidate_strategy"] == "enhanced_default"
+    assert result.metadata["source_level_seen_policy"] == "reorder_only"
+    assert result.metadata["underfilled_user_count"] == 1
+    assert result.metadata["still_underfilled_user_count"] == 1
+    assert result.metadata["window_summaries"][0]["underfilled_user_count"] == 1
+    assert (
+        result.metadata["window_summaries"][0]["source_level_seen_policy"]
+        == "reorder_only"
+    )
+
+
+def test_enhanced_items_preserve_enhanced_score_columns(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(recommendation_paths, "OUTPUT_RECOMMENDATION_DIR", tmp_path)
+    context = sample_method_context(
+        method_name="enhanced_pop_similarity_trend",
+        candidates=_enhanced_method_candidates(),
+    )
+    _write_enhanced_cache_partitions(tmp_path, monkeypatch, context.candidates)
+
+    result = run_recommendation_method_by_window(
+        method_name="enhanced_pop_similarity_trend",
+        transactions=context.transactions,
+        article_attributes=context.article_attributes,
+        windows=context.windows,
+        target_users=context.target_users,
+        candidates=context.candidates,
+        user_profile=context.user_profile,
+        trend_predictions=_method_trend_predictions(),
+        input_paths=_enhanced_method_input_paths(),
+        trend_model_source="outputs/models/lightgbm/predictions.csv",
+    )
+    items = result.recommendation_items
+
+    assert tuple(items.columns) == RECOMMENDATION_ITEMS_COLUMNS
+    for column in ENHANCED_RECOMMENDATION_SCORE_COLUMNS:
+        assert column in items.columns
+    assert items.loc[items["article_id"] == "0000000001", "reorder_score"].item() == (
+        pytest.approx(1.0)
+    )
+    assert items.loc[items["article_id"] == "0000000003", "variant_score"].item() == (
+        pytest.approx(0.8)
+    )
 
 
 def test_method_metadata_includes_candidate_and_feature_cache_artifacts(
@@ -347,10 +536,8 @@ def _assert_recommendation_items_arrow_schema(path) -> None:
 
     assert schema.field("rank").type == pa.int64()
     assert schema.field("score").type == pa.float64()
-    assert schema.field("pop_score").type == pa.float64()
-    assert schema.field("sim_score").type == pa.float64()
-    assert schema.field("trend_score").type == pa.float64()
-    assert schema.field("recent_score").type == pa.float64()
+    for column in ENHANCED_RECOMMENDATION_SCORE_COLUMNS:
+        assert schema.field(column).type == pa.float64()
 
 
 def _recommendation_result(
@@ -388,8 +575,200 @@ def _recommendation_item_row(
         "sim_score": 0.3,
         "trend_score": 0.2,
         "recent_score": 0.1,
+        "reorder_score": 0.0,
+        "variant_score": 0.0,
+        "age_pop_score": 0.0,
+        "preference_pop_score": 0.0,
+        "source_rank_score": 0.0,
+        "source_count_score": 0.0,
         "candidate_sources": "pop",
     }
+
+
+def _enhanced_method_candidates() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            _enhanced_method_candidate(
+                "0000000001",
+                "reorder",
+                1,
+                has_reorder_source=True,
+            ),
+            _enhanced_method_candidate("0000000002", "popularity", 1),
+            _enhanced_method_candidate("0000000003", "product_variant", 2),
+        ],
+        columns=list(ENHANCED_CANDIDATE_ITEM_COLUMNS),
+    )
+
+
+def _enhanced_method_candidate(
+    article_id: str,
+    candidate_sources: str,
+    best_source_rank: int,
+    *,
+    has_reorder_source: bool = False,
+) -> dict[str, object]:
+    return {
+        "split": "valid",
+        "cutoff_week": 10,
+        "label_week": 11,
+        "strategy": "enhanced_default",
+        "customer_id": "u1",
+        "article_id": article_id,
+        "candidate_sources": candidate_sources,
+        "primary_source": candidate_sources.split("|")[0],
+        "best_source_rank": best_source_rank,
+        "has_reorder_source": has_reorder_source,
+        "allow_seen": has_reorder_source,
+    }
+
+
+def _method_trend_predictions() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "split": ["valid"],
+            "week_id": [10],
+            "attr_id": [101],
+            "attr_type": ["product_type_name"],
+            "attr_value": ["Dress"],
+            "pred_target_growth": [1.0],
+        }
+    )
+
+
+def _enhanced_method_input_paths() -> dict[str, str]:
+    return {
+        "candidate_items": (
+            "data/processed/recommend/candidates/enhanced_default/"
+            "candidate_items.parquet"
+        ),
+        "candidate_metadata": (
+            "data/processed/recommend/candidates/enhanced_default/metadata.json"
+        ),
+        "feature_cache_metadata": "data/processed/recommend/features/metadata.json",
+        "trend_predictions": "outputs/models/lightgbm/predictions.csv",
+        "customer_profile": "data/processed/recommend/customer_profile.parquet",
+        "article_product_map": "data/processed/recommend/article_product_map.parquet",
+    }
+
+
+def _write_enhanced_cache_partitions(
+    tmp_path,
+    monkeypatch,
+    candidates: pd.DataFrame,
+) -> None:
+    assert candidates is not None
+    base_dir = tmp_path / "features"
+
+    def partition_path(feature_name, strategy, split, cutoff_week):
+        return (
+            base_dir
+            / feature_name
+            / f"strategy={strategy}"
+            / f"split={split}"
+            / f"cutoff_week={cutoff_week}"
+            / "part.parquet"
+        )
+
+    def metadata_path(feature_name, strategy, split, cutoff_week):
+        return partition_path(
+            feature_name,
+            strategy,
+            split,
+            cutoff_week,
+        ).with_name("metadata.json")
+
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_path",
+        partition_path,
+    )
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.runner.feature_cache_partition_metadata_path",
+        metadata_path,
+    )
+
+    window = candidates.iloc[0]
+    split = str(window["split"])
+    cutoff_week = int(window["cutoff_week"])
+    label_week = int(window["label_week"])
+    strategy = str(window["strategy"])
+    candidate_keys = candidates.loc[
+        :,
+        [
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+    ]
+    article_keys = candidates.loc[
+        :,
+        ["split", "cutoff_week", "label_week", "strategy", "article_id"],
+    ]
+
+    frames = {
+        "candidate_seen_flags": candidates.iloc[:2]
+        .loc[
+            :,
+            [
+                "split",
+                "cutoff_week",
+                "label_week",
+                "strategy",
+                "customer_id",
+                "article_id",
+                "allow_seen",
+                "has_reorder_source",
+            ],
+        ]
+        .assign(seen=True, is_seen=True),
+        "popularity_scores": article_keys.assign(pop_score=[0.3, 1.0, 0.2]),
+        "recent_scores": article_keys.assign(recent_score=[0.5, 1.0, 0.4]),
+        "similarity_scores": candidate_keys.assign(sim_score=[0.4, 1.0, 0.3]),
+        "trend_scores": article_keys.assign(trend_score=[0.2, 1.0, 0.1]),
+        "reorder_scores": candidate_keys.assign(reorder_score=[1.0, 0.0, 0.0]),
+        "variant_scores": candidate_keys.assign(variant_score=[0.0, 0.0, 0.8]),
+        "age_popularity_scores": candidate_keys.assign(age_pop_score=[0.0, 0.7, 0.1]),
+        "preference_popularity_scores": candidate_keys.assign(
+            preference_pop_score=[0.2, 0.6, 0.1],
+        ),
+        "source_rank_scores": candidate_keys.assign(
+            source_rank_score=[1.0, 1.0, 0.5],
+        ),
+        "source_count_scores": candidate_keys.assign(
+            source_count_score=[0.0, 0.0, 0.0],
+        ),
+    }
+
+    for feature_name, frame in frames.items():
+        partition_file = partition_path(feature_name, strategy, split, cutoff_week)
+        _write_cache_partition(partition_file, frame)
+        metadata_file = metadata_path(feature_name, strategy, split, cutoff_week)
+        metadata_file.write_text(
+            json.dumps(
+                build_artifact_metadata(
+                    name=f"recommendation_feature_cache_{feature_name}",
+                    input_artifacts=_enhanced_method_input_paths(),
+                    output_artifacts={
+                        "partition": str(partition_file),
+                        "partition_metadata": str(metadata_file),
+                    },
+                    schema_version=1,
+                    algorithm_version="recommendation-feature-cache-v1",
+                    config={
+                        "feature_name": feature_name,
+                        "strategy": strategy,
+                        "split": split,
+                        "cutoff_week": cutoff_week,
+                        "label_week": label_week,
+                    },
+                    row_counts={"rows": int(len(frame))},
+                )
+            ),
+            encoding="utf-8",
+        )
 
 
 def sample_method_context(

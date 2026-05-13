@@ -8,7 +8,10 @@ from fashion_trend.recommendation.methods.baselines import (
     PopSimilarityMethod,
     RecentPopularityMethod,
 )
-from fashion_trend.recommendation.methods.trend_aware import PopSimilarityTrendMethod
+from fashion_trend.recommendation.methods.trend_aware import (
+    EnhancedPopSimilarityTrendMethod,
+    PopSimilarityTrendMethod,
+)
 
 RECOMMENDATION_METHOD_REGISTRY: dict[str, RecommendationMethod] = {
     "global_popularity": GlobalPopularityMethod(),
@@ -16,6 +19,7 @@ RECOMMENDATION_METHOD_REGISTRY: dict[str, RecommendationMethod] = {
     "attribute_similarity": AttributeSimilarityMethod(),
     "pop_similarity": PopSimilarityMethod(),
     "pop_similarity_trend": PopSimilarityTrendMethod(),
+    "enhanced_pop_similarity_trend": EnhancedPopSimilarityTrendMethod(),
 }
 
 

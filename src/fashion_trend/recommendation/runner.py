@@ -41,6 +41,9 @@ from fashion_trend.recommendation.paths import (
     method_output_paths,
 )
 from fashion_trend.recommendation.ranking.backfill import append_backfill_items
+from fashion_trend.recommendation.ranking.filters import (
+    filter_seen_items_by_source_policy,
+)
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.registry import get_recommendation_method
 
@@ -326,6 +329,17 @@ def filter_cached_seen_items(
         "customer_id",
         "article_id",
     ]
+    if "is_seen" in seen.columns:
+        marker = seen.loc[:, [*join_columns, "is_seen"]].drop_duplicates()
+        merged = candidates.merge(marker, on=join_columns, how="left")
+        merged["is_seen"] = merged["is_seen"].fillna(False).astype(bool)
+        filtered = filter_seen_items_by_source_policy(merged)
+        return (
+            filtered.loc[:, candidates.columns].reset_index(drop=True),
+            str(path),
+            str(metadata_path),
+        )
+
     marker = seen.loc[:, join_columns].assign(_seen=True)
     merged = candidates.merge(marker, on=join_columns, how="left")
     return (
@@ -483,6 +497,8 @@ def build_cached_recommendation_result_for_window(
             "underfilled_user_count": underfilled_before,
             "backfilled_user_count": backfilled_user_count,
             "still_underfilled_user_count": still_underfilled,
+            "candidate_strategy": strategy,
+            **_source_level_seen_policy_metadata(strategy),
         },
     )
 
@@ -680,10 +696,13 @@ def _base_metadata(
     metadata.update(
         {
             "method": method_name,
+            "candidate_strategy": candidate_strategy,
+            "backfill_mode": BACKFILL_MODE_BY_METHOD.get(method_name),
             "generated_at": datetime.now(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),
             "window_config": _window_config(windows),
+            **_source_level_seen_policy_metadata(candidate_strategy),
         }
     )
     metadata.update(
@@ -914,6 +933,10 @@ def _merge_window_metadata(
         if key in result.metadata:
             summary[key] = int(result.metadata[key])
             metadata[key] = int(metadata.get(key, 0)) + int(result.metadata[key])
+    for key in ("backfill_mode", "candidate_strategy", "source_level_seen_policy"):
+        if key in result.metadata:
+            summary[key] = result.metadata[key]
+            metadata[key] = result.metadata[key]
     metadata["candidate_rows"] = int(metadata["candidate_rows"]) + candidate_rows
     metadata["recommendation_rows"] = int(metadata["recommendation_rows"]) + int(
         len(result.recommendations)
@@ -988,6 +1011,14 @@ def _dedupe_strings(values: object) -> list[str]:
             result.append(item)
             seen.add(item)
     return result
+
+
+def _source_level_seen_policy_metadata(
+    candidate_strategy: str | None,
+) -> dict[str, str]:
+    if candidate_strategy == "enhanced_default":
+        return {"source_level_seen_policy": "reorder_only"}
+    return {}
 
 
 def _underfilled_user_count(

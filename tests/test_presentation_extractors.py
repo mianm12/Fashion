@@ -6,11 +6,13 @@ import pandas as pd
 import pytest
 
 from fashion_trend.presentation.extractors import (
+    _read_recommendation_items,
     _read_recommendation_metric_payloads,
     _read_report_tables,
     _read_trend_metric_payloads,
     filter_frame_to_case_keys,
 )
+from fashion_trend.recommendation.contracts import RECOMMENDATION_ITEMS_COLUMNS
 
 
 def test_read_report_tables_fails_for_empty_directory(tmp_path: Path) -> None:
@@ -39,6 +41,51 @@ def test_read_recommendation_metric_payloads_fails_for_empty_directory(
 
     with pytest.raises(ValueError, match="recommendation metrics.*recommendation"):
         _read_recommendation_metric_payloads(recommendation_dir)
+
+
+def test_read_recommendation_items_accepts_legacy_schema(tmp_path: Path) -> None:
+    method_dir = tmp_path / "pop_similarity_trend"
+    method_dir.mkdir()
+    path = method_dir / "recommendation_items.parquet"
+    legacy_columns = tuple(
+        column
+        for column in RECOMMENDATION_ITEMS_COLUMNS
+        if column
+        not in {
+            "reorder_score",
+            "variant_score",
+            "age_pop_score",
+            "preference_pop_score",
+            "source_rank_score",
+            "source_count_score",
+        }
+    )
+    pd.DataFrame(
+        [
+            {
+                "customer_id": "000000abcdef123456",
+                "split": "test",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "method": "pop_similarity_trend",
+                "article_id": "0000000001",
+                "rank": 1,
+                "score": 0.9,
+                "pop_score": 0.4,
+                "sim_score": 0.3,
+                "trend_score": 0.2,
+                "recent_score": 0.1,
+                "candidate_sources": "popularity|trend",
+            }
+        ],
+        columns=legacy_columns,
+    ).to_parquet(path, index=False)
+
+    result = _read_recommendation_items(path)
+
+    assert tuple(result.columns) == RECOMMENDATION_ITEMS_COLUMNS
+    assert result.loc[0, "reorder_score"] == pytest.approx(0.0)
+    assert result.loc[0, "source_count_score"] == pytest.approx(0.0)
 
 
 def test_filter_frame_to_case_keys_keeps_target_top12_and_columns() -> None:

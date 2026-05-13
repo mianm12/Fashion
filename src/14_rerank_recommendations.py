@@ -7,6 +7,8 @@ from fashion_trend.catalog.readers import read_article_attribute_edges
 from fashion_trend.foundation import logging as log
 from fashion_trend.recommendation.contracts import RECOMMENDATION_METHODS
 from fashion_trend.recommendation.paths import (
+    ARTICLE_PRODUCT_MAP_PATH,
+    CUSTOMER_PROFILE_PATH,
     FEATURE_CACHE_METADATA_PATH,
     RECOMMEND_METADATA_PATH,
     TARGET_USERS_PATH,
@@ -16,7 +18,9 @@ from fashion_trend.recommendation.paths import (
 )
 from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 from fashion_trend.recommendation.readers import (
+    read_article_product_map,
     read_candidate_items,
+    read_customer_profile,
     read_target_users,
     read_time_windows,
     read_user_profile,
@@ -54,12 +58,19 @@ def main() -> int:
             candidates = read_candidate_items(candidate_path)
         trend_prediction_path = None
         trend_predictions = None
-        if method.name == "pop_similarity_trend":
+        if "trend_score" in method.required_features:
             trend_prediction_path = OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
             trend_predictions = read_trend_model_predictions(trend_prediction_path)
         user_profile = None
         if "sim_score" in method.required_features and USER_PROFILE_PATH.exists():
             user_profile = read_user_profile(USER_PROFILE_PATH)
+        if method.name == "enhanced_pop_similarity_trend":
+            read_customer_profile(CUSTOMER_PROFILE_PATH)
+            read_article_product_map(ARTICLE_PRODUCT_MAP_PATH)
+            if not FEATURE_CACHE_METADATA_PATH.exists():
+                raise FileNotFoundError(
+                    f"增强推荐特征缓存 metadata 不存在: {FEATURE_CACHE_METADATA_PATH}"
+                )
         available_input_paths = {
             "recommendation_inputs": str(RECOMMEND_METADATA_PATH),
             "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
@@ -78,6 +89,9 @@ def main() -> int:
             available_input_paths["feature_cache_metadata"] = str(
                 FEATURE_CACHE_METADATA_PATH
             )
+        if method.name == "enhanced_pop_similarity_trend":
+            available_input_paths["customer_profile"] = str(CUSTOMER_PROFILE_PATH)
+            available_input_paths["article_product_map"] = str(ARTICLE_PRODUCT_MAP_PATH)
         if trend_prediction_path is not None:
             available_input_paths["trend_predictions"] = str(trend_prediction_path)
         input_paths = method_input_paths_for_artifacts(

@@ -22,6 +22,7 @@ RECOMMENDATION_METHODS = (
     "attribute_similarity",
     "pop_similarity",
     "pop_similarity_trend",
+    "enhanced_pop_similarity_trend",
 )
 RECOMMENDATION_CANDIDATE_STRATEGIES = (
     "popularity",
@@ -167,6 +168,12 @@ RECOMMENDATION_ITEMS_COLUMNS = (
     "sim_score",
     "trend_score",
     "recent_score",
+    "reorder_score",
+    "variant_score",
+    "age_pop_score",
+    "preference_pop_score",
+    "source_rank_score",
+    "source_count_score",
     "candidate_sources",
 )
 

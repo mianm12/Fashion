@@ -27,6 +27,7 @@ def test_public_recommendation_contract_constants() -> None:
         "attribute_similarity",
         "pop_similarity",
         "pop_similarity_trend",
+        "enhanced_pop_similarity_trend",
     )
     assert contracts.RECOMMENDATION_CANDIDATE_STRATEGIES == (
         "popularity",
@@ -299,6 +300,40 @@ def test_candidate_items_reader_validates_strategy_from_path(tmp_path: Path) -> 
         readers.read_candidate_items(mismatch_path)
 
 
+def test_candidate_items_reader_accepts_enhanced_strategy_columns(
+    tmp_path: Path,
+) -> None:
+    candidate_path = (
+        tmp_path / "candidates" / "enhanced_default" / "candidate_items.parquet"
+    )
+    candidate_path.parent.mkdir(parents=True)
+    _write_parquet(
+        candidate_path,
+        contracts.ENHANCED_CANDIDATE_ITEM_COLUMNS,
+        [
+            (
+                "valid",
+                104,
+                105,
+                "enhanced_default",
+                "0000001",
+                "0000123",
+                "reorder|trend",
+                "reorder",
+                1,
+                True,
+                True,
+            )
+        ],
+    )
+
+    dataframe = readers.read_candidate_items(candidate_path)
+
+    assert tuple(dataframe.columns) == contracts.ENHANCED_CANDIDATE_ITEM_COLUMNS
+    assert str(dataframe["customer_id"].dtype) == "string"
+    assert str(dataframe["article_id"].dtype) == "string"
+
+
 def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
     tmp_path: Path,
 ) -> None:
@@ -383,6 +418,54 @@ def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
     recommendation_items.assign(rank=13).to_parquet(invalid_rank_path, index=False)
     with pytest.raises(ValueError, match="Top-K"):
         readers.read_recommendation_items(invalid_rank_path)
+
+
+def test_read_recommendation_items_backfills_legacy_enhanced_scores(
+    tmp_path: Path,
+) -> None:
+    method_dir = tmp_path / "pop_similarity_trend"
+    method_dir.mkdir()
+    path = method_dir / "recommendation_items.parquet"
+    legacy_columns = tuple(
+        column
+        for column in contracts.RECOMMENDATION_ITEMS_COLUMNS
+        if column
+        not in {
+            "reorder_score",
+            "variant_score",
+            "age_pop_score",
+            "preference_pop_score",
+            "source_rank_score",
+            "source_count_score",
+        }
+    )
+    legacy_items = pd.DataFrame(
+        [
+            {
+                "customer_id": "0000001",
+                "split": "test",
+                "cutoff_week": 104,
+                "label_week": 105,
+                "method": "pop_similarity_trend",
+                "article_id": "0000123",
+                "rank": 1,
+                "score": 1.0,
+                "pop_score": 0.4,
+                "sim_score": 0.3,
+                "trend_score": 0.2,
+                "recent_score": 0.1,
+                "candidate_sources": "popularity|trend",
+            }
+        ],
+        columns=legacy_columns,
+    )
+    legacy_items.to_parquet(path, index=False)
+
+    result = readers.read_recommendation_items(path)
+
+    assert tuple(result.columns) == contracts.RECOMMENDATION_ITEMS_COLUMNS
+    assert result.loc[0, "reorder_score"] == pytest.approx(0.0)
+    assert result.loc[0, "source_count_score"] == pytest.approx(0.0)
 
 
 def _write_parquet(
