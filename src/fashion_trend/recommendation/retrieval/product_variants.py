@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+import numpy as np
 import pandas as pd
 
 from fashion_trend.recommendation.retrieval.popularity import SOURCE_COLUMNS
+
+
+@dataclass(frozen=True)
+class ArticlePopularity:
+    weekly_counts: pd.DataFrame
+    article_code_by_id: pd.Series
 
 
 def build_product_variant_candidates(
@@ -20,7 +29,7 @@ def build_product_variant_candidates(
         return _empty_source_frame()
 
     reorder_candidates = _with_string_ids(reorder_candidates)
-    transactions = _with_string_ids(transactions)
+    article_popularity = _prepare_article_popularity(transactions)
     product_map = _clean_product_map(article_product_map)
     if product_map.empty:
         return _empty_source_frame()
@@ -39,10 +48,15 @@ def build_product_variant_candidates(
         if variants.empty:
             continue
         popularity = _article_popularity_for_window(
-            transactions,
+            article_popularity,
             cutoff_week=int(window["cutoff_week"]),
         )
-        limited = _limit_variants_per_seed(variants, popularity, per_seed_top_n)
+        limited = _limit_variants_per_seed(
+            variants,
+            popularity,
+            article_popularity,
+            per_seed_top_n,
+        )
         ranked = _rank_window_variants(limited, top_n)
         if ranked.empty:
             continue
@@ -105,28 +119,23 @@ def _variants_for_seeds(
 
 
 def _article_popularity_for_window(
-    transactions: pd.DataFrame,
+    article_popularity: ArticlePopularity,
     cutoff_week: int,
-) -> pd.DataFrame:
-    if transactions.empty:
-        return pd.DataFrame(columns=["article_id", "article_popularity"])
-    week_id = pd.to_numeric(transactions["week_id"], errors="raise")
-    history = transactions.loc[week_id <= cutoff_week].copy()
+) -> pd.Series:
+    weekly_counts = article_popularity.weekly_counts
+    history = weekly_counts.loc[weekly_counts["week_id"].le(cutoff_week)]
     if history.empty:
-        return pd.DataFrame(columns=["article_id", "article_popularity"])
-    return (
-        history.groupby("article_id", as_index=False)
-        .size()
-        .rename(columns={"size": "article_popularity"})
-    )
+        return pd.Series(dtype="int64")
+    return history.groupby("article_code", sort=False)["article_popularity"].sum()
 
 
 def _limit_variants_per_seed(
     variants: pd.DataFrame,
-    popularity: pd.DataFrame,
+    popularity: pd.Series,
+    article_popularity: ArticlePopularity,
     per_seed_top_n: int,
 ) -> pd.DataFrame:
-    scored = _attach_popularity(variants, popularity)
+    scored = _attach_popularity(variants, popularity, article_popularity)
     sorted_variants = scored.sort_values(
         [
             "customer_id",
@@ -170,11 +179,58 @@ def _rank_window_variants(variants: pd.DataFrame, top_n: int) -> pd.DataFrame:
 
 def _attach_popularity(
     variants: pd.DataFrame,
-    popularity: pd.DataFrame,
+    popularity: pd.Series,
+    article_popularity: ArticlePopularity,
 ) -> pd.DataFrame:
-    scored = variants.merge(popularity, on="article_id", how="left")
-    scored["article_popularity"] = scored["article_popularity"].fillna(0).astype(int)
+    scored = variants.copy()
+    article_codes = pd.Series(
+        article_popularity.article_code_by_id.reindex(
+            scored["article_id"].to_numpy()
+        ).to_numpy(),
+        index=scored.index,
+    )
+    scored["article_popularity"] = 0
+    known_articles = article_codes.notna()
+    if known_articles.any():
+        scored.loc[known_articles, "article_popularity"] = (
+            popularity.reindex(article_codes.loc[known_articles].astype(np.int32))
+            .fillna(0)
+            .to_numpy(dtype=np.int64)
+        )
     return scored
+
+
+def _prepare_article_popularity(transactions: pd.DataFrame) -> ArticlePopularity:
+    if transactions.empty:
+        return ArticlePopularity(
+            weekly_counts=pd.DataFrame(
+                columns=["week_id", "article_code", "article_popularity"]
+            ),
+            article_code_by_id=pd.Series(dtype=np.int32),
+        )
+    article_codes, article_ids = pd.factorize(transactions["article_id"], sort=False)
+    article_ids = pd.Index(article_ids).astype(str)
+    data = pd.DataFrame(
+        {
+            "week_id": pd.to_numeric(transactions["week_id"], errors="raise").astype(
+                np.int16
+            ),
+            "article_code": article_codes.astype(np.int32, copy=False),
+        }
+    )
+    weekly_counts = (
+        data.groupby(["week_id", "article_code"], as_index=False, sort=False)
+        .size()
+        .rename(columns={"size": "article_popularity"})
+    )
+    article_code_by_id = pd.Series(
+        np.arange(len(article_ids), dtype=np.int32),
+        index=article_ids,
+    )
+    return ArticlePopularity(
+        weekly_counts=weekly_counts,
+        article_code_by_id=article_code_by_id,
+    )
 
 
 def _concat_source_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
