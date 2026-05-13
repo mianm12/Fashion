@@ -1930,13 +1930,20 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
 
 ## 18.3 消融实验
 
-| 模型版本             | 去掉的部分         |
-| ---------------- | ------------- |
-| Full Model       | 全部特征          |
-| w/o Graph        | 去掉父级、同级、图结构特征 |
-| w/o Growth       | 去掉历史增长率       |
-| w/o Rank         | 去掉同类型排名       |
-| w/o Trend in Rec | 推荐阶段去掉趋势分     |
+当前实现把推荐层消融与趋势模型特征消融分开处理。已实现的推荐层消融包括
+`Full Model`、严格 `w/o Trend in Rec`、严格 `w/o Similarity`、严格
+`w/o Recent` 和稳定 baseline 对照。`w/o Graph`、`w/o Growth`、`w/o Rank`
+属于趋势模型特征消融，需要重训 LightGBM 变体，不属于本轮推荐消融实现。
+
+| 模型版本             | 去掉的部分         | 当前状态       |
+| ---------------- | ------------- | ---------- |
+| Full Model       | 全部推荐融合特征      | 已在推荐实验输出   |
+| w/o Trend in Rec | 推荐阶段去掉趋势分     | 已在推荐实验输出   |
+| w/o Similarity   | 推荐阶段去掉相似度分    | 已在推荐实验输出   |
+| w/o Recent       | 推荐阶段去掉近期热度分   | 已在推荐实验输出   |
+| w/o Graph        | 去掉父级、同级、图结构特征 | 后续趋势模型特征消融 |
+| w/o Growth       | 去掉历史增长率       | 后续趋势模型特征消融 |
+| w/o Rank         | 去掉同类型排名       | 后续趋势模型特征消融 |
 
 ---
 

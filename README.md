@@ -703,6 +703,16 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
 的 test `NDCG@12=0.008087`。论文叙述应把它定位为“趋势感知融合主模型”，并保留
 `recent_popularity` 作为强 baseline 对照。
 
+`main` 实验还会写出 `named_ablation` 和 `trend_bucket_best_by_valid`：
+
+- `named_ablation` 包含 `Full Model`、严格 `w/o Trend in Rec`、严格
+  `w/o Similarity`、严格 `w/o Recent`、`Recent Only` 和
+  `Pop + Similarity baseline`。严格消融权重从当次 `best_weights` 动态派生，
+  不注册为新的正式 method，也不写入新的 stable method 目录。
+- `trend_bucket_best_by_valid` 记录 `trend_score=0.0/0.1/0.2/0.3/0.4`
+  下按 valid `NDCG@12` 选出的代表组合及其 valid/test 指标；它不是单因素
+  controlled sweep。
+
 `16_run_recommendation_experiment.py` 默认复用新鲜的输入、候选、feature
 cache 和 method 产物。需要重建时使用明确 force 参数：
 
@@ -771,7 +781,7 @@ npm run dev
 | 阶段 | 计划产物 | 说明 |
 | :--- | :--- | :--- |
 | 趋势模型扩展 | 更多模型文件和趋势预测结果 | LightGBM 已实现并完成首轮 stable 调参；后续可考虑更多监督模型或 EWMA 等增强 baseline |
-| 推荐实验增强 | 推荐召回、消融和案例证据 | 当前已支持轻量离线 Top-12、单方法评价、`main` 实验、reports 导出和展示应用消费；后续优先补充更强候选召回和更严格的命名消融 |
+| 推荐实验增强 | 推荐召回、消融和案例证据 | 当前已支持轻量离线 Top-12、单方法评价、`main` 实验、命名消融、reports 导出和展示应用消费；后续优先补充更强候选召回和趋势模型特征消融 |
 | 答辩展示完善 | 演示脚本和少量交互优化 | 当前已具备 SQLite 展示库、FastAPI 后端和 Vue/Vite 前端；后续只做不改变研究结论的展示增强 |
 
 后续实现时需要继续遵守时间切分原则：任一周 `T` 的特征只能使用 `T` 及之前的数据，不能把 `T+1` 的热度、候选或用户行为泄漏进训练特征。
