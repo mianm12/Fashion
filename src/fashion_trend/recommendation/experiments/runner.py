@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from fashion_trend.recommendation.evaluation.runner import (
     run_recommendation_evaluation,
 )
 from fashion_trend.recommendation.experiments.ablation import (
+    SCORE_FEATURES,
     STRICT_VARIANTS,
     build_ablation_summary,
     build_named_ablation_rows,
@@ -906,19 +908,32 @@ def run_recommendation_experiment(
     _record_timing(timings, timer.finish())
 
     timer = StageTimer("weight_search")
-    search_results = evaluate_weight_grid_on_valid(
-        iter_weight_grid(),
-        context,
-        inputs,
-        default_candidates,
-        force=force_cache or force_rebuild_all,
-    )
+    weight_grid = iter_weight_grid()
+    search_results = None
+    if force_experiment and not (force_cache or force_candidates or force_rebuild_all):
+        search_results = _cached_search_results_for_current_grid(
+            experiment_id,
+            weight_grid,
+        )
+    search_reused = search_results is not None
+    if search_results is None:
+        search_results = evaluate_weight_grid_on_valid(
+            weight_grid,
+            context,
+            inputs,
+            default_candidates,
+            force=force_cache or force_rebuild_all,
+        )
     _record_stage_status(
         stage_status,
         {
             "stage": "experiment",
-            "status": "rebuilt",
-            "reason": "force-experiment" if force_experiment else "payload-write",
+            "status": "reused" if search_reused else "rebuilt",
+            "reason": (
+                "cached-search-results"
+                if search_reused
+                else ("force-experiment" if force_experiment else "payload-write")
+            ),
         },
     )
     _record_timing(timings, timer.finish())
@@ -1208,6 +1223,69 @@ def _baseline_metrics_for_named_ablation(
             "metrics": dict(by_method["pop_similarity"]["metrics"]),
         },
     }
+
+
+def _cached_search_results_for_current_grid(
+    experiment_id: str,
+    weight_grid: list[dict[str, float]],
+) -> list[dict[str, Any]] | None:
+    path = experiment_dir(experiment_id) / "experiment.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    values = payload.get("search_results")
+    if not isinstance(values, list) or len(values) != len(weight_grid):
+        return None
+
+    results: list[dict[str, Any]] = []
+    for index, (expected_weights, row) in enumerate(zip(weight_grid, values)):
+        if not isinstance(row, dict):
+            return None
+        if int(row.get("grid_index", index)) != index:
+            return None
+        weights = row.get("weights")
+        valid_metrics = row.get("valid_metrics")
+        if not isinstance(weights, dict) or not isinstance(valid_metrics, dict):
+            return None
+        if not _weights_match_current_grid(weights, expected_weights):
+            return None
+        results.append(
+            {
+                **row,
+                "grid_index": index,
+                "weights": {
+                    feature: float(weights[feature]) for feature in SCORE_FEATURES
+                },
+                "valid_metrics": dict(valid_metrics),
+            }
+        )
+    return results
+
+
+def _weights_match_current_grid(
+    actual: dict[str, object],
+    expected: dict[str, float],
+) -> bool:
+    for feature in SCORE_FEATURES:
+        if feature not in actual:
+            return False
+        try:
+            actual_value = float(actual[feature])
+        except (TypeError, ValueError):
+            return False
+        if not math.isclose(
+            actual_value,
+            float(expected[feature]),
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            return False
+    return True
 
 
 def _recommendation_inputs_are_fresh(

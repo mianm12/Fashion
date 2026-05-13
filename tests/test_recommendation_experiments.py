@@ -339,6 +339,58 @@ def test_build_experiment_payload_includes_named_ablation_and_trend_buckets() ->
     assert payload["trend_bucket_best_by_valid"] == [{"variant_id": "trend_bucket_0_1"}]
 
 
+def test_cached_search_results_require_current_grid(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    experiment_root = tmp_path / "experiments" / "main"
+    experiment_root.mkdir(parents=True)
+    monkeypatch.setattr(
+        experiment_runner,
+        "experiment_dir",
+        lambda experiment_id: experiment_root,
+    )
+    weight_grid = [
+        {
+            "pop_score": 0.2,
+            "sim_score": 0.2,
+            "trend_score": 0.1,
+            "recent_score": 0.5,
+        }
+    ]
+    payload = {
+        "search_results": [
+            {
+                "grid_index": 0,
+                "weights": dict(weight_grid[0]),
+                "valid_metrics": {"ndcg_at_12": 0.7},
+            }
+        ]
+    }
+    (experiment_root / "experiment.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    cached = experiment_runner._cached_search_results_for_current_grid(
+        "main",
+        weight_grid,
+    )
+
+    assert cached == payload["search_results"]
+
+    payload["search_results"][0]["weights"]["trend_score"] = 0.2
+    (experiment_root / "experiment.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    assert (
+        experiment_runner._cached_search_results_for_current_grid("main", weight_grid)
+        is None
+    )
+
+
 @pytest.mark.parametrize(
     (
         "force_kwargs",
