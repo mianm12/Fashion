@@ -513,6 +513,31 @@ def test_search_cache_input_artifacts_include_feature_cache_paths(
     assert artifacts["feature_artifact_0001"] == feature_paths[1]
 
 
+def test_search_cache_input_artifacts_reject_missing_window_columns(tmp_path) -> None:
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths={
+            "weekly_transactions": str(tmp_path / "weekly.parquet"),
+            "article_attributes": str(tmp_path / "articles.csv"),
+            "trend_predictions": str(tmp_path / "trend_predictions.csv"),
+        },
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame([{"split": "valid", "cutoff_week": 10}]),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    candidates = pd.DataFrame(
+        [{"split": "valid", "cutoff_week": 10, "article_id": "0000000001"}]
+    )
+
+    with pytest.raises(ValueError, match="label_week"):
+        experiment_runner._search_cache_input_artifacts(context, inputs, candidates)
+
+
 @pytest.mark.parametrize(
     (
         "force_kwargs",
@@ -625,7 +650,7 @@ def test_baseline_force_rebuilds_fresh_cached_method_output(
 def test_force_candidates_rebuilds_candidates_cache_and_methods(monkeypatch) -> None:
     calls: list[tuple[str, object]] = []
     inputs = RecommendationInputArtifacts(
-        time_windows=pd.DataFrame(),
+        time_windows=pd.DataFrame(columns=["split", "cutoff_week", "label_week"]),
         target_users=pd.DataFrame(),
         evaluation_labels=pd.DataFrame(),
         user_profile=pd.DataFrame(),
@@ -742,7 +767,7 @@ def test_experiment_records_missing_candidate_and_cache_as_rebuilt(
 ) -> None:
     calls: list[tuple[str, object]] = []
     inputs = RecommendationInputArtifacts(
-        time_windows=pd.DataFrame(),
+        time_windows=pd.DataFrame(columns=["split", "cutoff_week", "label_week"]),
         target_users=pd.DataFrame(),
         evaluation_labels=pd.DataFrame(),
         user_profile=pd.DataFrame(),

@@ -1431,10 +1431,20 @@ def _search_cache_input_artifacts(
     artifacts["evaluation_labels"] = str(EVALUATION_LABELS_PATH)
 
     required_columns = {"split", "cutoff_week", "label_week"}
-    if not required_columns.issubset(
-        inputs.time_windows.columns
-    ) or not required_columns.issubset(candidates.columns):
-        return artifacts
+    missing_time_window_columns = sorted(
+        required_columns - set(inputs.time_windows.columns)
+    )
+    missing_candidate_columns = sorted(required_columns - set(candidates.columns))
+    if missing_time_window_columns or missing_candidate_columns:
+        details = []
+        if missing_time_window_columns:
+            details.append(f"time_windows missing {missing_time_window_columns}")
+        if missing_candidate_columns:
+            details.append(f"candidates missing {missing_candidate_columns}")
+        raise ValueError(
+            "search cache input artifacts require window columns: "
+            + "; ".join(details)
+        )
 
     feature_artifacts: list[str] = []
     valid_windows = _filter_split(inputs.time_windows, "valid")
