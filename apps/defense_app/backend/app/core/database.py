@@ -47,7 +47,7 @@ def open_database(database_path: Path | None = None) -> sqlite3.Connection:
         raise database_unavailable()
 
     database_uri = f"{path.resolve().as_uri()}?mode=ro"
-    connection = sqlite3.connect(database_uri, uri=True)
+    connection = sqlite3.connect(database_uri, uri=True, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     try:
         _assert_schema_version(connection)

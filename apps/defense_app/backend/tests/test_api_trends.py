@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -76,3 +77,23 @@ def test_database_path_with_uri_characters_opens(
     response = TestClient(app).get("/api/trends")
 
     assert response.status_code == 200
+
+
+def test_database_connection_can_be_used_from_worker_thread(
+    seeded_db_path: Path,
+) -> None:
+    from app.core.database import open_database
+
+    connection = open_database(seeded_db_path)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(
+                lambda: connection.execute(
+                    "select value from app_metadata where key = ?",
+                    ("schema_version",),
+                ).fetchone()[0]
+            ).result()
+    finally:
+        connection.close()
+
+    assert result == "defense_app_v1"
