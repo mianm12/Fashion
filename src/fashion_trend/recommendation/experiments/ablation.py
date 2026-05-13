@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from numbers import Real
 from typing import Any
 
 SCORE_FEATURES = ("pop_score", "sim_score", "trend_score", "recent_score")
@@ -50,8 +51,8 @@ def derive_strict_ablation_weights(
 def build_named_ablation_rows(
     *,
     best_weights: dict[str, float],
-    strict_metrics: dict[str, dict[str, dict[str, float]]],
-    full_model_metrics: dict[str, dict[str, float]],
+    strict_metrics: dict[str, dict[str, dict[str, Any]]],
+    full_model_metrics: dict[str, dict[str, Any]],
     stable_baseline_metrics: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     weights = _read_weights(best_weights, context="best_weights")
@@ -194,9 +195,9 @@ def _validate_weight_sum(weights: dict[str, float], *, context: str) -> None:
 
 
 def _read_metrics_by_split(
-    metrics_by_split: dict[str, dict[str, float]],
+    metrics_by_split: dict[str, dict[str, Any]],
     context: str,
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, Any]]:
     if not metrics_by_split:
         raise ValueError(f"{context} metrics 为空")
 
@@ -205,13 +206,19 @@ def _read_metrics_by_split(
         if not metrics:
             raise ValueError(f"{context} split={split} metrics 为空")
         result[str(split)] = {
-            str(metric_name): _finite_number(metric_value, f"{context}.{split}")
+            str(metric_name): _read_metric_value(metric_value, f"{context}.{split}")
             for metric_name, metric_value in dict(metrics).items()
         }
     return result
 
 
-def _finite_number(value: Any, context: str) -> float:
+def _read_metric_value(value: Any, context: str) -> Any:
+    if isinstance(value, Real) and not isinstance(value, bool):
+        return _finite_number(value, context)
+    return value
+
+
+def _finite_number(value: Real, context: str) -> float:
     number = float(value)
     if not math.isfinite(number):
         raise ValueError(f"{context} 包含非有限指标值: {value!r}")

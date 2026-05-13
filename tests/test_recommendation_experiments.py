@@ -2358,7 +2358,10 @@ def test_build_named_ablation_rows_keeps_audit_fields_and_selection_split() -> N
             },
         },
         full_model_metrics={
-            "valid": {"ndcg_at_12": 0.7},
+            "valid": {
+                "ndcg_at_12": 0.7,
+                "coverage_by_window": [{"cutoff_week": 88, "coverage": 0.01}],
+            },
             "test": {"ndcg_at_12": 0.8},
         },
         stable_baseline_metrics={
@@ -2402,6 +2405,9 @@ def test_build_named_ablation_rows_keeps_audit_fields_and_selection_split() -> N
             "recent_score": 5 / 9,
         }
     )
+    assert by_id["full_model"]["metrics"]["valid"]["coverage_by_window"] == [
+        {"cutoff_week": 88, "coverage": 0.01}
+    ]
     assert by_id["recent_only_baseline"]["selection_split"] == "not_applicable"
     assert by_id["recent_only_baseline"]["weight_policy"] == "stable_method_baseline"
 
