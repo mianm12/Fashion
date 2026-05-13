@@ -53,6 +53,11 @@ from fashion_trend.recommendation.ranking.features import build_ranking_features
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.readers import read_recommendations
 from fashion_trend.recommendation.registry import get_recommendation_method
+from fashion_trend.recommendation.runner import (
+    build_cached_feature_frame_for_window,
+    filter_cached_seen_items,
+    method_input_paths_for_artifacts,
+)
 
 ENHANCED_EXPERIMENT_ID = "recommendation_enhanced"
 ENHANCED_METHOD = "enhanced_pop_similarity_trend"
@@ -209,13 +214,17 @@ def evaluate_enhanced_weight_grid_on_valid(
     )
     target_users = _filter_split(inputs.target_users, "valid")
     labels = _filter_split(inputs.evaluation_labels, "valid")
+    feature_windows = _prepare_cached_enhanced_feature_windows(
+        split="valid",
+        context=context,
+        inputs=inputs,
+        candidates=candidates,
+    )
     return [
         _evaluate_one_enhanced_weight_run_on_valid(
             grid_index=grid_index,
             weights=weights,
-            context=context,
-            inputs=inputs,
-            candidates=candidates,
+            feature_windows=feature_windows,
             recommendable_pool=recommendable_pool,
             target_users=target_users,
             labels=labels,
@@ -608,23 +617,17 @@ def _evaluate_one_enhanced_weight_run_on_valid(
     *,
     grid_index: int,
     weights: dict[str, float],
-    context: RecommendationExperimentContext,
-    inputs: RecommendationInputArtifacts,
-    candidates: pd.DataFrame,
+    feature_windows: list[tuple[dict[str, object], pd.DataFrame]],
     recommendable_pool: pd.DataFrame,
     target_users: pd.DataFrame,
     labels: pd.DataFrame,
 ) -> dict[str, Any]:
-    result = build_recommendation_result_in_memory(
-        method_name=ENHANCED_METHOD,
+    recommendations = _rank_cached_feature_windows(
+        feature_windows,
         weights=weights,
-        split_filter="valid",
-        context=context,
-        inputs=inputs,
-        candidates=candidates,
     )
     metrics = evaluate_recommendations(
-        result.recommendations,
+        recommendations,
         target_users,
         labels,
         recommendable_pool,
@@ -637,6 +640,77 @@ def _evaluate_one_enhanced_weight_run_on_valid(
         "weights": dict(weights),
         "valid_metrics": metrics["valid"],
     }
+
+
+def _prepare_cached_enhanced_feature_windows(
+    *,
+    split: str,
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+) -> list[tuple[dict[str, object], pd.DataFrame]]:
+    method = get_recommendation_method(ENHANCED_METHOD)
+    input_paths = method_input_paths_for_artifacts(
+        ENHANCED_METHOD,
+        _experiment_input_paths(context),
+    )
+    windows = _filter_split(inputs.time_windows, split)
+    split_candidates = _filter_split(candidates, split)
+    feature_windows: list[tuple[dict[str, object], pd.DataFrame]] = []
+    for window in windows.loc[:, ["split", "cutoff_week", "label_week"]].to_dict(
+        "records"
+    ):
+        window_candidates = _frame_for_window(split_candidates, window)
+        if window_candidates.empty:
+            continue
+        filtered_candidates, _, _ = filter_cached_seen_items(
+            window_candidates,
+            strategy=ENHANCED_STRATEGY,
+            window=window,
+            input_paths=input_paths,
+        )
+        feature_frame, _ = build_cached_feature_frame_for_window(
+            method_name=ENHANCED_METHOD,
+            strategy=ENHANCED_STRATEGY,
+            window=window,
+            candidates=filtered_candidates,
+            required_features=method.required_features,
+            input_paths=input_paths,
+        )
+        feature_windows.append((window, feature_frame))
+    return feature_windows
+
+
+def _rank_cached_feature_windows(
+    feature_windows: list[tuple[dict[str, object], pd.DataFrame]],
+    *,
+    weights: dict[str, float],
+) -> pd.DataFrame:
+    method = get_recommendation_method(ENHANCED_METHOD)
+    recommendation_chunks: list[pd.DataFrame] = []
+    for _window, feature_frame in feature_windows:
+        ranked = rank_candidate_items(
+            feature_frame,
+            weights=weights,
+            top_k=RECOMMENDATION_TOP_K,
+            required_features=method.required_features,
+        )
+        recommendation_items = format_recommendation_items(ranked)
+        recommendation_chunks.append(
+            build_recommendations_csv(recommendation_items, RECOMMENDATION_TOP_K)
+        )
+    if not recommendation_chunks:
+        return pd.DataFrame(
+            columns=[
+                "customer_id",
+                "split",
+                "cutoff_week",
+                "label_week",
+                "method",
+                "prediction",
+            ]
+        )
+    return pd.concat(recommendation_chunks, ignore_index=True)
 
 
 def _recommendable_pool_for_split(
