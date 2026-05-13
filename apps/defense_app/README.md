@@ -1,10 +1,10 @@
 # Defense App
 
-本目录是本地答辩展示应用，用于把已经生成的趋势预测、属性图、推荐结果和论文案例整理成只读演示界面。它不是在线推荐服务、生产推荐平台或实时个性化系统。
+本目录是本地答辩展示应用，用于把已经生成的趋势预测、属性图、推荐结果、reports 图表和高质量演示用户池整理成只读演示界面。它不是在线推荐服务、生产推荐平台或实时个性化系统。
 
 ## 数据库构建
 
-先确保上游稳定 artifact 已存在，包括清洗商品、属性图、趋势预测、推荐结果、推荐案例和 reports 输出。然后构建展示库：
+先确保上游稳定 artifact 已存在，包括清洗商品、属性图、趋势预测、推荐结果、推荐评价标签、用户画像和 reports 输出。然后构建展示库：
 
 ```sh
 uv run python src/18_build_defense_app_db.py
@@ -17,6 +17,8 @@ outputs/defense_app/fashion_demo.sqlite
 ```
 
 该 SQLite 文件是生成产物，不应提交到版本库。
+
+展示库会从 `pop_similarity_trend` 稳定推荐长表、`evaluation_labels.parquet` 和 `user_profile.parquet` 中选择 20-50 个演示用户窗口。入选 case 必须具备完整 Top-12 推荐、可解释分数组件和用户画像；排序优先命中数，其次画像丰富度和趋势分贡献。`outputs/reports/case_studies/` 仍是论文案例导出，不再决定展示应用的用户池规模。
 
 ## 后端
 

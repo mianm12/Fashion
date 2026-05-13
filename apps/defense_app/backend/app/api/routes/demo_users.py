@@ -21,7 +21,7 @@ def list_demo_users(
     connection: Annotated[sqlite3.Connection, Depends(get_database)],
     q: str | None = None,
     tag: str | None = None,
-    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    limit: Annotated[int, Query(ge=1, le=50)] = 50,
 ) -> dict[str, object]:
     repository = DemoUserRepository(connection)
     return {"items": repository.list_users(q, tag, limit)}

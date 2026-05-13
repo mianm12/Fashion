@@ -9,7 +9,6 @@ DEFENSE_APP_STATIC_DIR = DEFENSE_APP_OUTPUT_DIR / "static"
 REPORTS_MANIFEST_PATH = OUTPUT_DIR / "reports" / "manifest.json"
 
 REPORTS_TABLES_DIR = OUTPUT_DIR / "reports" / "tables"
-REPORTS_CASE_STUDIES_DIR = OUTPUT_DIR / "reports" / "case_studies"
 LIGHTGBM_PREDICTIONS_PATH = OUTPUT_DIR / "models" / "lightgbm" / "predictions.csv"
 LIGHTGBM_FEATURE_IMPORTANCE_PATH = (
     OUTPUT_DIR / "models" / "lightgbm" / "feature_importance.csv"
@@ -17,9 +16,7 @@ LIGHTGBM_FEATURE_IMPORTANCE_PATH = (
 TREND_METRICS_DIR = OUTPUT_DIR / "metrics"
 RECOMMENDATION_OUTPUT_DIR = OUTPUT_DIR / "recommendation"
 MAIN_RECOMMENDATION_ITEMS_PATH = (
-    RECOMMENDATION_OUTPUT_DIR
-    / "pop_similarity_trend"
-    / "recommendation_items.parquet"
+    RECOMMENDATION_OUTPUT_DIR / "pop_similarity_trend" / "recommendation_items.parquet"
 )
 RECOMMENDATION_EXPERIMENT_PATH = (
     RECOMMENDATION_OUTPUT_DIR / "experiments" / "main" / "experiment.json"

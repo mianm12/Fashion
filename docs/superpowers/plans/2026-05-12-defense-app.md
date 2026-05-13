@@ -251,7 +251,6 @@ Fail fast with `FileNotFoundError` for required artifacts.
 Read these stable artifacts:
 
 - `outputs/reports/manifest.json`
-- `outputs/reports/case_studies/*.json`
 - `outputs/reports/tables/*.csv`
 - `outputs/models/lightgbm/predictions.csv`
 - `outputs/models/lightgbm/feature_importance.csv`
@@ -268,6 +267,11 @@ Read these stable artifacts:
 - `data/processed/graph/edges_article_attribute.csv`
 - `data/processed/graph/edges_attribute_hierarchy.csv`
 - `data/interim/articles_clean.csv`
+
+Demo users are selected in the presentation layer from
+`recommendation_items.parquet`, `evaluation_labels.parquet`, and
+`user_profile.parquet`; the paper `case_studies` export remains independent from the
+defense app user pool.
 
 Do not read raw `transactions_train.csv`, raw `customers.csv`, training run directories, or historical `recommendation_items.csv`.
 

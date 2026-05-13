@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from fashion_trend.presentation import paths
+from fashion_trend.presentation.demo_cases import build_demo_case_payloads
 from fashion_trend.presentation.source_artifacts import (
     collect_source_artifact_metadata,
 )
@@ -57,7 +58,16 @@ class PresentationSources:
 
 def load_presentation_sources() -> PresentationSources:
     """Load stable artifacts needed to build the read-only defense app tables."""
-    report_cases = _read_report_cases(paths.REPORTS_CASE_STUDIES_DIR)
+    recommendation_items = _read_recommendation_items(
+        paths.MAIN_RECOMMENDATION_ITEMS_PATH
+    )
+    evaluation_labels = _read_evaluation_labels(paths.EVALUATION_LABELS_PATH)
+    user_profile = _read_user_profile(paths.USER_PROFILE_PATH)
+    report_cases = build_demo_case_payloads(
+        recommendation_items=recommendation_items,
+        evaluation_labels=evaluation_labels,
+        user_profile=user_profile,
+    )
     return PresentationSources(
         manifest=read_json_object(
             paths.REPORTS_MANIFEST_PATH,
@@ -73,20 +83,25 @@ def load_presentation_sources() -> PresentationSources:
         recommendation_metrics=_read_recommendation_metric_payloads(
             paths.RECOMMENDATION_OUTPUT_DIR
         ),
-        recommendation_items=_read_recommendation_items_for_cases(
-            paths.MAIN_RECOMMENDATION_ITEMS_PATH,
+        recommendation_items=filter_frame_to_case_keys(
+            recommendation_items,
             report_cases,
+            columns=list(RECOMMENDATION_ITEMS_COLUMNS),
+            top_k=RECOMMENDATION_TOP_K,
         ),
         experiment=read_json_object(
             paths.RECOMMENDATION_EXPERIMENT_PATH,
             artifact_name="recommendation experiment",
         ),
-        evaluation_labels=_read_evaluation_labels_for_cases(
-            paths.EVALUATION_LABELS_PATH,
+        evaluation_labels=filter_frame_to_case_keys(
+            evaluation_labels,
             report_cases,
+            columns=list(EVALUATION_LABEL_COLUMNS),
         ),
-        user_profile=_read_user_profile_for_cases(
-            paths.USER_PROFILE_PATH, report_cases
+        user_profile=filter_frame_to_case_keys(
+            user_profile,
+            report_cases,
+            columns=list(USER_PROFILE_COLUMNS),
         ),
         attribute_week_heat=_read_id_heavy_csv(paths.ATTRIBUTE_WEEK_HEAT_PATH),
         trend_model_samples=read_trend_samples(paths.TREND_MODEL_SAMPLES_PATH),
@@ -162,10 +177,7 @@ def filter_frame_to_case_keys(
     return filtered
 
 
-def _read_recommendation_items_for_cases(
-    path: Path,
-    report_cases: list[dict[str, Any]],
-) -> pd.DataFrame:
+def _read_recommendation_items(path: Path) -> pd.DataFrame:
     expected_method = path.parent.name
     dataframe = pd.read_parquet(path, columns=list(RECOMMENDATION_ITEMS_COLUMNS))
     validate_columns(dataframe, RECOMMENDATION_ITEMS_COLUMNS, "recommendation_items")
@@ -189,49 +201,23 @@ def _read_recommendation_items_for_cases(
             expected_method,
             "recommendation_items",
         )
-    return filter_frame_to_case_keys(
-        dataframe,
-        report_cases,
-        columns=list(RECOMMENDATION_ITEMS_COLUMNS),
-        top_k=RECOMMENDATION_TOP_K,
-    )
+    return dataframe
 
 
-def _read_evaluation_labels_for_cases(
-    path: Path,
-    report_cases: list[dict[str, Any]],
-) -> pd.DataFrame:
+def _read_evaluation_labels(path: Path) -> pd.DataFrame:
     dataframe = pd.read_parquet(path, columns=list(EVALUATION_LABEL_COLUMNS))
     validate_columns(dataframe, EVALUATION_LABEL_COLUMNS, "evaluation_labels")
     dataframe = coerce_article_id_string(dataframe)
     reject_duplicate_key(dataframe, EVALUATION_LABEL_KEY_COLUMNS, "evaluation_labels")
-    return filter_frame_to_case_keys(
-        dataframe,
-        report_cases,
-        columns=list(EVALUATION_LABEL_COLUMNS),
-    )
+    return dataframe
 
 
-def _read_user_profile_for_cases(
-    path: Path,
-    report_cases: list[dict[str, Any]],
-) -> pd.DataFrame:
+def _read_user_profile(path: Path) -> pd.DataFrame:
     dataframe = pd.read_parquet(path, columns=list(USER_PROFILE_COLUMNS))
     validate_columns(dataframe, USER_PROFILE_COLUMNS, "user_profile")
     dataframe = coerce_article_id_string(dataframe)
     reject_duplicate_key(dataframe, USER_PROFILE_KEY_COLUMNS, "user_profile")
-    return filter_frame_to_case_keys(
-        dataframe,
-        report_cases,
-        columns=list(USER_PROFILE_COLUMNS),
-    )
-
-
-def _read_report_cases(case_dir: Path) -> list[dict[str, Any]]:
-    cases: list[dict[str, Any]] = []
-    for path in _required_matching_files(case_dir, "*.json", "report cases"):
-        cases.append(read_json_object(path, artifact_name=f"report case {path.name}"))
-    return cases
+    return dataframe
 
 
 def _read_report_tables(table_dir: Path) -> dict[str, pd.DataFrame]:
@@ -298,16 +284,6 @@ def _required_source_paths() -> dict[str, Path]:
         "graph_edges_attribute_hierarchy": paths.GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH,
         "articles_clean": paths.ARTICLES_CLEAN_PATH,
     }
-    source_paths.update(
-        _keyed_paths(
-            "report_case",
-            _required_matching_files(
-                paths.REPORTS_CASE_STUDIES_DIR,
-                "*.json",
-                "report cases",
-            ),
-        )
-    )
     source_paths.update(
         _keyed_paths(
             "report_table",

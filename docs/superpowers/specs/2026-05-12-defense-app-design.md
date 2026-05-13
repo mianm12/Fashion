@@ -209,7 +209,6 @@ uv run python src/18_build_defense_app_db.py
 
 - `outputs/reports/manifest.json`
 - `outputs/reports/tables/*.csv`
-- `outputs/reports/case_studies/*.json`
 - `outputs/models/lightgbm/predictions.csv`
 - `outputs/models/lightgbm/feature_importance.csv`
 - `outputs/metrics/*/trend_metrics.json`
@@ -299,12 +298,12 @@ demo_<split>_<cutoff_week>_<label_week>_<customer_id 前 12 位>
 
 演示用户筛选原则：
 
-- Top-12 推荐中至少有明确命中或清晰负例价值。
-- 用户历史偏好属性可解释。
-- 推荐商品包含可解释的商品属性。
-- 分数分解中 `pop_score`、`sim_score`、`trend_score`、`recent_score` 至少有一个明显主导信号。
+- 从稳定 `pop_similarity_trend` 推荐长表、`evaluation_labels.parquet` 和 `user_profile.parquet` 中选择 20-50 个 case。
+- 入选 case 必须有完整 Top-12 推荐、无重复推荐商品、可解释分数组件和用户历史偏好属性。
+- 默认排序优先 `hit_count`，其次画像丰富度、趋势分贡献和最终分数，保证演示时先看到命中和解释更充分的用户。
+- `outputs/reports/case_studies/` 继续作为论文案例导出，不决定展示应用用户池规模。
 
-第一版可以从已导出的 3 个 case 起步，后续扩展到 20-50 个高质量用户。
+若不足 20 个合格 case，构建应 fail-fast，避免展示网站悄悄退回过小样本池。
 
 ### `user_profile_attributes`
 
@@ -509,7 +508,7 @@ API 只读，统一前缀：
 | `GET /api/articles/search` | `q: str`, `limit?: int` | `limit=10`, `max=50` | 商品搜索结果 | `articles` |
 | `GET /api/articles/{article_id}` | `article_id: str` | 无 | 商品展示字段 | `articles` |
 | `GET /api/articles/{article_id}/graph` | `article_id: str` | 无 | 商品节点、属性节点和边 | `articles`, `article_attributes` |
-| `GET /api/demo-users` | `q?: str`, `tag?: str`, `limit?: int` | `limit=20`, `max=50` | 演示用户列表、标签、命中数摘要 | `demo_users` |
+| `GET /api/demo-users` | `q?: str`, `tag?: str`, `limit?: int` | `limit=50`, `max=50` | 演示用户列表、标签、命中数摘要 | `demo_users` |
 | `GET /api/demo-users/{case_id}` | `case_id: str` | 无 | 演示用户详情 | `demo_users` |
 | `GET /api/demo-users/{case_id}/profile` | `case_id: str` | 无 | 用户偏好属性列表 | `user_profile_attributes` |
 | `GET /api/demo-users/{case_id}/recommendations` | `case_id: str` | 无 | Top-12 推荐、商品摘要、命中标记 | `recommendation_items`, `articles` |

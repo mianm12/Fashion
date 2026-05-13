@@ -246,7 +246,7 @@ async function loadUsers() {
     const response = await listDemoUsers({
       q: searchTerm.value || undefined,
       tag: tagFilter.value || undefined,
-      limit: 20,
+      limit: 50,
     });
     if (requestId !== usersRequestId) {
       return;

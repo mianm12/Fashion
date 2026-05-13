@@ -7,19 +7,10 @@ import pytest
 
 from fashion_trend.presentation.extractors import (
     _read_recommendation_metric_payloads,
-    _read_report_cases,
     _read_report_tables,
     _read_trend_metric_payloads,
     filter_frame_to_case_keys,
 )
-
-
-def test_read_report_cases_fails_for_empty_directory(tmp_path: Path) -> None:
-    case_dir = tmp_path / "case_studies"
-    case_dir.mkdir()
-
-    with pytest.raises(ValueError, match="report cases.*case_studies"):
-        _read_report_cases(case_dir)
 
 
 def test_read_report_tables_fails_for_empty_directory(tmp_path: Path) -> None:

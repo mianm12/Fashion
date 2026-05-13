@@ -752,7 +752,7 @@ outputs/defense_app/fashion_demo.sqlite
 outputs/defense_app/static/reports/
 ```
 
-SQLite 文件和静态图表副本都是生成产物，不应提交。构建展示库时会从 `outputs/reports/` 复制展示所需图表到 `outputs/defense_app/static/reports/`；构建失败时会回滚旧数据库和旧静态资源。后端只读该 SQLite，前端只调用 FastAPI：
+SQLite 文件和静态图表副本都是生成产物，不应提交。构建展示库时会从稳定推荐长表、评价标签和用户画像中筛选 20-50 个高质量演示用户，并从 `outputs/reports/` 复制展示所需图表到 `outputs/defense_app/static/reports/`；构建失败时会回滚旧数据库和旧静态资源。后端只读该 SQLite，前端只调用 FastAPI：
 
 ```sh
 uv run --group app uvicorn app.main:app --reload --app-dir apps/defense_app/backend
@@ -761,7 +761,7 @@ npm install
 npm run dev
 ```
 
-前端页面覆盖趋势看板、属性详情、商品属性图、推荐案例和推荐解释。详细说明见 `apps/defense_app/README.md`。
+前端页面覆盖趋势看板、属性详情、商品属性图、推荐展示和推荐解释。详细说明见 `apps/defense_app/README.md`。
 
 ## 后续阶段
 
