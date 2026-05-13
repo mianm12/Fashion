@@ -118,6 +118,65 @@ def build_named_ablation_rows(
     return rows
 
 
+def select_trend_bucket_representatives(
+    search_results: list[dict[str, Any]],
+    *,
+    required_trend_scores: tuple[float, ...] = (0.0, 0.1, 0.2, 0.3, 0.4),
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for trend_score in required_trend_scores:
+        bucket = [
+            result
+            for result in search_results
+            if math.isclose(
+                float(dict(result["weights"])["trend_score"]),
+                trend_score,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+        ]
+        if not bucket:
+            raise ValueError(f"trend bucket 缺少代表组合: {trend_score}")
+
+        best = min(
+            bucket,
+            key=lambda result: (
+                -float(dict(result["valid_metrics"])["ndcg_at_12"]),
+                int(result["grid_index"]),
+            ),
+        )
+        weights = _read_weights(
+            dict(best["weights"]),
+            context="trend bucket weights",
+        )
+        selected.append(
+            {
+                "variant_id": _trend_bucket_variant_id(trend_score),
+                "display_name": f"trend_score={trend_score:g} valid-best",
+                "trend_score": trend_score,
+                "grid_index": int(best["grid_index"]),
+                "base_method": "pop_similarity_trend",
+                "candidate_strategy": "default",
+                "weight_policy": "trend_bucket_best_by_valid_ndcg_at_12",
+                "selection_split": "valid",
+                "metrics_source": "in_memory_evaluation",
+                "weights": weights,
+                "metrics": {
+                    "valid": {
+                        str(metric_name): _finite_number(
+                            metric_value,
+                            f"trend bucket {trend_score}.valid",
+                        )
+                        for metric_name, metric_value in dict(
+                            best["valid_metrics"]
+                        ).items()
+                    }
+                },
+            }
+        )
+    return selected
+
+
 def _read_weights(weights: dict[str, float], *, context: str) -> dict[str, float]:
     result: dict[str, float] = {}
     for feature in SCORE_FEATURES:
@@ -159,3 +218,7 @@ def _finite_number(value: Any, context: str) -> float:
     if not math.isfinite(number):
         raise ValueError(f"{context} 包含非有限指标值: {value!r}")
     return number
+
+
+def _trend_bucket_variant_id(trend_score: float) -> str:
+    return f"trend_bucket_{str(trend_score).replace('.', '_')}"

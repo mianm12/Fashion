@@ -293,6 +293,54 @@ def test_experiment_payload_records_force_status_and_timings() -> None:
     assert payload["timings"] == [{"stage": "method", "elapsed_seconds": 0.01}]
 
 
+def test_build_experiment_payload_includes_named_ablation_and_trend_buckets() -> None:
+    payload = experiment_runner.build_experiment_payload(
+        "main",
+        baseline_payloads=[
+            {
+                "method": "recent_popularity",
+                "metrics": {
+                    "valid": {"ndcg_at_12": 0.1},
+                    "test": {"ndcg_at_12": 0.2},
+                },
+            },
+            {
+                "method": "pop_similarity",
+                "metrics": {
+                    "valid": {"ndcg_at_12": 0.3},
+                    "test": {"ndcg_at_12": 0.4},
+                },
+            },
+        ],
+        search_results=[
+            {
+                "grid_index": 0,
+                "weights": {
+                    "pop_score": 0.2,
+                    "sim_score": 0.2,
+                    "trend_score": 0.1,
+                    "recent_score": 0.5,
+                },
+                "valid_metrics": {"ndcg_at_12": 0.7},
+            }
+        ],
+        trend_payload={
+            "method": "pop_similarity_trend",
+            "metrics": {
+                "valid": {"ndcg_at_12": 0.8},
+                "test": {"ndcg_at_12": 0.9},
+            },
+        },
+        named_ablation=[{"variant_id": "full_model"}],
+        trend_bucket_best_by_valid=[{"variant_id": "trend_bucket_0_1"}],
+    )
+
+    assert payload["named_ablation"] == [{"variant_id": "full_model"}]
+    assert payload["trend_bucket_best_by_valid"] == [
+        {"variant_id": "trend_bucket_0_1"}
+    ]
+
+
 @pytest.mark.parametrize(
     (
         "force_kwargs",
@@ -421,7 +469,7 @@ def test_force_candidates_rebuilds_candidates_cache_and_methods(monkeypatch) -> 
         experiment_runner,
         "run_baseline_methods",
         lambda context, inputs, **kwargs: calls.append(("baselines", kwargs))
-        or [{"method": "global_popularity", "metrics": {}}],
+        or _minimal_baseline_payloads(),
     )
     monkeypatch.setattr(
         experiment_runner,
@@ -461,7 +509,17 @@ def test_force_candidates_rebuilds_candidates_cache_and_methods(monkeypatch) -> 
         lambda weights, context, inputs, candidates, **kwargs: calls.append(
             ("trend_method", kwargs)
         )
-        or {"method": "pop_similarity_trend", "metrics": {}},
+        or _minimal_trend_payload(),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_weight_variant_by_split",
+        lambda **kwargs: _minimal_split_metrics(0.5),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "select_trend_bucket_representatives",
+        lambda search_results: [],
     )
     monkeypatch.setattr(
         experiment_runner,
@@ -486,6 +544,14 @@ def test_force_candidates_rebuilds_candidates_cache_and_methods(monkeypatch) -> 
     assert baseline_call["rebuild_stale_outputs"] is True
     assert ("trend_method", {"force": False}) in calls
     assert payload["force"]["force_candidates"] is True
+    assert [row["variant_id"] for row in payload["named_ablation"]] == [
+        "full_model",
+        "without_trend_in_rec",
+        "without_similarity",
+        "without_recent",
+        "recent_only_baseline",
+        "pop_similarity_baseline",
+    ]
     assert {
         "stage": "candidates",
         "method": "pop_similarity_trend",
@@ -514,9 +580,7 @@ def test_experiment_records_missing_candidate_and_cache_as_rebuilt(
     monkeypatch.setattr(
         experiment_runner,
         "run_baseline_methods",
-        lambda context, inputs, **kwargs: [
-            {"method": "global_popularity", "metrics": {}}
-        ],
+        lambda context, inputs, **kwargs: _minimal_baseline_payloads(),
     )
     monkeypatch.setattr(
         experiment_runner,
@@ -560,7 +624,17 @@ def test_experiment_records_missing_candidate_and_cache_as_rebuilt(
     monkeypatch.setattr(
         experiment_runner,
         "publish_trend_method_with_weights",
-        lambda *args, **kwargs: {"method": "pop_similarity_trend", "metrics": {}},
+        lambda *args, **kwargs: _minimal_trend_payload(),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "evaluate_weight_variant_by_split",
+        lambda **kwargs: _minimal_split_metrics(0.5),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "select_trend_bucket_representatives",
+        lambda search_results: [],
     )
     monkeypatch.setattr(
         experiment_runner, "write_json_atomic", lambda payload, path: None
@@ -588,6 +662,33 @@ def test_experiment_records_missing_candidate_and_cache_as_rebuilt(
         "status": "rebuilt",
         "reason": "stale-or-missing",
     } in payload["stage_status"]
+
+
+def _minimal_split_metrics(value: float) -> dict[str, dict[str, float]]:
+    return {
+        "valid": {"ndcg_at_12": value},
+        "test": {"ndcg_at_12": value + 0.1},
+    }
+
+
+def _minimal_baseline_payloads() -> list[dict[str, object]]:
+    return [
+        {
+            "method": "recent_popularity",
+            "metrics": _minimal_split_metrics(0.1),
+        },
+        {
+            "method": "pop_similarity",
+            "metrics": _minimal_split_metrics(0.3),
+        },
+    ]
+
+
+def _minimal_trend_payload() -> dict[str, object]:
+    return {
+        "method": "pop_similarity_trend",
+        "metrics": _minimal_split_metrics(0.7),
+    }
 
 
 def test_experiment_rejects_unknown_force_method() -> None:
@@ -2243,3 +2344,48 @@ def test_build_named_ablation_rows_keeps_audit_fields_and_selection_split() -> N
     )
     assert by_id["recent_only_baseline"]["selection_split"] == "not_applicable"
     assert by_id["recent_only_baseline"]["weight_policy"] == "stable_method_baseline"
+
+
+def test_select_trend_bucket_best_by_valid_uses_ndcg_and_grid_order() -> None:
+    from fashion_trend.recommendation.experiments.ablation import (
+        select_trend_bucket_representatives,
+    )
+
+    rows = select_trend_bucket_representatives(
+        [
+            {
+                "grid_index": 2,
+                "weights": {
+                    "pop_score": 0.3,
+                    "sim_score": 0.2,
+                    "trend_score": 0.1,
+                    "recent_score": 0.4,
+                },
+                "valid_metrics": {"ndcg_at_12": 0.4},
+            },
+            {
+                "grid_index": 1,
+                "weights": {
+                    "pop_score": 0.2,
+                    "sim_score": 0.2,
+                    "trend_score": 0.1,
+                    "recent_score": 0.5,
+                },
+                "valid_metrics": {"ndcg_at_12": 0.4},
+            },
+            {
+                "grid_index": 3,
+                "weights": {
+                    "pop_score": 0.4,
+                    "sim_score": 0.2,
+                    "trend_score": 0.2,
+                    "recent_score": 0.2,
+                },
+                "valid_metrics": {"ndcg_at_12": 0.5},
+            },
+        ],
+        required_trend_scores=(0.1, 0.2),
+    )
+
+    assert [row["trend_score"] for row in rows] == [0.1, 0.2]
+    assert rows[0]["grid_index"] == 1

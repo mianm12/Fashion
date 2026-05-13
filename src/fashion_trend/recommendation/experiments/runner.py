@@ -20,7 +20,13 @@ from fashion_trend.recommendation.evaluation.metrics import evaluate_recommendat
 from fashion_trend.recommendation.evaluation.runner import (
     run_recommendation_evaluation,
 )
-from fashion_trend.recommendation.experiments.ablation import build_ablation_summary
+from fashion_trend.recommendation.experiments.ablation import (
+    STRICT_VARIANTS,
+    build_ablation_summary,
+    build_named_ablation_rows,
+    derive_strict_ablation_weights,
+    select_trend_bucket_representatives,
+)
 from fashion_trend.recommendation.experiments.grid_search import (
     iter_weight_grid,
     select_best_weights,
@@ -696,6 +702,41 @@ def evaluate_result_for_experiment(
     )
 
 
+def evaluate_weight_variant_by_split(
+    *,
+    weights: dict[str, float],
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+    force: bool = False,
+) -> dict[str, dict[str, float]]:
+    metrics_by_split: dict[str, dict[str, float]] = {}
+    recommendable_pool = ensure_or_build_recommendable_pool_cache(
+        context,
+        inputs,
+        force=force,
+    )
+    for split in ("valid", "test"):
+        result = build_recommendation_result_in_memory(
+            method_name=TREND_METHOD,
+            weights=weights,
+            split_filter=split,
+            context=context,
+            inputs=inputs,
+            candidates=candidates,
+        )
+        metrics = evaluate_recommendations(
+            result.recommendations,
+            _filter_split(inputs.target_users, split),
+            _filter_split(inputs.evaluation_labels, split),
+            _filter_split(recommendable_pool, split),
+            top_k=RECOMMENDATION_TOP_K,
+            strict_missing_users=False,
+        )
+        metrics_by_split[split] = dict(metrics[split])
+    return metrics_by_split
+
+
 def evaluate_method_output_for_experiment(
     method: str,
     context: RecommendationExperimentContext,
@@ -727,6 +768,8 @@ def build_experiment_payload(
     stage_status: list[dict[str, Any]] | None = None,
     force: dict[str, object] | None = None,
     timings: list[dict[str, Any]] | None = None,
+    named_ablation: list[dict[str, Any]] | None = None,
+    trend_bucket_best_by_valid: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "experiment_id": experiment_id,
@@ -734,6 +777,8 @@ def build_experiment_payload(
         "best_weights": select_best_weights(search_results),
         "search_results": search_results,
         "ablation": build_ablation_summary([*baseline_payloads, trend_payload]),
+        "named_ablation": list(named_ablation or []),
+        "trend_bucket_best_by_valid": list(trend_bucket_best_by_valid or []),
         "stage_status": list(stage_status or []),
         "force": dict(force or {}),
         "timings": list(timings or []),
@@ -891,6 +936,34 @@ def run_recommendation_experiment(
         stage_status=stage_status,
         timings=timings,
     )
+    strict_metrics = {
+        variant_id: evaluate_weight_variant_by_split(
+            weights=derive_strict_ablation_weights(best_weights, dropped_feature),
+            context=context,
+            inputs=inputs,
+            candidates=default_candidates,
+            force=force_cache or force_rebuild_all,
+        )
+        for variant_id, _display_name, dropped_feature in STRICT_VARIANTS
+    }
+    named_ablation = build_named_ablation_rows(
+        best_weights=best_weights,
+        strict_metrics=strict_metrics,
+        full_model_metrics=dict(trend_payload["metrics"]),
+        stable_baseline_metrics=_baseline_metrics_for_named_ablation(
+            baseline_payloads
+        ),
+    )
+    trend_bucket_best_by_valid: list[dict[str, Any]] = []
+    for row in select_trend_bucket_representatives(search_results):
+        metrics = evaluate_weight_variant_by_split(
+            weights=dict(row["weights"]),
+            context=context,
+            inputs=inputs,
+            candidates=default_candidates,
+            force=force_cache or force_rebuild_all,
+        )
+        trend_bucket_best_by_valid.append({**row, "metrics": metrics})
     payload = build_experiment_payload(
         experiment_id,
         baseline_payloads,
@@ -899,6 +972,8 @@ def run_recommendation_experiment(
         stage_status=stage_status,
         force=force_payload,
         timings=timings,
+        named_ablation=named_ablation,
+        trend_bucket_best_by_valid=trend_bucket_best_by_valid,
     )
     write_json_atomic(payload, experiment_dir(experiment_id) / "experiment.json")
     return payload
@@ -1117,6 +1192,24 @@ def _validate_force_methods(force_methods: Sequence[str]) -> None:
     )
     if unknown:
         raise ValueError(f"unknown force methods: {unknown}")
+
+
+def _baseline_metrics_for_named_ablation(
+    baseline_payloads: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    by_method = {str(payload["method"]): payload for payload in baseline_payloads}
+    return {
+        "recent_only_baseline": {
+            "method": "recent_popularity",
+            "display_name": "Recent Only",
+            "metrics": dict(by_method["recent_popularity"]["metrics"]),
+        },
+        "pop_similarity_baseline": {
+            "method": "pop_similarity",
+            "display_name": "Pop + Similarity baseline",
+            "metrics": dict(by_method["pop_similarity"]["metrics"]),
+        },
+    }
 
 
 def _recommendation_inputs_are_fresh(
