@@ -273,7 +273,8 @@ uv run python src/16_run_recommendation_experiment.py --experiment main --force-
 
 命名消融和 trend bucket 代表组合是 `experiment.json` 的派生内容。只要 `run_recommendation_experiment()` 执行，就应重新计算并写入当前 payload。它们不需要新增独立 force 开关。
 
-如果 ranking feature、候选构建或推荐输入契约发生变化，真实 artifact 验证应使用 `--force-rebuild-all`。如果只调整实验 payload 展开或 reports 读取逻辑，`--force-experiment` 足够。
+如果 ranking feature、候选构建或推荐输入契约发生变化，真实 artifact 验证应使用 `--force-rebuild-all`。
+`--force-experiment` 只负责重写实验 payload；旧 `search_results` 只有在权重网格和 search cache 中记录的输入、候选、feature cache、趋势预测 fingerprint 都匹配时才能复用。如果只调整实验 payload 展开或 reports 读取逻辑，`--force-experiment` 足够。
 
 ## 测试设计
 

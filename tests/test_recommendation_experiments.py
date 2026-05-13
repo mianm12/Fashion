@@ -391,6 +391,128 @@ def test_cached_search_results_require_current_grid(
     )
 
 
+def test_cached_search_results_require_search_cache_fingerprints(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    experiment_root = tmp_path / "experiments" / "main"
+    experiment_root.mkdir(parents=True)
+    input_path = tmp_path / "trend_predictions.csv"
+    input_path.write_text("current input", encoding="utf-8")
+    monkeypatch.setattr(
+        experiment_runner,
+        "experiment_dir",
+        lambda experiment_id: experiment_root,
+    )
+    weight_grid = [
+        {
+            "pop_score": 0.2,
+            "sim_score": 0.2,
+            "trend_score": 0.1,
+            "recent_score": 0.5,
+        }
+    ]
+    search_cache = experiment_runner._build_search_cache_metadata(
+        weight_grid,
+        {"trend_predictions": str(input_path)},
+    )
+    payload = {
+        "search_cache": search_cache,
+        "search_results": [
+            {
+                "grid_index": 0,
+                "weights": dict(weight_grid[0]),
+                "valid_metrics": {"ndcg_at_12": 0.7},
+            }
+        ],
+    }
+    (experiment_root / "experiment.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    assert (
+        experiment_runner._cached_search_results_for_current_grid(
+            "main",
+            weight_grid,
+            expected_search_cache=search_cache,
+        )
+        == payload["search_results"]
+    )
+
+    input_path.write_text("changed input contents", encoding="utf-8")
+    changed_search_cache = experiment_runner._build_search_cache_metadata(
+        weight_grid,
+        {"trend_predictions": str(input_path)},
+    )
+
+    assert (
+        experiment_runner._cached_search_results_for_current_grid(
+            "main",
+            weight_grid,
+            expected_search_cache=changed_search_cache,
+        )
+        is None
+    )
+
+
+def test_search_cache_input_artifacts_include_feature_cache_paths(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    feature_paths = [
+        str(tmp_path / "features" / "trend_scores" / "part.parquet"),
+        str(tmp_path / "features" / "trend_scores" / "metadata.json"),
+    ]
+    monkeypatch.setattr(
+        experiment_runner,
+        "feature_artifact_paths_for_method_window",
+        lambda **kwargs: feature_paths,
+    )
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(
+            [
+                {"split": "valid", "cutoff_week": 10, "label_week": 11},
+                {"split": "test", "cutoff_week": 11, "label_week": 12},
+            ]
+        ),
+        target_users=pd.DataFrame(),
+        evaluation_labels=pd.DataFrame(),
+        user_profile=pd.DataFrame(),
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "article_id": "0000000001",
+            }
+        ]
+    )
+    context = RecommendationExperimentContext(
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        input_paths={
+            "weekly_transactions": str(tmp_path / "weekly.parquet"),
+            "article_attributes": str(tmp_path / "articles.csv"),
+            "trend_predictions": str(tmp_path / "trend_predictions.csv"),
+        },
+    )
+
+    artifacts = experiment_runner._search_cache_input_artifacts(
+        context,
+        inputs,
+        candidates,
+    )
+
+    assert artifacts["trend_predictions"].endswith("trend_predictions.csv")
+    assert artifacts["evaluation_labels"].endswith("evaluation_labels.parquet")
+    assert artifacts["feature_artifact_0000"] == feature_paths[0]
+    assert artifacts["feature_artifact_0001"] == feature_paths[1]
+
+
 @pytest.mark.parametrize(
     (
         "force_kwargs",

@@ -39,6 +39,7 @@ from fashion_trend.recommendation.features.cache import (
     recommendable_pool_cache_fresh,
     write_recommendable_pool_cache,
 )
+from fashion_trend.recommendation.fingerprints import build_input_fingerprints
 from fashion_trend.recommendation.freshness import (
     assert_fresh_metadata,
 )
@@ -99,6 +100,8 @@ BASELINE_METHODS = (
     "pop_similarity",
 )
 TREND_METHOD = "pop_similarity_trend"
+SEARCH_CACHE_SCHEMA_VERSION = 1
+SEARCH_CACHE_ALGORITHM_VERSION = "recommendation-weight-search-v1"
 
 
 @dataclass(frozen=True)
@@ -925,10 +928,12 @@ def build_experiment_payload(
     timings: list[dict[str, Any]] | None = None,
     named_ablation: list[dict[str, Any]] | None = None,
     trend_bucket_best_by_valid: list[dict[str, Any]] | None = None,
+    search_cache: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "experiment_id": experiment_id,
         "experiment_path": str(experiment_dir(experiment_id) / "experiment.json"),
+        "search_cache": dict(search_cache or {}),
         "best_weights": select_best_weights(search_results),
         "search_results": search_results,
         "ablation": build_ablation_summary([*baseline_payloads, trend_payload]),
@@ -1062,11 +1067,16 @@ def run_recommendation_experiment(
 
     timer = StageTimer("weight_search")
     weight_grid = iter_weight_grid()
+    search_cache = _build_search_cache_metadata(
+        weight_grid,
+        _search_cache_input_artifacts(context, inputs, default_candidates),
+    )
     search_results = None
     if force_experiment and not (force_cache or force_candidates or force_rebuild_all):
         search_results = _cached_search_results_for_current_grid(
             experiment_id,
             weight_grid,
+            expected_search_cache=search_cache,
         )
     search_reused = search_results is not None
     if search_results is None:
@@ -1152,6 +1162,7 @@ def run_recommendation_experiment(
         timings=timings,
         named_ablation=named_ablation,
         trend_bucket_best_by_valid=trend_bucket_best_by_valid,
+        search_cache=search_cache,
     )
     write_json_atomic(payload, experiment_dir(experiment_id) / "experiment.json")
     return payload
@@ -1390,9 +1401,68 @@ def _baseline_metrics_for_named_ablation(
     }
 
 
+def _build_search_cache_metadata(
+    weight_grid: list[dict[str, float]],
+    input_artifacts: dict[str, str],
+) -> dict[str, Any]:
+    artifacts = {str(key): str(value) for key, value in input_artifacts.items()}
+    return {
+        "schema_version": SEARCH_CACHE_SCHEMA_VERSION,
+        "algorithm_version": SEARCH_CACHE_ALGORITHM_VERSION,
+        "selection_split": "valid",
+        "selection_metric": "ndcg_at_12",
+        "weight_grid": [
+            {feature: float(weights[feature]) for feature in SCORE_FEATURES}
+            for weights in weight_grid
+        ],
+        "input_artifacts": artifacts,
+        "input_fingerprints": build_input_fingerprints(artifacts),
+    }
+
+
+def _search_cache_input_artifacts(
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+) -> dict[str, str]:
+    artifacts = dict(
+        _method_input_paths(TREND_METHOD, _experiment_input_paths(context))
+    )
+    artifacts["evaluation_labels"] = str(EVALUATION_LABELS_PATH)
+
+    required_columns = {"split", "cutoff_week", "label_week"}
+    if not required_columns.issubset(
+        inputs.time_windows.columns
+    ) or not required_columns.issubset(candidates.columns):
+        return artifacts
+
+    feature_artifacts: list[str] = []
+    valid_windows = _filter_split(inputs.time_windows, "valid")
+    valid_candidates = _filter_split(candidates, "valid")
+    for window in valid_windows.loc[:, ["split", "cutoff_week", "label_week"]].to_dict(
+        "records"
+    ):
+        if _frame_for_window(valid_candidates, window).empty:
+            continue
+        feature_artifacts.extend(
+            feature_artifact_paths_for_method_window(
+                method_name=TREND_METHOD,
+                strategy="default",
+                window=window,
+                include_seen=True,
+            )
+        )
+
+    for index, path in enumerate(feature_artifacts):
+        artifacts[f"feature_artifact_{index:04d}"] = path
+    return artifacts
+
+
 def _cached_search_results_for_current_grid(
     experiment_id: str,
     weight_grid: list[dict[str, float]],
+    *,
+    expected_search_cache: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]] | None:
     path = experiment_dir(experiment_id) / "experiment.json"
     if not path.exists():
@@ -1403,6 +1473,10 @@ def _cached_search_results_for_current_grid(
         return None
     if not isinstance(payload, dict):
         return None
+    if expected_search_cache is not None:
+        stored_search_cache = payload.get("search_cache")
+        if stored_search_cache != expected_search_cache:
+            return None
     values = payload.get("search_results")
     if not isinstance(values, list) or len(values) != len(weight_grid):
         return None

@@ -714,7 +714,10 @@ outputs/recommendation/experiments/<experiment_id>/experiment.json
   controlled sweep。
 
 `16_run_recommendation_experiment.py` 默认复用新鲜的输入、候选、feature
-cache 和 method 产物。需要重建时使用明确 force 参数：
+cache 和 method 产物。`--force-experiment` 会重写实验 payload；其中 valid
+grid search 只在权重网格和 search cache 的输入、候选、feature cache、趋势预测
+fingerprint 都匹配时复用，否则重新计算或由下层 freshness guard 拒绝旧缓存。
+需要重建时使用明确 force 参数：
 
 ```sh
 uv run python src/16_run_recommendation_experiment.py --experiment main

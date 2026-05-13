@@ -652,19 +652,21 @@ valid split 上排名前 10 的权重组合：
 
 - `pop_similarity_trend` 在 valid split 上取得最高 NDCG@12：0.005922，高于 `recent_popularity` 的 0.005715。
 - `pop_similarity_trend` 在 test split 上 NDCG@12 为 0.007987，略低于 `recent_popularity` 的 0.008087。
-- `pop_similarity_trend` 相比不含趋势分的 `pop_similarity` 有明显提升：valid NDCG@12 从 0.004269 提升到 0.005922，test NDCG@12 从 0.006002 提升到 0.007987。
+- `pop_similarity_trend` 相比旧 `Pop + Similarity baseline` 有明显提升：valid NDCG@12 从 0.004269 提升到 0.005922，test NDCG@12 从 0.006002 提升到 0.007987。该对比同时改变了权重结构和特征组合，不能解释为趋势分的受控单因素增益。
+- 严格 `w/o Trend in Rec` 与 Full Model 基本持平：valid NDCG@12 为 0.005923，略高于 Full Model 的 0.005922；test NDCG@12 为 0.007977，略低于 Full Model 的 0.007987。受控消融只能说明当前趋势分独立边际贡献较弱。
 - `recent_popularity` 是非常强的短期热门 baseline，说明 H&M 交易数据中近期热度对短期购买预测非常有效。
 - `attribute_similarity` 覆盖率较高，但命中类指标很低，说明单纯属性相似不足以支撑推荐，需要结合热门、近期活跃和趋势分。
 
 论文中建议写：
 
-> 趋势感知融合模型在验证集上取得最优 NDCG@12，并在测试集上接近强近期热门基线，同时显著优于不含趋势分的 Pop + Similarity 模型。这说明趋势预测分能够作为推荐重排序的有效补充特征，但短期热门仍是 H&M 购买预测中的强信号。
+> 趋势感知融合模型在验证集上取得最优 NDCG@12，并在测试集上接近强近期热门基线；相比旧 Pop + Similarity baseline 明显提升。但严格去除趋势分后指标几乎不变，说明趋势分在当前推荐实验中更适合作为可解释的轻量补充信号，独立性能增益较弱。
 
 需要避免的表述：
 
 - 不要写 `pop_similarity_trend` 在所有推荐指标上全面超过 `recent_popularity`。
 - 不要把推荐模块称为完整个性化推荐系统。
 - 不要把低绝对值的 MAP@12/NDCG@12 包装成高业务性能。
+- 不要写受控消融证明趋势分本身带来稳定增益。
 
 ### 6.8 用户推荐解释案例
 
@@ -732,7 +734,7 @@ Top-12 推荐及解释字段：
 | 趋势模型对比表 | `outputs/metrics/<model>/trend_metrics.json` | 可写 |
 | 推荐方法对比表 | `outputs/recommendation/<method>/metrics.json` | 可写 |
 | 推荐主实验权重表 | `outputs/recommendation/experiments/main/experiment.json` | 可写 |
-| 消融实验表 | `outputs/recommendation/experiments/main/experiment.json` 的 `ablation` | 可写 |
+| 消融实验表 | `outputs/recommendation/experiments/main/experiment.json` 的 `named_ablation` 和 `trend_bucket_best_by_valid`，方法级对比来自 `ablation` | 可写 |
 
 ### 7.2 已导出的核心图表与案例
 

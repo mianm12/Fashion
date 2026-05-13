@@ -1900,6 +1900,10 @@ uv run python src/16_run_recommendation_experiment.py --experiment main --force-
 outputs/recommendation/experiments/<experiment_id>/experiment.json
 ```
 
+`experiment.json` 中的 valid grid search 结果带 search cache 指纹。
+`--force-experiment` 只在权重网格和输入、候选、feature cache、趋势预测 fingerprint
+都匹配时复用旧 `search_results`；否则重新计算或由下层 freshness guard 拒绝旧缓存。
+
 ---
 
 # 18. 实验设计建议
