@@ -86,26 +86,26 @@ src/16_run_recommendation_experiment.py
 
 ## 命名消融设计
 
-以当前 best full weights 为基准：
+以下数值只描述当前已知 artifact 的预期示例。实现必须从当次实验 payload 的 `best_weights` 动态派生 Full Model 和严格消融权重，不能把示例数值写成硬编码常量。
 
 ```text
-Full Model: pop=0.2, sim=0.2, trend=0.1, recent=0.5
+当前示例 Full Model: pop=0.2, sim=0.2, trend=0.1, recent=0.5
 ```
 
 严格命名消融使用统一策略：
 
-1. 从 Full Model 权重删除目标组件。
+1. 从当次实验选出的 `best_weights` 删除目标组件。
 2. 对剩余权重按原比例重新归一化，使权重和仍为 1。
 3. 使用 `pop_similarity_trend` 的 in-memory 构建和同一套 `default` candidates / feature cache 评价 valid/test。
 
-严格命名消融固定为：
+当前 best weights 示例对应的严格命名消融为：
 
 | 名称 | 口径 | 权重或方法 |
 | --- | --- | --- |
-| `Full Model` | 趋势感知融合主方法 | `pop_similarity_trend`, `pop=0.2, sim=0.2, trend=0.1, recent=0.5` |
-| `w/o Trend in Rec` | 只去掉推荐趋势分 | `pop=0.222222, sim=0.222222, trend=0.0, recent=0.555556` |
-| `w/o Similarity` | 只去掉用户属性相似分 | `pop=0.25, sim=0.0, trend=0.125, recent=0.625` |
-| `w/o Recent` | 只去掉近期热门分 | `pop=0.4, sim=0.4, trend=0.2, recent=0.0` |
+| `Full Model` | 趋势感知融合主方法 | 示例：`pop_similarity_trend`, `pop=0.2, sim=0.2, trend=0.1, recent=0.5` |
+| `w/o Trend in Rec` | 只去掉推荐趋势分 | 示例：`pop=0.222222..., sim=0.222222..., trend=0.0, recent=0.555556...` |
+| `w/o Similarity` | 只去掉用户属性相似分 | 示例：`pop=0.25, sim=0.0, trend=0.125, recent=0.625` |
+| `w/o Recent` | 只去掉近期热门分 | 示例：`pop=0.4, sim=0.4, trend=0.2, recent=0.0` |
 
 辅助展示 baseline 固定为：
 
@@ -117,6 +117,12 @@ Full Model: pop=0.2, sim=0.2, trend=0.1, recent=0.5
 `Pop + Similarity baseline` 保留原 method-level 对照价值，但它的默认权重是 `pop=0.45, sim=0.45, recent=0.10`，不是 Full Model 去掉 trend 后的严格消融。因此论文表格不能把它命名为严格 `w/o Trend in Rec`。
 
 严格消融行和 baseline 行都可以放入 `named_ablation`，但必须用 `weight_policy` 区分。严格消融使用 `strict_drop_and_renormalize_from_full`；已有 stable method baseline 使用 `stable_method_baseline`。
+
+`selection_split` 的语义固定为：
+
+- `Full Model` 与严格消融行写 `valid`，因为它们来自 valid-selected Full Model 的 `best_weights`。
+- `trend_bucket_best_by_valid` 写 `valid`，因为代表组合按 valid `NDCG@12` 选择。
+- stable baseline 行写 `not_applicable`，因为 `recent_popularity` 和 `pop_similarity` 是既有稳定方法输出，不是本轮按 valid 选择出的权重变体。
 
 ## trend bucket 代表组合
 
@@ -197,12 +203,15 @@ trend_score = 0.0 / 0.1 / 0.2 / 0.3 / 0.4
 约束：
 
 - `named_ablation` 必须包含 `full_model`、`without_trend_in_rec`、`without_similarity`、`without_recent`、`recent_only_baseline` 和 `pop_similarity_baseline`，且每个版本都必须有 valid/test 指标。
-- 严格消融 variant 必须包含 `variant_id`、`display_name`、`base_method`、`candidate_strategy`、`weight_policy`、`selection_split` 和 `metrics_source`。
+- 所有 `named_ablation` variant 必须包含 `variant_id`、`display_name`、`base_method`、`candidate_strategy`、`weight_policy`、`selection_split` 和 `metrics_source`。
+- 严格消融权重必须从当次 `best_weights` 动态派生；表格中的数值只是当前预期示例。
 - `w/o Trend in Rec` 的 `trend_score` 必须为 `0.0`，且其他权重必须来自 Full Model 剩余权重归一化。
 - `w/o Recent` 的 `recent_score` 必须为 `0.0`，且其他权重必须来自 Full Model 剩余权重归一化。
 - `w/o Similarity` 的 `sim_score` 必须为 `0.0`，且其他权重必须来自 Full Model 剩余权重归一化。
+- `stable_method_baseline` 行的 `selection_split` 必须为 `not_applicable`。
 - `trend_bucket_best_by_valid` 必须覆盖 5 个代表 `trend_score` 值。
 - `trend_bucket_best_by_valid` 行必须记录 `selection_split=valid` 和 `weight_policy=trend_bucket_best_by_valid_ndcg_at_12`。
+- `experiment.json` 存储完整浮点值，不为了展示截断到固定小数；测试应使用容差比较派生权重。
 - 所有指标必须是有限数值，不能输出空成功结果。
 - `method` 或 `base_method` 可记录实际构建方法名，但 `display_name` 是论文展示用名称。
 
@@ -237,6 +246,8 @@ manifest warning 规则：
 - `best_weights` 缺失或不是合法权重。
 - 命名消融权重不是有限非负数，或权重和不是 1。
 - 严格消融缺少必要审计字段。
+- 严格消融权重不是从当前 `best_weights` 动态派生，而是硬编码示例常量。
+- stable baseline 行的 `selection_split` 不是 `not_applicable`。
 - `w/o Trend in Rec` 没有 `trend_score=0`，或其他权重不是 Full Model 剩余权重归一化结果。
 - `w/o Recent` 没有 `recent_score=0`，或其他权重不是 Full Model 剩余权重归一化结果。
 - `w/o Similarity` 没有 `sim_score=0`，或其他权重不是 Full Model 剩余权重归一化结果。
@@ -271,7 +282,8 @@ uv run python src/16_run_recommendation_experiment.py --experiment main --force-
 - `tests/test_recommendation_experiments.py` 验证 `named_ablation` 包含固定 strict variants 和 baseline variants。
 - 验证每个命名消融都有 valid/test 指标。
 - 验证严格消融行保留 `variant_id`、`display_name`、`base_method`、`candidate_strategy`、`weight_policy`、`selection_split` 和 `metrics_source`。
-- 验证 `w/o Trend in Rec`、`w/o Similarity`、`w/o Recent` 都使用 Full Model drop-and-renormalize 权重。
+- 验证 `w/o Trend in Rec`、`w/o Similarity`、`w/o Recent` 都从当前 `best_weights` 动态派生 Full Model drop-and-renormalize 权重，使用容差比较浮点值。
+- 验证 stable baseline 行使用 `selection_split=not_applicable`。
 - 验证 `trend_bucket_best_by_valid` 覆盖 0.0、0.1、0.2、0.3、0.4，且每组有 valid/test。
 - 验证这些变体不会进入 recommendation method registry。
 - 验证 payload 构建不会写入新的 stable method 输出目录。
