@@ -9,6 +9,7 @@ from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
     RECOMMENDATION_CANDIDATE_STRATEGIES,
     RECOMMENDATION_CANDIDATES_PER_SOURCE,
+    SOURCE_ORDER,
 )
 from fashion_trend.recommendation.freshness import build_artifact_metadata
 from fashion_trend.recommendation.paths import candidate_items_path
@@ -20,7 +21,6 @@ from fashion_trend.recommendation.retrieval.popularity import (
 )
 from fashion_trend.recommendation.retrieval.trend import build_trend_candidates
 
-SOURCE_ORDER = {"popularity": 0, "similarity": 1, "trend": 2}
 SOURCE_COLUMNS = (
     "split",
     "cutoff_week",

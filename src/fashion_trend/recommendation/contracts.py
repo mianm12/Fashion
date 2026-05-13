@@ -29,6 +29,15 @@ RECOMMENDATION_CANDIDATE_STRATEGIES = (
     "trend_union",
     "default",
 )
+SOURCE_ORDER = {
+    "popularity": 0,
+    "similarity": 1,
+    "trend": 2,
+    "reorder": 3,
+    "product_variant": 4,
+    "age_popularity": 5,
+    "preference_popularity": 6,
+}
 RECOMMENDATION_SCORE_COLUMNS = (
     "pop_score",
     "sim_score",

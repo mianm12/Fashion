@@ -329,3 +329,341 @@ def test_popularity_source_rank_is_one_based_with_article_tie_break() -> None:
         "0000000003",
     ]
     assert candidates["source_rank"].tolist() == [1, 2, 3]
+
+
+def test_reorder_candidates_use_cutoff_history_and_stable_ranking() -> None:
+    from fashion_trend.recommendation.retrieval.reorder import (
+        build_reorder_candidates,
+    )
+
+    transactions = pd.DataFrame(
+        [
+            {"customer_id": "u1", "article_id": "0000000002", "week_id": 9},
+            {"customer_id": "u1", "article_id": "0000000002", "week_id": 9},
+            {"customer_id": "u1", "article_id": "0000000004", "week_id": 9},
+            {"customer_id": "u1", "article_id": "0000000003", "week_id": 10},
+            {"customer_id": "u1", "article_id": "0000000001", "week_id": 10},
+            {"customer_id": "u1", "article_id": "0000000999", "week_id": 11},
+            {"customer_id": "other", "article_id": "0000000005", "week_id": 10},
+        ]
+    )
+
+    candidates = build_reorder_candidates(
+        transactions,
+        sample_window(),
+        sample_targets(),
+        top_n=10,
+    )
+
+    assert candidates.to_dict("records") == [
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "customer_id": "u1",
+            "article_id": "0000000001",
+            "source": "reorder",
+            "source_rank": 1,
+        },
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "customer_id": "u1",
+            "article_id": "0000000003",
+            "source": "reorder",
+            "source_rank": 2,
+        },
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "customer_id": "u1",
+            "article_id": "0000000002",
+            "source": "reorder",
+            "source_rank": 3,
+        },
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "customer_id": "u1",
+            "article_id": "0000000004",
+            "source": "reorder",
+            "source_rank": 4,
+        },
+    ]
+
+
+def test_reorder_candidates_cap_each_user_window_at_top_12() -> None:
+    from fashion_trend.recommendation.retrieval.reorder import (
+        build_reorder_candidates,
+    )
+
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["u1"] * 15,
+            "article_id": [f"{article_id:010d}" for article_id in range(1, 16)],
+            "week_id": [10] * 15,
+        }
+    )
+
+    candidates = build_reorder_candidates(
+        transactions,
+        sample_window(),
+        sample_targets(),
+    )
+
+    assert len(candidates) == 12
+    assert candidates["article_id"].tolist() == [
+        f"{article_id:010d}" for article_id in range(1, 13)
+    ]
+    assert candidates["source_rank"].tolist() == list(range(1, 13))
+
+
+def test_product_variant_candidates_use_reorder_top_6_seeds() -> None:
+    from fashion_trend.recommendation.retrieval.product_variants import (
+        build_product_variant_candidates,
+    )
+
+    reorder_candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": f"{article_id:010d}",
+                "source": "reorder",
+                "source_rank": article_id,
+            }
+            for article_id in range(1, 8)
+        ]
+    )
+    article_product_map = pd.DataFrame(
+        [
+            {"article_id": "0000000001", "product_code": "p1"},
+            {"article_id": "0000000101", "product_code": "p1"},
+            {"article_id": "0000000002", "product_code": "p2"},
+            {"article_id": "0000000201", "product_code": "p2"},
+            {"article_id": "0000000006", "product_code": "p6"},
+            {"article_id": "0000000601", "product_code": "p6"},
+            {"article_id": "0000000007", "product_code": "p7"},
+            {"article_id": "0000000701", "product_code": "p7"},
+        ]
+    )
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["x"] * 16,
+            "article_id": (
+                ["0000000201"] * 3
+                + ["0000000101"] * 2
+                + ["0000000601"]
+                + ["0000000701"] * 10
+            ),
+            "week_id": [10] * 16,
+        }
+    )
+
+    candidates = build_product_variant_candidates(
+        reorder_candidates,
+        transactions,
+        article_product_map,
+        sample_window(),
+    )
+
+    assert candidates["article_id"].tolist() == [
+        "0000000201",
+        "0000000101",
+        "0000000601",
+    ]
+    assert "0000000701" not in set(candidates["article_id"])
+    assert set(candidates["source"]) == {"product_variant"}
+    assert candidates["source_rank"].tolist() == [1, 2, 3]
+
+
+def test_product_variant_candidates_skip_self_and_missing_product_code() -> None:
+    from fashion_trend.recommendation.retrieval.product_variants import (
+        build_product_variant_candidates,
+    )
+
+    reorder_candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "0000000001",
+                "source": "reorder",
+                "source_rank": 1,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "0000000002",
+                "source": "reorder",
+                "source_rank": 2,
+            },
+        ]
+    )
+    article_product_map = pd.DataFrame(
+        [
+            {"article_id": "0000000001", "product_code": "p1"},
+            {"article_id": "0000000009", "product_code": "p1"},
+            {"article_id": "0000000002", "product_code": None},
+            {"article_id": "0000000008", "product_code": None},
+        ]
+    )
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["x", "x", "x"],
+            "article_id": ["0000000001", "0000000008", "0000000009"],
+            "week_id": [10, 10, 10],
+        }
+    )
+
+    candidates = build_product_variant_candidates(
+        reorder_candidates,
+        transactions,
+        article_product_map,
+        sample_window(),
+    )
+
+    assert candidates["article_id"].tolist() == ["0000000009"]
+    assert candidates["source_rank"].tolist() == [1]
+
+
+def test_product_variant_candidates_rank_each_user_window_independently() -> None:
+    from fashion_trend.recommendation.retrieval.product_variants import (
+        build_product_variant_candidates,
+    )
+
+    windows = pd.DataFrame(
+        [
+            {"split": "valid", "cutoff_week": 10, "label_week": 11},
+            {"split": "test", "cutoff_week": 12, "label_week": 13},
+        ]
+    )
+    reorder_candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "0000000001",
+                "source": "reorder",
+                "source_rank": 1,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u2",
+                "article_id": "0000000002",
+                "source": "reorder",
+                "source_rank": 1,
+            },
+            {
+                "split": "test",
+                "cutoff_week": 12,
+                "label_week": 13,
+                "customer_id": "u1",
+                "article_id": "0000000003",
+                "source": "reorder",
+                "source_rank": 1,
+            },
+        ]
+    )
+    article_product_map = pd.DataFrame(
+        [
+            {"article_id": "0000000001", "product_code": "p1"},
+            {"article_id": "0000000101", "product_code": "p1"},
+            {"article_id": "0000000002", "product_code": "p2"},
+            {"article_id": "0000000201", "product_code": "p2"},
+            {"article_id": "0000000003", "product_code": "p3"},
+            {"article_id": "0000000301", "product_code": "p3"},
+        ]
+    )
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["x", "x", "x"],
+            "article_id": ["0000000101", "0000000201", "0000000301"],
+            "week_id": [10, 10, 12],
+        }
+    )
+
+    candidates = build_product_variant_candidates(
+        reorder_candidates,
+        transactions,
+        article_product_map,
+        windows,
+        top_n=1,
+    )
+
+    assert candidates.to_dict("records") == [
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "customer_id": "u1",
+            "article_id": "0000000101",
+            "source": "product_variant",
+            "source_rank": 1,
+        },
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "customer_id": "u2",
+            "article_id": "0000000201",
+            "source": "product_variant",
+            "source_rank": 1,
+        },
+        {
+            "split": "test",
+            "cutoff_week": 12,
+            "label_week": 13,
+            "customer_id": "u1",
+            "article_id": "0000000301",
+            "source": "product_variant",
+            "source_rank": 1,
+        },
+    ]
+
+
+def test_enhanced_source_order_rejects_unknown_source() -> None:
+    assert candidate_module.SOURCE_ORDER == {
+        "popularity": 0,
+        "similarity": 1,
+        "trend": 2,
+        "reorder": 3,
+        "product_variant": 4,
+        "age_popularity": 5,
+        "preference_popularity": 6,
+    }
+
+    source = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "0000000001",
+                "source": "product_variant",
+                "source_rank": 1,
+            }
+        ]
+    )
+    candidates = build_candidate_items(strategy="default", source_frames=[source])
+    assert candidates["candidate_sources"].tolist() == ["product_variant"]
+
+    with pytest.raises(ValueError, match="未知候选 source"):
+        build_candidate_items(
+            strategy="default",
+            source_frames=[source.assign(source="missing_source")],
+        )
