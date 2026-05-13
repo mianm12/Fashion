@@ -264,6 +264,40 @@ def test_read_customer_profile_rejects_invalid_age_bucket(tmp_path: Path) -> Non
         readers.read_customer_profile(customer_profile_path)
 
 
+def test_read_customer_profile_rejects_missing_columns_duplicate_id_and_null_bucket(
+    tmp_path: Path,
+) -> None:
+    missing_columns_path = tmp_path / "missing_customer_profile.parquet"
+    _write_parquet(
+        missing_columns_path,
+        ("customer_id", "age", "age_bucket"),
+        [("0000001", 20, "20-29")],
+    )
+    with pytest.raises(ValueError, match="列契约不匹配"):
+        readers.read_customer_profile(missing_columns_path)
+
+    duplicate_path = tmp_path / "duplicate_customer_profile.parquet"
+    _write_parquet(
+        duplicate_path,
+        contracts.CUSTOMER_PROFILE_COLUMNS,
+        [
+            ("0000001", 20, "20-29", "ACTIVE", "Regularly"),
+            ("0000001", 21, "20-29", "ACTIVE", "Regularly"),
+        ],
+    )
+    with pytest.raises(ValueError, match="重复键"):
+        readers.read_customer_profile(duplicate_path)
+
+    null_bucket_path = tmp_path / "null_bucket_customer_profile.parquet"
+    _write_parquet(
+        null_bucket_path,
+        contracts.CUSTOMER_PROFILE_COLUMNS,
+        [("0000001", 20, None, "ACTIVE", "Regularly")],
+    )
+    with pytest.raises(ValueError, match="age_bucket"):
+        readers.read_customer_profile(null_bucket_path)
+
+
 def test_read_article_product_map_rejects_duplicate_article_id(tmp_path: Path) -> None:
     article_product_map_path = tmp_path / "article_product_map.parquet"
     _write_parquet(
@@ -274,6 +308,28 @@ def test_read_article_product_map_rejects_duplicate_article_id(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="重复键"):
         readers.read_article_product_map(article_product_map_path)
+
+
+def test_read_article_product_map_rejects_missing_columns_and_null_product_code(
+    tmp_path: Path,
+) -> None:
+    missing_columns_path = tmp_path / "missing_article_product_map.parquet"
+    _write_parquet(
+        missing_columns_path,
+        ("article_id",),
+        [("0000000001",)],
+    )
+    with pytest.raises(ValueError, match="列契约不匹配"):
+        readers.read_article_product_map(missing_columns_path)
+
+    null_product_path = tmp_path / "null_product_article_product_map.parquet"
+    _write_parquet(
+        null_product_path,
+        contracts.ARTICLE_PRODUCT_MAP_COLUMNS,
+        [("0000000001", None)],
+    )
+    with pytest.raises(ValueError, match="product_code"):
+        readers.read_article_product_map(null_product_path)
 
 
 def test_candidate_items_reader_validates_strategy_from_path(tmp_path: Path) -> None:
@@ -332,6 +388,35 @@ def test_candidate_items_reader_accepts_enhanced_strategy_columns(
     assert tuple(dataframe.columns) == contracts.ENHANCED_CANDIDATE_ITEM_COLUMNS
     assert str(dataframe["customer_id"].dtype) == "string"
     assert str(dataframe["article_id"].dtype) == "string"
+
+
+def test_candidate_items_reader_rejects_enhanced_candidates_without_seen_policy(
+    tmp_path: Path,
+) -> None:
+    candidate_path = (
+        tmp_path / "candidates" / "enhanced_default" / "candidate_items.parquet"
+    )
+    candidate_path.parent.mkdir(parents=True)
+    _write_parquet(
+        candidate_path,
+        contracts.CANDIDATE_ITEM_COLUMNS,
+        [
+            (
+                "valid",
+                104,
+                105,
+                "enhanced_default",
+                "0000001",
+                "0000123",
+                "reorder",
+                "reorder",
+                1,
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="has_reorder_source|allow_seen"):
+        readers.read_candidate_items(candidate_path)
 
 
 def test_recommendation_csv_readers_preserve_string_ids_and_validate_method(
@@ -466,6 +551,50 @@ def test_read_recommendation_items_backfills_legacy_enhanced_scores(
     assert tuple(result.columns) == contracts.RECOMMENDATION_ITEMS_COLUMNS
     assert result.loc[0, "reorder_score"] == pytest.approx(0.0)
     assert result.loc[0, "source_count_score"] == pytest.approx(0.0)
+
+
+def test_read_recommendation_items_rejects_enhanced_method_missing_score_columns(
+    tmp_path: Path,
+) -> None:
+    method_dir = tmp_path / "enhanced_pop_similarity_trend"
+    method_dir.mkdir()
+    path = method_dir / "recommendation_items.parquet"
+    missing_enhanced_columns = tuple(
+        column
+        for column in contracts.RECOMMENDATION_ITEMS_COLUMNS
+        if column
+        not in {
+            "reorder_score",
+            "variant_score",
+            "age_pop_score",
+            "preference_pop_score",
+            "source_rank_score",
+            "source_count_score",
+        }
+    )
+    pd.DataFrame(
+        [
+            {
+                "customer_id": "0000001",
+                "split": "test",
+                "cutoff_week": 104,
+                "label_week": 105,
+                "method": "enhanced_pop_similarity_trend",
+                "article_id": "0000123",
+                "rank": 1,
+                "score": 1.0,
+                "pop_score": 0.4,
+                "sim_score": 0.3,
+                "trend_score": 0.2,
+                "recent_score": 0.1,
+                "candidate_sources": "reorder|trend",
+            }
+        ],
+        columns=missing_enhanced_columns,
+    ).to_parquet(path, index=False)
+
+    with pytest.raises(ValueError, match="enhanced score columns"):
+        readers.read_recommendation_items(path)
 
 
 def _write_parquet(

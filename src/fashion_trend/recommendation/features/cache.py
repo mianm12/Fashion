@@ -526,6 +526,61 @@ def build_and_write_feature_cache_for_strategy(
     )
 
 
+def assert_feature_cache_partitions_fresh(
+    *,
+    strategy: str,
+    candidates: pd.DataFrame,
+    input_paths: dict[str, str],
+) -> None:
+    """Reject stale strategy/window feature cache partitions."""
+    _require_columns(candidates, WINDOW_COLUMNS, "candidates")
+    if candidates.empty:
+        return
+
+    windows = candidates.loc[:, WINDOW_COLUMNS].drop_duplicates()
+    for window in windows.to_dict("records"):
+        for feature_name in _feature_names_for_strategy(strategy):
+            partition_path = feature_cache_partition_path(
+                feature_name,
+                strategy=strategy,
+                split=str(window["split"]),
+                cutoff_week=int(window["cutoff_week"]),
+            )
+            metadata_path = feature_cache_partition_metadata_path(
+                feature_name,
+                strategy=strategy,
+                split=str(window["split"]),
+                cutoff_week=int(window["cutoff_week"]),
+            )
+            if not partition_path.exists():
+                raise RuntimeError(
+                    _stale_feature_cache_message(feature_name, "partition is missing")
+                )
+            assert_fresh_metadata(
+                metadata_path=metadata_path,
+                expected_input_artifacts=_feature_input_artifacts(
+                    feature_name,
+                    input_paths,
+                ),
+                expected_output_artifacts={
+                    "partition": str(partition_path),
+                    "partition_metadata": str(metadata_path),
+                },
+                expected_schema_version=FEATURE_CACHE_SCHEMA_VERSION,
+                expected_algorithm_version=FEATURE_CACHE_ALGORITHM_VERSION,
+                expected_config={
+                    "feature_name": feature_name,
+                    "strategy": strategy,
+                    "split": str(window["split"]),
+                    "cutoff_week": int(window["cutoff_week"]),
+                    "label_week": int(window["label_week"]),
+                },
+                stale_message=lambda reason, feature_name=feature_name: (
+                    _stale_feature_cache_message(feature_name, reason)
+                ),
+            )
+
+
 def _feature_partition_frames(
     feature_frame: pd.DataFrame,
     seen_flags: pd.DataFrame,
@@ -572,6 +627,30 @@ def _feature_partition_frames(
         seen_flags.loc[:, seen_flag_columns].drop_duplicates().reset_index(drop=True)
     )
     return frames
+
+
+def _feature_names_for_strategy(strategy: str) -> tuple[str, ...]:
+    feature_names = (
+        "candidate_seen_flags",
+        "popularity_scores",
+        "recent_scores",
+        "similarity_scores",
+        "trend_scores",
+    )
+    if strategy == "enhanced_default":
+        return (
+            *feature_names,
+            *ENHANCED_CUSTOMER_ARTICLE_SCORE_FEATURES.keys(),
+        )
+    return feature_names
+
+
+def _stale_feature_cache_message(feature_name: str, reason: str) -> str:
+    return (
+        f"{feature_name} feature cache partition is stale: {reason}. "
+        "Run src/16_run_recommendation_experiment.py with "
+        "--force-cache or --force-rebuild-all to rebuild."
+    )
 
 
 def _validate_candidate_strategy(candidates: pd.DataFrame, strategy: str) -> None:

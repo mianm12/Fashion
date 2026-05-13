@@ -62,9 +62,43 @@ def assert_fresh_metadata(
         ("config", expected_config),
     )
     for key, expected_value in checks:
-        if metadata.get(key) != expected_value:
-            raise RuntimeError(stale_message(f"{key} changed"))
+        actual_value = metadata.get(key)
+        if actual_value != expected_value:
+            raise RuntimeError(
+                stale_message(
+                    _changed_metadata_reason(key, actual_value, expected_value)
+                )
+            )
 
 
 def _json_compatible(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+def _changed_metadata_reason(
+    key: str,
+    actual_value: object,
+    expected_value: object,
+) -> str:
+    if not isinstance(actual_value, dict) or not isinstance(expected_value, dict):
+        return f"{key} changed"
+
+    actual_keys = set(actual_value)
+    expected_keys = set(expected_value)
+    missing = sorted(expected_keys - actual_keys)
+    extra = sorted(actual_keys - expected_keys)
+    changed = sorted(
+        item
+        for item in expected_keys & actual_keys
+        if actual_value.get(item) != expected_value.get(item)
+    )
+    details = []
+    if missing:
+        details.append(f"missing={missing}")
+    if extra:
+        details.append(f"extra={extra}")
+    if changed:
+        details.append(f"changed={changed}")
+    if not details:
+        return f"{key} changed"
+    return f"{key} changed: {', '.join(details)}"

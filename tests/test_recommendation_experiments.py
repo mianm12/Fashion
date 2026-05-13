@@ -288,7 +288,7 @@ def test_recommendation_enhanced_payload_records_valid_test_metrics(
     monkeypatch.setattr(
         enhanced_runner,
         "enhanced_feature_cache_partitions_exist",
-        lambda candidates: True,
+        lambda candidates, input_paths=None: True,
     )
     monkeypatch.setattr(
         enhanced_runner,
@@ -412,7 +412,7 @@ def test_recommendation_enhanced_does_not_publish_pop_similarity_trend_stable(
     monkeypatch.setattr(
         enhanced_runner,
         "enhanced_feature_cache_partitions_exist",
-        lambda candidates: True,
+        lambda candidates, input_paths=None: True,
     )
     monkeypatch.setattr(
         enhanced_runner,
@@ -662,7 +662,7 @@ def test_enhanced_payload_contains_required_ablation_rows(
     monkeypatch.setattr(
         enhanced_runner,
         "enhanced_feature_cache_partitions_exist",
-        lambda candidates: True,
+        lambda candidates, input_paths=None: True,
     )
     monkeypatch.setattr(
         enhanced_runner,

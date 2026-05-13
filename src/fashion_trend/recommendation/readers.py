@@ -221,7 +221,7 @@ def read_recommendation_items(path: Path) -> pd.DataFrame:
     expected_method = path.parent.name
     validate_safe_path_segment(expected_method, "method")
     dataframe = pd.read_parquet(path)
-    dataframe = normalize_recommendation_items_columns(dataframe)
+    dataframe = normalize_recommendation_items_columns(dataframe, expected_method)
     dataframe = coerce_article_id_string(dataframe)
     reject_duplicate_key(
         dataframe,
@@ -246,7 +246,10 @@ def read_recommendation_items(path: Path) -> pd.DataFrame:
     return dataframe
 
 
-def normalize_recommendation_items_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
+def normalize_recommendation_items_columns(
+    dataframe: pd.DataFrame,
+    expected_method: str | None = None,
+) -> pd.DataFrame:
     """Return recommendation items in the current schema.
 
     Older stable method artifacts predate enhanced score columns. They remain valid
@@ -260,6 +263,17 @@ def normalize_recommendation_items_columns(dataframe: pd.DataFrame) -> pd.DataFr
         for column in RECOMMENDATION_ITEMS_COLUMNS
         if column not in result.columns
     ]
+    missing_enhanced_score_columns = [
+        column for column in missing_columns if column in fillable_columns
+    ]
+    if (
+        expected_method == "enhanced_pop_similarity_trend"
+        and missing_enhanced_score_columns
+    ):
+        raise ValueError(
+            "recommendation_items enhanced score columns missing: "
+            f"{missing_enhanced_score_columns}"
+        )
     unfillable_columns = [
         column for column in missing_columns if column not in fillable_columns
     ]

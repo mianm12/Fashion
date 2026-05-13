@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
+from fashion_trend.recommendation.experiments import enhanced_runner
+from fashion_trend.recommendation.features import cache as feature_cache
 from fashion_trend.recommendation.features.cache import (
     FEATURE_CACHE_ALGORITHM_VERSION,
     FEATURE_CACHE_SCHEMA_VERSION,
@@ -836,6 +839,81 @@ def test_enhanced_feature_metadata_records_algorithm_and_strategy(
         "candidate_items",
         "candidate_metadata",
     }
+
+
+def test_enhanced_feature_cache_rejects_changed_candidate_metadata(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _partition_path, _metadata_path = _patch_feature_cache_paths(
+        tmp_path,
+        monkeypatch,
+    )
+    input_paths = _enhanced_input_paths(tmp_path)
+    for key, path in input_paths.items():
+        Path(path).write_text(key, encoding="utf-8")
+    build_and_write_feature_cache_for_strategy(
+        strategy="enhanced_default",
+        candidates=_enhanced_candidates(),
+        transactions=_enhanced_transactions(),
+        article_attributes=_enhanced_article_attributes(),
+        user_profile=_enhanced_user_profile(),
+        trend_predictions=_enhanced_trend_predictions(),
+        customer_profile=_enhanced_customer_profile(),
+        article_product_map=_enhanced_article_product_map(),
+        input_paths=input_paths,
+    )
+
+    Path(input_paths["candidate_metadata"]).write_text("changed", encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeError,
+        match="candidate_metadata.*--force-cache",
+    ):
+        feature_cache.assert_feature_cache_partitions_fresh(
+            strategy="enhanced_default",
+            candidates=_enhanced_candidates(),
+            input_paths=input_paths,
+        )
+
+
+def test_enhanced_feature_cache_reuse_requires_global_manifest_entry(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    manifest_path = tmp_path / "features" / "metadata.json"
+    monkeypatch.setattr(
+        enhanced_runner,
+        "FEATURE_CACHE_METADATA_PATH",
+        manifest_path,
+    )
+    empty_candidates = pd.DataFrame(
+        columns=["split", "cutoff_week", "label_week"],
+    )
+
+    assert (
+        enhanced_runner.enhanced_feature_cache_partitions_exist(empty_candidates)
+        is False
+    )
+
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps({"entries": {"strategy:default": {}}}),
+        encoding="utf-8",
+    )
+    assert (
+        enhanced_runner.enhanced_feature_cache_partitions_exist(empty_candidates)
+        is False
+    )
+
+    manifest_path.write_text(
+        json.dumps({"entries": {"strategy:enhanced_default": {}}}),
+        encoding="utf-8",
+    )
+    assert (
+        enhanced_runner.enhanced_feature_cache_partitions_exist(empty_candidates)
+        is True
+    )
 
 
 def test_build_feature_cache_accepts_empty_candidates_with_manifest_only(

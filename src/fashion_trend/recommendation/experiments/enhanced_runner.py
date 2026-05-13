@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,8 @@ from fashion_trend.recommendation.experiments.enhanced_grid_search import (
 )
 from fashion_trend.recommendation.experiments.runner import (
     RecommendationExperimentContext,
+    _experiment_input_paths,
+    _feature_cache_input_paths,
     build_recommendation_result_in_memory,
     ensure_or_build_candidate_items,
     ensure_or_build_feature_cache_for_strategy,
@@ -31,12 +34,21 @@ from fashion_trend.recommendation.experiments.runner import (
     feature_artifact_paths_for_method_window,
     generate_experiment_run_id,
 )
+from fashion_trend.recommendation.features.cache import (
+    assert_feature_cache_partitions_fresh,
+)
+from fashion_trend.recommendation.fingerprints import build_input_fingerprints
 from fashion_trend.recommendation.inputs import RecommendationInputArtifacts
 from fashion_trend.recommendation.outputs import (
     build_recommendations_csv,
     format_recommendation_items,
 )
-from fashion_trend.recommendation.paths import experiment_dir, method_output_paths
+from fashion_trend.recommendation.paths import (
+    FEATURE_CACHE_METADATA_PATH,
+    candidate_items_path,
+    experiment_dir,
+    method_output_paths,
+)
 from fashion_trend.recommendation.ranking.features import build_ranking_features
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.readers import read_recommendations
@@ -76,8 +88,10 @@ def run_recommendation_enhanced_experiment(
         force=candidate_force,
     )
     cache_force = force_rebuild_all or force_cache or force_candidates
+    cache_input_paths = _feature_cache_input_paths(ENHANCED_STRATEGY, context)
     cache_rebuild = cache_force or not enhanced_feature_cache_partitions_exist(
-        candidates
+        candidates,
+        input_paths=cache_input_paths,
     )
     ensure_or_build_feature_cache_for_strategy(
         ENHANCED_STRATEGY,
@@ -141,6 +155,10 @@ def run_recommendation_enhanced_experiment(
             "force_candidates": force_candidates,
             "force_rebuild_all": force_rebuild_all,
         },
+        freshness_artifacts=enhanced_payload_freshness_artifacts(
+            context,
+            candidates,
+        ),
     )
     write_json_atomic(
         payload,
@@ -241,7 +259,12 @@ def evaluate_enhanced_weights_by_split(
     return metrics_by_split
 
 
-def enhanced_feature_cache_partitions_exist(candidates: pd.DataFrame) -> bool:
+def enhanced_feature_cache_partitions_exist(
+    candidates: pd.DataFrame,
+    input_paths: dict[str, str] | None = None,
+) -> bool:
+    if not _feature_cache_manifest_has_strategy(ENHANCED_STRATEGY):
+        return False
     if candidates.empty:
         return True
     required_columns = {"split", "cutoff_week", "label_week"}
@@ -261,6 +284,12 @@ def enhanced_feature_cache_partitions_exist(candidates: pd.DataFrame) -> bool:
         )
         if not all(Path(path).exists() for path in paths):
             return False
+    if input_paths is not None:
+        assert_feature_cache_partitions_fresh(
+            strategy=ENHANCED_STRATEGY,
+            candidates=candidates,
+            input_paths=input_paths,
+        )
     return True
 
 
@@ -273,12 +302,14 @@ def build_enhanced_experiment_payload(
     diagnostics: dict[str, object] | None = None,
     named_ablation: list[dict[str, Any]] | None = None,
     force: dict[str, object] | None = None,
+    freshness_artifacts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     metrics = {
         str(payload["method"]): dict(payload["metrics"])
         for payload in comparison_payloads
     }
     metrics[ENHANCED_METHOD] = dict(enhanced_metrics)
+    freshness_artifacts = dict(freshness_artifacts or {})
     return {
         "experiment_id": ENHANCED_EXPERIMENT_ID,
         "experiment_path": str(
@@ -294,7 +325,61 @@ def build_enhanced_experiment_payload(
         **dict(diagnostics or {}),
         "named_ablation": list(named_ablation or []),
         "force": dict(force or {}),
+        "freshness_artifacts": freshness_artifacts,
+        "freshness_fingerprints": build_input_fingerprints(freshness_artifacts),
     }
+
+
+def enhanced_payload_freshness_artifacts(
+    context: RecommendationExperimentContext,
+    candidates: pd.DataFrame,
+) -> dict[str, str]:
+    available_paths = _experiment_input_paths(context)
+    artifacts = {
+        key: available_paths[key]
+        for key in (
+            "weekly_transactions",
+            "article_attributes",
+            "trend_predictions",
+            "time_windows",
+            "target_users",
+            "user_profile",
+            "customer_profile",
+            "article_product_map",
+            "recommendation_inputs",
+        )
+        if key in available_paths
+    }
+    artifacts["enhanced_default_candidates"] = str(
+        candidate_items_path(ENHANCED_STRATEGY)
+    )
+    artifacts["enhanced_default_candidate_metadata"] = str(
+        candidate_items_path(ENHANCED_STRATEGY).with_name("metadata.json")
+    )
+    artifacts["feature_cache_metadata"] = str(FEATURE_CACHE_METADATA_PATH)
+
+    feature_artifacts: list[str] = []
+    if not candidates.empty:
+        windows = candidates.loc[
+            :, ["split", "cutoff_week", "label_week"]
+        ].drop_duplicates()
+        for window in windows.to_dict("records"):
+            feature_artifacts.extend(
+                feature_artifact_paths_for_method_window(
+                    method_name=ENHANCED_METHOD,
+                    strategy=ENHANCED_STRATEGY,
+                    window=window,
+                    include_seen=True,
+                )
+            )
+    for index in range(0, len(feature_artifacts), 2):
+        partition_index = index // 2
+        artifacts[f"feature_partition_{partition_index:04d}"] = feature_artifacts[index]
+        if index + 1 < len(feature_artifacts):
+            artifacts[f"feature_partition_metadata_{partition_index:04d}"] = (
+                feature_artifacts[index + 1]
+            )
+    return artifacts
 
 
 def build_enhanced_source_level_ablation_rows(
@@ -592,3 +677,16 @@ def _validate_enhanced_force_methods(force_methods: Sequence[str]) -> None:
     unknown = sorted({method for method in force_methods if method not in allowed})
     if unknown:
         raise ValueError(f"unknown enhanced force methods: {unknown}")
+
+
+def _feature_cache_manifest_has_strategy(strategy: str) -> bool:
+    if not FEATURE_CACHE_METADATA_PATH.exists():
+        return False
+    try:
+        manifest = json.loads(FEATURE_CACHE_METADATA_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(manifest, dict):
+        return False
+    entries = manifest.get("entries")
+    return isinstance(entries, dict) and f"strategy:{strategy}" in entries

@@ -85,6 +85,11 @@ FOUNDATION_PATH_ALLOWED_EXPORTS = {
     "OUTPUT_DIR",
 }
 
+RAW_PATH_MODULE_IMPORTS = {
+    "fashion_trend.datasets.paths",
+    "fashion_trend.foundation.paths",
+}
+
 
 def iter_python_files(package_name: str) -> list[Path]:
     package_path = PACKAGE_ROOT / package_name
@@ -156,6 +161,26 @@ def package_parts_for_path(path: Path) -> list[str]:
     if parts[-1] == "__init__":
         return parts[:-1]
     return parts[:-1]
+
+
+def pandas_read_csv_call_locations(paths: list[Path]) -> list[str]:
+    offenders: list[str] = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute) or func.attr != "read_csv":
+                continue
+            value = func.value
+            if isinstance(value, ast.Name) and value.id == "pd":
+                try:
+                    display_path = path.relative_to(PACKAGE_ROOT.parents[0])
+                except ValueError:
+                    display_path = path
+                offenders.append(f"{display_path}:{node.lineno}: pd.read_csv")
+    return offenders
 
 
 def package_root_for_path(path: Path) -> Path:
@@ -479,6 +504,43 @@ def test_recommendation_imports_only_public_upstream_surfaces() -> None:
         },
         RECOMMENDATION_PUBLIC_UPSTREAM_IMPORTS,
     )
+
+
+def test_recommendation_package_does_not_import_datasets_paths() -> None:
+    assert_package_does_not_import(
+        "recommendation",
+        {"fashion_trend.datasets", "fashion_trend.datasets.paths"},
+    )
+
+
+def test_retrieval_and_ranking_do_not_read_raw_csv_paths() -> None:
+    paths = [
+        *iter_python_files("recommendation/retrieval"),
+        *iter_python_files("recommendation/ranking"),
+    ]
+    import_offenders = package_upstream_import_offenders(
+        paths,
+        RAW_PATH_MODULE_IMPORTS,
+        allowed_modules=set(),
+    )
+    read_csv_offenders = pandas_read_csv_call_locations(paths)
+
+    assert import_offenders == []
+    assert read_csv_offenders == []
+
+
+def test_no_recomd_imports_anywhere() -> None:
+    offenders: list[str] = []
+    for path in iter_architecture_python_files():
+        for module_name in imported_modules(path):
+            if module_name == "recomd" or module_name.startswith("recomd."):
+                try:
+                    display_path = path.relative_to(PACKAGE_ROOT.parents[0])
+                except ValueError:
+                    display_path = path
+                offenders.append(f"{display_path}: {module_name}")
+
+    assert offenders == []
 
 
 def test_recommendation_does_not_import_trend_training_or_models() -> None:
