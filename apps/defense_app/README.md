@@ -57,8 +57,33 @@ npm run build
 - `/`：趋势看板，展示四类核心属性趋势榜和摘要指标。
 - `/attributes/:attrId`：属性详情，展示 8 周热度曲线、预测值、属性关系和关联商品。
 - `/graph/articles/:articleId`：商品属性图，展示商品到属性的只读连接。
+- `/graph/articles?attr_id={attrId}`：从属性入口选择代表商品并进入商品属性图。
 - `/recommendations`：演示用户选择和 Top-12 推荐。
 - `/recommendations/:caseId/:articleId`：推荐解释，展示用户画像、商品属性、匹配趋势属性和 score breakdown。
+
+## 视觉 QA
+
+本应用按桌面答辩场景验证，建议使用 `1440x900` 或更宽视口。完整本地检查顺序：
+
+```sh
+uv run python src/18_build_defense_app_db.py
+sqlite3 outputs/defense_app/fashion_demo.sqlite "pragma integrity_check;"
+uv run --group app pytest apps/defense_app/backend/tests
+uv run pytest tests/test_presentation_builders.py tests/test_presentation_runner.py tests/test_architecture_boundaries.py
+cd apps/defense_app/frontend
+npm run typecheck
+npm run build
+```
+
+本地预览：
+
+```sh
+uv run --group app uvicorn app.main:app --reload --app-dir apps/defense_app/backend
+cd apps/defense_app/frontend
+npm run dev
+```
+
+预览时依次走查 `/`、`/attributes/:attrId`、`/graph/articles/:articleId`、`/recommendations` 和 `/recommendations/:caseId/:articleId`。重点确认左侧 shell、页面工具栏、趋势榜、属性关系树、图画布、Top-12 推荐网格、推荐理由分数条和 Top-12 上下文都能在桌面视口中完整阅读。
 
 ## 边界
 

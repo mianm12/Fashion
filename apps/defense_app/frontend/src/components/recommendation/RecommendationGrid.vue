@@ -1,22 +1,36 @@
 <template>
   <div>
-    <div v-if="loading" class="dense-state compact-state">
-      加载 Top-12 推荐...
-    </div>
-    <div v-else-if="error" class="dense-state error-state compact-state">
-      {{ error }}
-    </div>
-    <div v-else-if="items.length === 0" class="dense-state compact-state">
-      暂无推荐商品
-    </div>
+    <StatusBlock
+      v-if="loading"
+      type="loading"
+      title="加载 Top-12 推荐..."
+      class="compact-state"
+    />
+    <StatusBlock
+      v-else-if="error"
+      type="error"
+      title="Top-12 推荐加载失败"
+      :message="error"
+      class="compact-state"
+    />
+    <StatusBlock
+      v-else-if="items.length === 0"
+      title="暂无推荐商品"
+      class="compact-state"
+    />
     <template v-else>
-      <div class="recommendation-card-grid">
-        <div v-if="duplicateCount > 0" class="dense-state error-state compact-state">
-          发现 {{ duplicateCount }} 个重复推荐商品，已按 article_id 展示首个
+      <div class="recommendation-warning-stack">
+        <div v-if="items.length !== 12" class="recommendation-warning">
+          Top-12 不完整：当前仅 {{ items.length }} 件商品
         </div>
+        <div v-if="duplicateCount > 0" class="recommendation-warning error">
+          后端返回 {{ duplicateCount }} 个重复推荐商品，请检查展示库契约
+        </div>
+      </div>
+      <div class="recommendation-card-grid">
         <RouterLink
-          v-for="item in uniqueItems"
-          :key="item.article_id"
+          v-for="item in items"
+          :key="`${item.rank}-${item.article_id}`"
           class="recommendation-card"
           :to="{
             name: 'recommendation-explanation',
@@ -34,11 +48,16 @@
             <span>{{ item.article.colour_group_name ?? "--" }}</span>
             <span>{{ item.article.garment_group_name ?? "--" }}</span>
           </div>
+          <div class="candidate-source-row">
+            <span v-for="source in candidateSources(item.candidate_sources)" :key="source">
+              {{ source }}
+            </span>
+          </div>
           <footer>
             <span :class="item.is_hit ? 'hit-marker' : 'miss-marker'">
-              {{ item.is_hit ? "hit" : "not hit" }}
+              {{ item.is_hit ? "命中" : "未命中" }}
             </span>
-            <span>{{ item.candidate_sources }}</span>
+            <span>{{ item.article.product_type_name ?? "--" }}</span>
           </footer>
         </RouterLink>
       </div>
@@ -49,7 +68,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import StatusBlock from "@/components/ui/StatusBlock.vue";
 import type { RecommendationItem } from "@/types/api";
+import { parseJsonStringArray } from "@/utils/formatters";
 
 const props = defineProps<{
   caseId: string;
@@ -58,20 +79,25 @@ const props = defineProps<{
   error?: string | null;
 }>();
 
-const uniqueItems = computed(() => {
+const duplicateCount = computed(() => {
   const seen = new Set<string>();
-  return props.items.filter((item) => {
+  let count = 0;
+  for (const item of props.items) {
     if (seen.has(item.article_id)) {
-      return false;
+      count += 1;
+      continue;
     }
     seen.add(item.article_id);
-    return true;
-  });
+  }
+  return count;
 });
-
-const duplicateCount = computed(() => props.items.length - uniqueItems.value.length);
 
 function formatScore(value: number) {
   return Number.isFinite(value) ? value.toFixed(3) : "--";
+}
+
+function candidateSources(value: string) {
+  const parsed = parseJsonStringArray(value);
+  return parsed.length ? parsed : [value];
 }
 </script>

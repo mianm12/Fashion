@@ -34,6 +34,8 @@ def test_get_recommendation_explanation_returns_profile_item_and_scores(
     assert {item["attr_id"] for item in payload["matching_trend_attributes"]} == {
         "colour_group_name::Black",
         "product_type_name::Shirt",
+        "graphical_appearance_name::Solid",
+        "garment_group_name::Jersey Basic",
     }
 
 

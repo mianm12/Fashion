@@ -226,6 +226,51 @@ def build_trend_attributes(
     )
 
 
+def build_trend_attributes_for_source_weeks(
+    prediction_sample_view: pd.DataFrame,
+    source_weeks: Sequence[int],
+    *,
+    limit_per_type: int = 50,
+) -> pd.DataFrame:
+    if limit_per_type <= 0:
+        raise ValueError("limit_per_type must be positive")
+    if prediction_sample_view.empty:
+        return pd.DataFrame(columns=_trend_attribute_columns())
+
+    available_weeks = set(
+        pd.to_numeric(prediction_sample_view["week_id"], errors="raise").astype(int)
+    )
+    frames: list[pd.DataFrame] = []
+    for week in sorted({int(value) for value in source_weeks}):
+        if week not in available_weeks:
+            continue
+        frame = build_trend_attributes(
+            prediction_sample_view,
+            source_week=week,
+            limit_per_type=limit_per_type,
+        )
+        if not frame.empty:
+            frames.append(frame)
+
+    if not frames:
+        return pd.DataFrame(columns=_trend_attribute_columns())
+    result = pd.concat(frames, ignore_index=True).sort_values(
+        ["source_week", "attr_type", "rank"],
+        kind="mergesort",
+    )
+    duplicate_keys = result.duplicated(["source_week", "attr_type", "rank"])
+    if duplicate_keys.any():
+        sample = result.loc[
+            duplicate_keys,
+            ["source_week", "attr_type", "rank", "attr_id"],
+        ]
+        raise ValueError(
+            "trend_attributes contain duplicate display rank keys: "
+            f"{sample.head(3).to_dict('records')}"
+        )
+    return result.reset_index(drop=True)
+
+
 def build_attribute_heat_series(
     trend_attributes: pd.DataFrame,
     attribute_week_heat: pd.DataFrame,
@@ -244,27 +289,30 @@ def build_attribute_heat_series(
             (attribute_week_heat["attr_id"].astype(str) == attr_id)
             & (attribute_week_heat["week_id"].astype(int) <= source_week)
         ].copy()
+        history["week_id"] = pd.to_numeric(history["week_id"], errors="raise").astype(
+            int
+        )
         history = history.sort_values("week_id", kind="mergesort").tail(weeks)
         if history.empty:
             continue
         history["attr_id"] = attr_id
         history["attr_type"] = history["attr_type"].astype(str)
         history["attr_value"] = history["attr_value"].astype(str)
-        history["week_id"] = history["week_id"].astype(int)
         history["heat"] = pd.to_numeric(history["heat_cnt"], errors="raise")
         history["actual_target_growth"] = np.nan
         history["pred_target_growth"] = np.nan
         history["pred_share_t1"] = np.nan
-        prediction = predictions.get((attr_id, source_week))
-        if prediction is not None:
-            source_mask = history["week_id"].eq(source_week)
-            history.loc[source_mask, "actual_target_growth"] = prediction[
+        for row_index, week_id in history["week_id"].items():
+            prediction = predictions.get((attr_id, int(week_id)))
+            if prediction is None:
+                continue
+            history.at[row_index, "actual_target_growth"] = prediction[
                 "target_growth"
             ]
-            history.loc[source_mask, "pred_target_growth"] = prediction[
+            history.at[row_index, "pred_target_growth"] = prediction[
                 "pred_target_growth"
             ]
-            history.loc[source_mask, "pred_share_t1"] = prediction["pred_share_t1"]
+            history.at[row_index, "pred_share_t1"] = prediction["pred_share_t1"]
         rows.append(
             history.loc[
                 :,
@@ -293,7 +341,10 @@ def build_attribute_heat_series(
                 "pred_share_t1",
             ]
         )
-    return pd.concat(rows, ignore_index=True).sort_values(
+    return pd.concat(rows, ignore_index=True).drop_duplicates(
+        ["attr_id", "week_id"],
+        keep="last",
+    ).sort_values(
         ["attr_id", "week_id"],
         kind="mergesort",
     )
@@ -414,7 +465,10 @@ def build_presentation_tables(sources: PresentationSources) -> dict[str, pd.Data
         sources.predictions,
         sources.trend_model_samples,
     )
-    trend_attributes = build_trend_attributes(prediction_sample_view)
+    trend_attributes = build_trend_attributes_for_source_weeks(
+        prediction_sample_view,
+        _display_source_weeks(prediction_sample_view, sources.report_cases),
+    )
     recommendation_top12 = _top12_items_for_cases(
         sources.report_cases,
         sources.recommendation_items,
@@ -452,6 +506,23 @@ def build_presentation_tables(sources: PresentationSources) -> dict[str, pd.Data
         "report_assets": build_report_assets(sources.manifest),
     }
     return tables
+
+
+def _display_source_weeks(
+    prediction_sample_view: pd.DataFrame,
+    report_cases: Sequence[Mapping[str, object]],
+) -> list[int]:
+    if prediction_sample_view.empty:
+        return []
+    available_weeks = set(
+        pd.to_numeric(prediction_sample_view["week_id"], errors="raise").astype(int)
+    )
+    weeks = {_default_source_week(prediction_sample_view, None)}
+    for payload in report_cases:
+        cutoff_week = int(payload["cutoff_week"])
+        if cutoff_week in available_weeks:
+            weeks.add(cutoff_week)
+    return sorted(weeks)
 
 
 def _case_key(payload: Mapping[str, object]) -> tuple[str, str, int, int]:

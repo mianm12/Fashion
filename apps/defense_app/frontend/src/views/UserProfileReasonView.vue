@@ -1,162 +1,203 @@
 <template>
-  <section class="route-page">
-    <header class="page-header">
-      <p class="eyebrow">Explanation</p>
-      <h1>{{ demoUser?.case_id ?? caseId }}</h1>
-      <div class="header-metrics">
-        <span>{{ demoUser?.split ?? "split" }}</span>
-        <span>hits {{ demoUser?.hit_count ?? "--" }}</span>
-        <span v-if="articleId">Article {{ articleId }}</span>
-        <span>Final {{ formatScore(explanation?.score_components.final_score) }}</span>
-      </div>
-    </header>
+  <section class="route-page recommendation-reason-page">
+    <PageToolbar title="推荐理由" :context="toolbarContext">
+      <template #actions>
+        <RouterLink
+          class="toolbar-button"
+          :to="{ name: 'recommendations', query: { case_id: caseId } }"
+        >
+          <ArrowLeft aria-hidden="true" />
+          返回推荐展示
+        </RouterLink>
+        <label class="compact-field top12-switch-field">
+          <span>Top-12</span>
+          <select v-model="selectedArticleInput" @change="switchArticle">
+            <option value="">选择商品</option>
+            <option
+              v-for="item in recommendations"
+              :key="item.article_id"
+              :value="item.article_id"
+            >
+              #{{ item.rank }} · {{ item.article_id }}
+            </option>
+          </select>
+        </label>
+        <button type="button" class="toolbar-button" @click="loadExplanationFlow">
+          <RefreshCw aria-hidden="true" />
+          刷新
+        </button>
+      </template>
+    </PageToolbar>
 
-    <div v-if="loading" class="dense-state">加载推荐解释...</div>
-    <div v-else-if="error" class="dense-state error-state">{{ error }}</div>
+    <StatusBlock
+      v-if="loading"
+      type="loading"
+      title="加载推荐解释..."
+      class="compact-state"
+    />
+    <StatusBlock
+      v-else-if="error"
+      type="error"
+      title="推荐解释加载失败"
+      :message="error"
+      class="compact-state"
+    />
 
     <template v-else>
-      <div v-if="demoUser" class="summary-text explanation-summary">
+      <div v-if="demoUser" class="reason-summary-strip">
         <strong>{{ demoUser.profile_summary }}</strong>
         <span>{{ demoUser.recommendation_summary }}</span>
       </div>
 
-      <div class="skeleton-grid three-columns">
-        <article class="panel">
-          <header class="panel-heading">
-            <div>
-              <h2>用户画像属性</h2>
-              <p>preference score / purchases / last week</p>
-            </div>
-            <span class="count-pill">{{ profile.length }} attrs</span>
-          </header>
-          <div v-if="profile.length === 0" class="dense-state compact-state">
-            暂无用户画像属性
-          </div>
+      <div class="reason-workspace">
+        <Panel title="用户画像属性" subtitle="偏好分、购买次数和最近购买周">
+          <template #actions>
+            <span class="count-pill">{{ profile.length }} 个属性</span>
+          </template>
+          <StatusBlock
+            v-if="profile.length === 0"
+            title="暂无用户画像属性"
+            class="compact-state"
+          />
           <div v-else class="profile-list">
-            <div v-for="item in profile" :key="item.attr_id" class="profile-row">
+            <div
+              v-for="item in sortedProfile"
+              :key="item.attr_id"
+              class="profile-row reason-profile-row"
+              :class="{ matched: matchedProfileIds.has(item.attr_id) }"
+            >
               <strong>{{ item.attr_value }}</strong>
               <span>{{ item.attr_type }}</span>
               <span>{{ formatScore(item.preference_score) }}</span>
               <span>{{ item.purchase_count }} buys · W{{ item.last_purchase_week }}</span>
             </div>
           </div>
-        </article>
+        </Panel>
 
-        <article class="panel">
-          <header class="panel-heading">
-            <div>
-              <h2>推荐商品</h2>
-              <p>{{ selectedRecommendation?.article_id ?? "select an item" }}</p>
-            </div>
+        <Panel title="推荐商品属性" :subtitle="articlePanelSubtitle">
+          <template #actions>
             <span
               v-if="selectedRecommendation"
               :class="selectedRecommendation.is_hit ? 'hit-marker' : 'miss-marker'"
             >
-              {{ selectedRecommendation.is_hit ? "hit" : "not hit" }}
+              {{ selectedRecommendation.is_hit ? "命中" : "未命中" }}
             </span>
-          </header>
+          </template>
 
-          <div v-if="explanation" class="selected-article">
-            <strong>{{ explanation.article.article_id }}</strong>
-            <span>{{ explanation.article.prod_name ?? "--" }}</span>
-            <span>{{ explanation.article.product_type_name ?? "--" }}</span>
-            <span>{{ explanation.article.colour_group_name ?? "--" }}</span>
-          </div>
-          <div v-else class="dense-state compact-state">
-            从 Top-12 推荐中选择商品查看 explanation
-          </div>
-        </article>
-
-        <article class="panel">
-          <header class="panel-heading">
-            <div>
-              <h2>Score breakdown</h2>
-              <p>pop / sim / trend / recent / final</p>
+          <StatusBlock
+            v-if="!props.articleId"
+            title="请选择 Top-12 商品"
+            message="使用顶部切换器或底部上下文选择一个商品"
+            class="compact-state"
+          />
+          <StatusBlock
+            v-else-if="!explanation"
+            title="暂无商品解释"
+            class="compact-state"
+          />
+          <div v-else class="reason-article-panel">
+            <div class="reason-article-summary">
+              <strong>{{ explanation.article.article_id }}</strong>
+              <span>{{ explanation.article.prod_name ?? "--" }}</span>
+              <span>{{ explanation.article.product_type_name ?? "--" }}</span>
+              <span>{{ explanation.article.colour_group_name ?? "--" }}</span>
+              <span>{{ explanation.article.graphical_appearance_name ?? "--" }}</span>
+              <span>{{ explanation.article.garment_group_name ?? "--" }}</span>
+              <span>{{ explanation.article.department_name ?? "--" }}</span>
+              <span>{{ explanation.article.section_name ?? "--" }}</span>
             </div>
-            <span class="count-pill">{{ selectedRecommendation?.rank ?? "--" }}</span>
-          </header>
-          <ScoreBreakdown :scores="explanation?.score_components ?? null" />
-        </article>
-      </div>
-
-      <div class="skeleton-grid two-columns">
-        <article class="panel">
-          <header class="panel-heading">
-            <div>
-              <h2>商品属性</h2>
-              <p>product attributes used for explanation</p>
+            <div class="reason-item-attribute-list">
+              <RouterLink
+                v-for="attribute in explanation.item_attributes"
+                :key="attribute.attr_id"
+                :class="{
+                  matched:
+                    matchedItemAttrIds.has(attribute.attr_id) ||
+                    trendAttrIds.has(attribute.attr_id),
+                }"
+                :to="{ name: 'attribute-detail', params: { attrId: attribute.attr_id } }"
+              >
+                <strong>{{ attribute.attr_value }}</strong>
+                <span>{{ attribute.attr_type }}</span>
+              </RouterLink>
             </div>
-            <span class="count-pill">{{ explanation?.item_attributes.length ?? 0 }} attrs</span>
-          </header>
-          <div
-            v-if="!explanation || explanation.item_attributes.length === 0"
-            class="dense-state compact-state"
-          >
-            暂无商品属性
-          </div>
-          <div v-else class="article-attribute-list">
             <RouterLink
-              v-for="attribute in explanation.item_attributes"
-              :key="attribute.attr_id"
-              :to="{ name: 'attribute-detail', params: { attrId: attribute.attr_id } }"
+              class="panel-action-link"
+              :to="{
+                name: 'article-graph',
+                params: { articleId: explanation.article.article_id },
+              }"
             >
-              <strong>{{ attribute.attr_value }}</strong>
-              <span>{{ attribute.attr_type }}</span>
+              查看属性图
             </RouterLink>
           </div>
-        </article>
+        </Panel>
 
-        <article class="panel">
-          <header class="panel-heading">
-            <div>
-              <h2>匹配趋势属性</h2>
-              <p>offline trend prediction signals</p>
-            </div>
+        <Panel title="分数分解" subtitle="已有推荐结果的 score components">
+          <template #actions>
+            <span class="count-pill">#{{ selectedRecommendation?.rank ?? "--" }}</span>
+          </template>
+          <ScoreBreakdown :scores="explanation?.score_components ?? null" />
+        </Panel>
+      </div>
+
+      <div class="reason-evidence-grid">
+        <Panel title="偏好 × 商品属性匹配" subtitle="仅展示真实 attr_id 或 attr_type 匹配">
+          <PreferenceMatchMatrix
+            :profile="profile"
+            :item-attributes="explanation?.item_attributes ?? []"
+          />
+        </Panel>
+
+        <Panel title="匹配趋势属性" subtitle="来自 explanation payload 的趋势信号">
+          <template #actions>
             <span class="count-pill">
-              {{ explanation?.matching_trend_attributes.length ?? 0 }} trends
+              {{ explanation?.matching_trend_attributes.length ?? 0 }} 个趋势
             </span>
-          </header>
-          <div
+          </template>
+          <StatusBlock
             v-if="!explanation || explanation.matching_trend_attributes.length === 0"
-            class="dense-state compact-state"
-          >
-            暂无匹配趋势属性
-          </div>
-          <ol v-else class="trend-match-list">
-            <li
+            title="暂无匹配趋势属性"
+            class="compact-state"
+          />
+          <div v-else class="reason-trend-table">
+            <RouterLink
               v-for="trend in explanation.matching_trend_attributes"
               :key="`${trend.source_week}-${trend.attr_id}`"
+              :to="{
+                name: 'attribute-detail',
+                params: { attrId: trend.attr_id },
+                query: { source_week: trend.source_week },
+              }"
             >
               <span>#{{ trend.rank }}</span>
               <strong>{{ trend.attr_value }}</strong>
               <span>{{ trend.attr_type }}</span>
-              <span>{{ formatPercent(trend.pred_target_growth) }}</span>
-            </li>
-          </ol>
-        </article>
+              <span>{{ formatSignedPercent(trend.pred_target_growth) }}</span>
+              <em>{{ trend.source_week }} -> {{ trend.target_week }}</em>
+            </RouterLink>
+          </div>
+        </Panel>
       </div>
 
-      <article class="panel">
-        <header class="panel-heading">
-          <div>
-            <h2>Top-12 推荐候选</h2>
-            <p>轻量离线推荐实验结果</p>
-          </div>
-          <span class="count-pill">{{ recommendations.length }} items</span>
-        </header>
-        <RecommendationGrid
+      <Panel title="Top-12 推荐上下文" subtitle="点击其他行切换当前解释商品">
+        <template #actions>
+          <span class="count-pill">{{ recommendations.length }} 件商品</span>
+        </template>
+        <Top12ContextStrip
           :case-id="caseId"
           :items="recommendations"
-          :loading="false"
-          :error="null"
+          :selected-article-id="props.articleId ?? null"
         />
-      </article>
+      </Panel>
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
+import { ArrowLeft, RefreshCw } from "lucide-vue-next";
 import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 
 import {
   getDemoUser,
@@ -164,24 +205,31 @@ import {
   getRecommendations,
   getUserProfile,
 } from "@/api/defenseApi";
-import RecommendationGrid from "@/components/recommendation/RecommendationGrid.vue";
+import PageToolbar from "@/components/layout/PageToolbar.vue";
+import PreferenceMatchMatrix from "@/components/recommendation/PreferenceMatchMatrix.vue";
 import ScoreBreakdown from "@/components/recommendation/ScoreBreakdown.vue";
+import Top12ContextStrip from "@/components/recommendation/Top12ContextStrip.vue";
+import Panel from "@/components/ui/Panel.vue";
+import StatusBlock from "@/components/ui/StatusBlock.vue";
 import type {
   DemoUserItem,
   RecommendationExplanationResponse,
   RecommendationItem,
   UserProfileAttribute,
 } from "@/types/api";
+import { formatSignedPercent } from "@/utils/formatters";
 
 const props = defineProps<{
   caseId: string;
   articleId?: string;
 }>();
 
+const router = useRouter();
 const demoUser = ref<DemoUserItem | null>(null);
 const profile = ref<UserProfileAttribute[]>([]);
 const recommendations = ref<RecommendationItem[]>([]);
 const explanation = ref<RecommendationExplanationResponse | null>(null);
+const selectedArticleInput = ref(props.articleId ?? "");
 const loading = ref(false);
 const error = ref<string | null>(null);
 let reasonRequestId = 0;
@@ -192,6 +240,63 @@ const selectedRecommendation = computed(
     null,
 );
 
+const sortedProfile = computed(() =>
+  [...profile.value].sort(
+    (left, right) =>
+      right.preference_score - left.preference_score ||
+      left.attr_value.localeCompare(right.attr_value),
+  ),
+);
+
+const matchedProfileIds = computed(
+  () =>
+    new Set(
+      profile.value
+        .filter((profileItem) =>
+          (explanation.value?.item_attributes ?? []).some(
+            (attribute) => attribute.attr_id === profileItem.attr_id,
+          ),
+        )
+        .map((item) => item.attr_id),
+    ),
+);
+
+const matchedItemAttrIds = computed(
+  () =>
+    new Set(
+      (explanation.value?.item_attributes ?? [])
+        .filter((attribute) =>
+          profile.value.some((profileItem) => profileItem.attr_id === attribute.attr_id),
+        )
+        .map((attribute) => attribute.attr_id),
+    ),
+);
+
+const trendAttrIds = computed(
+  () =>
+    new Set(
+      (explanation.value?.matching_trend_attributes ?? []).map(
+        (attribute) => attribute.attr_id,
+      ),
+    ),
+);
+
+const toolbarContext = computed(() => {
+  const rank = selectedRecommendation.value?.rank
+    ? `rank #${selectedRecommendation.value.rank}`
+    : "rank --";
+  const hit = selectedRecommendation.value
+    ? selectedRecommendation.value.is_hit
+      ? "命中"
+      : "未命中"
+    : "--";
+  return `${props.caseId} · ${props.articleId ?? "未选择商品"} · ${rank} · ${hit}`;
+});
+
+const articlePanelSubtitle = computed(() =>
+  props.articleId ? `article ${props.articleId}` : "请选择推荐商品",
+);
+
 onMounted(() => {
   void loadExplanationFlow();
 });
@@ -199,6 +304,7 @@ onMounted(() => {
 watch(
   () => [props.caseId, props.articleId],
   () => {
+    selectedArticleInput.value = props.articleId ?? "";
     void loadExplanationFlow();
   },
 );
@@ -249,15 +355,22 @@ async function loadExplanationFlow() {
   }
 }
 
+function switchArticle() {
+  if (!selectedArticleInput.value) {
+    return;
+  }
+  void router.push({
+    name: "recommendation-explanation",
+    params: {
+      caseId: props.caseId,
+      articleId: selectedArticleInput.value,
+    },
+  });
+}
+
 function formatScore(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value)
     ? value.toFixed(4)
-    : "--";
-}
-
-function formatPercent(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? `${(value * 100).toFixed(1)}%`
     : "--";
 }
 

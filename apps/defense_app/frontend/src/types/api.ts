@@ -58,6 +58,45 @@ export interface TrendListResponse {
   items: TrendAttribute[];
 }
 
+export interface TrendSourceWeeksResponse {
+  default_source_week: number | null;
+  items: number[];
+}
+
+export interface TrendSummaryResponse {
+  source_week: number | null;
+  target_week: number | null;
+  rising_attribute_count: number;
+  high_confidence_attribute_count: number;
+  top_k_average_pred_target_growth: number | null;
+  covered_article_count: number;
+  model_status: string;
+}
+
+export interface TrendDistributionBucket {
+  label: string;
+  count: number;
+}
+
+export interface TrendHistoryPoint {
+  attr_id: string;
+  attr_type: string;
+  attr_value: string;
+  week_id: number;
+  heat: number;
+  actual_target_growth: number | null;
+  pred_target_growth: number | null;
+  pred_share_t1: number | null;
+}
+
+export interface TrendEvidenceResponse {
+  source_week: number | null;
+  target_week: number | null;
+  distribution: TrendDistributionBucket[];
+  top_history: TrendHistoryPoint[];
+  new_high_potential: TrendAttribute[];
+}
+
 export interface HeatSeriesPoint {
   attr_id: string;
   attr_type: string;

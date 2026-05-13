@@ -1,15 +1,25 @@
 <template>
-  <section class="route-page">
-    <header class="page-header">
-      <p class="eyebrow">Trend</p>
-      <h1>趋势看板</h1>
-      <div class="header-metrics">
+  <section class="route-page trend-dashboard-page">
+    <PageToolbar
+      title="趋势看板"
+      :context="`预测第 ${targetWeekLabel} 周上升趋势`"
+      :status="summary?.model_status ?? 'LightGBM stable'"
+    >
+      <template #actions>
         <label class="compact-field">
-          <span>Source week</span>
-          <input v-model.number="sourceWeekInput" type="number" min="1" />
+          <span>数据源周</span>
+          <select v-model.number="sourceWeekInput">
+            <option
+              v-for="week in sourceWeeks"
+              :key="week"
+              :value="week"
+            >
+              第 {{ week }} 周
+            </option>
+          </select>
         </label>
         <label class="compact-field">
-          <span>Top K</span>
+          <span>Top-K</span>
           <select v-model.number="topK">
             <option :value="5">5</option>
             <option :value="10">10</option>
@@ -17,153 +27,223 @@
             <option :value="50">50</option>
           </select>
         </label>
-      </div>
-    </header>
+        <label class="compact-field attr-filter-field">
+          <span>属性类型</span>
+          <select v-model="selectedAttrType">
+            <option
+              v-for="item in filterItems"
+              :key="item.value"
+              :value="item.value"
+            >
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
+        <button type="button" class="toolbar-button" @click="loadDashboard">
+          <RefreshCw aria-hidden="true" />
+          刷新
+        </button>
+      </template>
+    </PageToolbar>
 
-    <TrendMetricStrip :groups="metrics" />
-
-    <div class="filter-bar" aria-label="属性类型筛选">
-      <button
-        v-for="item in filterItems"
-        :key="item.value"
-        type="button"
-        class="segment-button"
-        :class="{ active: selectedAttrType === item.value }"
-        @click="selectedAttrType = item.value"
-      >
-        {{ item.label }}
-      </button>
+    <div v-if="sourceWeekError" class="dense-state error-state compact-state">
+      {{ sourceWeekError }}
     </div>
 
-    <div v-if="metricsError" class="dense-state error-state">
-      {{ metricsError }}
-    </div>
+    <TrendMetricStrip
+      :summary="summary"
+      :loading="summaryLoading"
+      :error="summaryError"
+    />
 
-    <div class="skeleton-grid four-columns trend-board-grid">
-      <TrendBoard
-        v-for="attrType in visibleAttrTypes"
-        :key="attrType"
-        :title="attrTypeLabels[attrType]"
-        :attr-type="attrType"
-        :items="trendGroups[attrType] ?? []"
-        :loading="trendLoading"
-        :error="trendErrors[attrType]"
-      />
-    </div>
+    <TrendRankMatrix
+      :groups="trendGroups"
+      :attr-type="selectedAttrType"
+      :source-week="sourceWeekInput"
+      :loading="trendLoading"
+      :errors="trendErrors"
+    />
+
+    <TrendEvidenceArea
+      :evidence="evidence"
+      :loading="evidenceLoading"
+      :error="evidenceError"
+    />
+
+    <TrendDetailTable
+      :response="detail"
+      :loading="detailLoading"
+      :error="detailError"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { RefreshCw } from "lucide-vue-next";
 
-import { getMetricsSummary, listTrends } from "@/api/defenseApi";
-import TrendBoard from "@/components/trend/TrendBoard.vue";
+import {
+  getTrendDetail,
+  getTrendEvidence,
+  getTrendSummary,
+  listTrendSourceWeeks,
+  listTrends,
+} from "@/api/defenseApi";
+import PageToolbar from "@/components/layout/PageToolbar.vue";
+import TrendDetailTable from "@/components/trend/TrendDetailTable.vue";
+import TrendEvidenceArea from "@/components/trend/TrendEvidenceArea.vue";
 import TrendMetricStrip from "@/components/trend/TrendMetricStrip.vue";
-import type { MetricItem, TrendAttribute } from "@/types/api";
-
-type AttrType =
-  | "colour_group_name"
-  | "product_type_name"
-  | "graphical_appearance_name"
-  | "garment_group_name";
-type FilterValue = AttrType | "all";
+import TrendRankMatrix from "@/components/trend/TrendRankMatrix.vue";
+import {
+  attrTypeLabels,
+  coreTrendAttrTypes,
+  type CoreTrendAttrType,
+  type TrendAttrFilter,
+} from "@/components/trend/trendTypes";
+import type {
+  TrendAttribute,
+  TrendEvidenceResponse,
+  TrendListResponse,
+  TrendSummaryResponse,
+} from "@/types/api";
 
 const route = useRoute();
 const router = useRouter();
 
-const attrTypes: AttrType[] = [
-  "colour_group_name",
-  "product_type_name",
-  "graphical_appearance_name",
-  "garment_group_name",
-];
+const sourceWeeks = ref<number[]>([]);
+const sourceWeekInput = ref<number | null>(readOptionalInt(route.query.source_week));
+const sourceWeekError = ref<string | null>(null);
+const topK = ref(readPositiveInt(route.query.limit, 10));
+const selectedAttrType = ref<TrendAttrFilter>(readAttrType(route.query.attr_type));
 
-const attrTypeLabels: Record<AttrType, string> = {
-  colour_group_name: "颜色",
-  product_type_name: "品类",
-  graphical_appearance_name: "图案",
-  garment_group_name: "服装组",
-};
+const summary = ref<TrendSummaryResponse | null>(null);
+const evidence = ref<TrendEvidenceResponse | null>(null);
+const detail = ref<TrendListResponse | null>(null);
+const trendGroups = ref<Partial<Record<CoreTrendAttrType, TrendAttribute[]>>>({});
+const trendErrors = ref<Partial<Record<CoreTrendAttrType, string | null>>>({});
 
-const filterItems: Array<{ value: FilterValue; label: string }> = [
+const summaryLoading = ref(false);
+const trendLoading = ref(false);
+const evidenceLoading = ref(false);
+const detailLoading = ref(false);
+const summaryError = ref<string | null>(null);
+const evidenceError = ref<string | null>(null);
+const detailError = ref<string | null>(null);
+let dashboardRequestId = 0;
+
+const filterItems: Array<{ value: TrendAttrFilter; label: string }> = [
   { value: "all", label: "全部" },
-  ...attrTypes.map((attrType) => ({
-    value: attrType,
-    label: attrTypeLabels[attrType],
+  ...coreTrendAttrTypes.map((type) => ({
+    value: type,
+    label: attrTypeLabels[type],
   })),
 ];
 
-const metrics = ref<Record<string, MetricItem[]>>({});
-const metricsError = ref<string | null>(null);
-const trendGroups = ref<Partial<Record<AttrType, TrendAttribute[]>>>({});
-const trendErrors = ref<Partial<Record<AttrType, string | null>>>({});
-const trendLoading = ref(false);
-const topK = ref(readPositiveInt(route.query.limit, 10));
-const sourceWeekInput = ref<number | null>(readOptionalInt(route.query.source_week));
-const selectedAttrType = ref(readAttrType(route.query.attr_type));
-let trendRequestId = 0;
-
-const visibleAttrTypes = computed(() =>
-  selectedAttrType.value === "all"
-    ? attrTypes
-    : attrTypes.filter((attrType) => attrType === selectedAttrType.value),
+const targetWeekLabel = computed(() =>
+  summary.value?.target_week ??
+  detail.value?.target_week ??
+  (sourceWeekInput.value ? sourceWeekInput.value + 1 : "--"),
 );
 
-onMounted(() => {
-  void loadMetrics();
-  void loadTrends();
+onMounted(async () => {
+  await loadSourceWeeks();
+  await loadDashboard();
 });
 
-watch([topK, sourceWeekInput], () => {
+watch([sourceWeekInput, topK, selectedAttrType], () => {
   updateQuery();
-  void loadTrends();
+  void loadDashboard();
 });
 
-watch(selectedAttrType, () => {
-  updateQuery();
-});
-
-async function loadMetrics() {
-  metricsError.value = null;
+async function loadSourceWeeks() {
+  sourceWeekError.value = null;
   try {
-    metrics.value = (await getMetricsSummary()).groups;
+    const response = await listTrendSourceWeeks();
+    sourceWeeks.value = response.items;
+    if (sourceWeekInput.value === null) {
+      sourceWeekInput.value = response.default_source_week ?? response.items.at(-1) ?? null;
+    }
   } catch (error) {
-    metricsError.value = getErrorMessage(error);
+    sourceWeekError.value = getErrorMessage(error);
   }
 }
 
-async function loadTrends() {
-  const requestId = ++trendRequestId;
+async function loadDashboard() {
+  const requestId = ++dashboardRequestId;
+  const params = {
+    source_week: sourceWeekInput.value ?? undefined,
+    limit: topK.value,
+  };
+
+  summaryLoading.value = true;
   trendLoading.value = true;
+  evidenceLoading.value = true;
+  detailLoading.value = true;
+  summaryError.value = null;
+  evidenceError.value = null;
+  detailError.value = null;
   trendErrors.value = {};
 
-  const entries = await Promise.all(
-    attrTypes.map(async (attrType) => {
-      try {
-        const response = await listTrends({
-          source_week: sourceWeekInput.value ?? undefined,
-          attr_type: attrType,
-          limit: topK.value,
-        });
-        return [attrType, response.items, null] as const;
-      } catch (error) {
-        return [attrType, [], getErrorMessage(error)] as const;
-      }
-    }),
-  );
+  const [summaryResult, trendResult, evidenceResult, detailResult] =
+    await Promise.allSettled([
+      getTrendSummary(params),
+      listTrends(params),
+      getTrendEvidence(params),
+      getTrendDetail({
+        ...params,
+        attr_type:
+          selectedAttrType.value === "all" ? undefined : selectedAttrType.value,
+      }),
+    ]);
 
-  if (requestId !== trendRequestId) {
+  if (requestId !== dashboardRequestId) {
     return;
   }
 
-  trendGroups.value = Object.fromEntries(
-    entries.map(([attrType, items]) => [attrType, items]),
-  );
-  trendErrors.value = Object.fromEntries(
-    entries.map(([attrType, , error]) => [attrType, error]),
-  );
+  if (summaryResult.status === "fulfilled") {
+    summary.value = summaryResult.value;
+  } else {
+    summary.value = null;
+    summaryError.value = getErrorMessage(summaryResult.reason);
+  }
+
+  if (trendResult.status === "fulfilled") {
+    trendGroups.value = groupTrends(trendResult.value.items);
+  } else {
+    trendGroups.value = {};
+    const message = getErrorMessage(trendResult.reason);
+    trendErrors.value = Object.fromEntries(
+      coreTrendAttrTypes.map((type) => [type, message]),
+    );
+  }
+
+  if (evidenceResult.status === "fulfilled") {
+    evidence.value = evidenceResult.value;
+  } else {
+    evidence.value = null;
+    evidenceError.value = getErrorMessage(evidenceResult.reason);
+  }
+
+  if (detailResult.status === "fulfilled") {
+    detail.value = detailResult.value;
+  } else {
+    detail.value = null;
+    detailError.value = getErrorMessage(detailResult.reason);
+  }
+
+  summaryLoading.value = false;
   trendLoading.value = false;
+  evidenceLoading.value = false;
+  detailLoading.value = false;
+}
+
+function groupTrends(items: TrendAttribute[]) {
+  const groups: Partial<Record<CoreTrendAttrType, TrendAttribute[]>> = {};
+  for (const type of coreTrendAttrTypes) {
+    groups[type] = items.filter((item) => item.attr_type === type);
+  }
+  return groups;
 }
 
 function updateQuery() {
@@ -191,9 +271,10 @@ function readPositiveInt(value: unknown, fallback: number) {
   return parsed && parsed > 0 ? parsed : fallback;
 }
 
-function readAttrType(value: unknown): AttrType | "all" {
-  return typeof value === "string" && attrTypes.includes(value as AttrType)
-    ? (value as AttrType)
+function readAttrType(value: unknown): TrendAttrFilter {
+  return typeof value === "string" &&
+    coreTrendAttrTypes.includes(value as CoreTrendAttrType)
+    ? (value as CoreTrendAttrType)
     : "all";
 }
 

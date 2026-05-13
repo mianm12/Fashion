@@ -53,14 +53,19 @@ def _case_payload(
     }
 
 
-def _recommendation_rows(count: int = 12) -> pd.DataFrame:
+def _recommendation_rows(
+    count: int = 12,
+    *,
+    cutoff_week: int = 10,
+    label_week: int = 11,
+) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
                 "customer_id": "000000abcdef123456",
                 "split": "test",
-                "cutoff_week": 10,
-                "label_week": 11,
+                "cutoff_week": cutoff_week,
+                "label_week": label_week,
                 "method": "pop_similarity_trend",
                 "article_id": f"00000000{rank:02d}",
                 "rank": rank,
@@ -231,18 +236,25 @@ def test_build_attribute_heat_series_uses_recent_window_and_predictions() -> Non
     heat = pd.DataFrame(
         [
             {
-                "week_id": week,
+                "week_id": str(week),
                 "attr_id": "colour_group_name::Black",
                 "attr_type": "colour_group_name",
                 "attr_value": "Black",
                 "heat_cnt": week * 10,
                 "heat_share": week / 100,
             }
-            for week in range(3, 11)
+            for week in range(2, 11)
         ]
     )
     predictions = pd.DataFrame(
         [
+            {
+                "week_id": 9,
+                "attr_id": "colour_group_name::Black",
+                "pred_target_growth": 0.5,
+                "pred_share_t1": 0.18,
+                "target_growth": 0.4,
+            },
             {
                 "week_id": 10,
                 "attr_id": "colour_group_name::Black",
@@ -262,6 +274,10 @@ def test_build_attribute_heat_series_uses_recent_window_and_predictions() -> Non
 
     assert result["week_id"].tolist() == list(range(3, 11))
     assert len(result) <= 8
+    previous_week = result[result["week_id"].eq(9)].iloc[0]
+    assert previous_week["pred_target_growth"] == 0.5
+    assert previous_week["pred_share_t1"] == 0.18
+    assert previous_week["actual_target_growth"] == 0.4
     source_week = result[result["week_id"].eq(10)].iloc[0]
     assert source_week["pred_target_growth"] == 0.7
     assert source_week["pred_share_t1"] == 0.2
@@ -437,46 +453,63 @@ def test_build_presentation_tables_writes_source_artifacts_metadata() -> None:
     assert values["source_manifest_path"] == "outputs/reports/manifest.json"
 
 
+def test_build_presentation_tables_includes_default_and_demo_source_weeks() -> None:
+    sources = _minimal_presentation_sources(
+        report_cases=[
+            _case_payload(cutoff_week=9, label_week=10),
+            _case_payload(cutoff_week=10, label_week=11),
+        ],
+        prediction_rows=[
+            _prediction_row(9, pred_target_growth=0.2),
+            _prediction_row(10, pred_target_growth=0.4),
+        ],
+        sample_rows=[
+            _sample_row(9, heat_t=90.0),
+            _sample_row(10, heat_t=100.0),
+        ],
+        heat_rows=[
+            _heat_row(week, heat_cnt=week * 10)
+            for week in range(2, 11)
+        ],
+    )
+
+    tables = build_presentation_tables(sources)
+
+    trend_attributes = tables["trend_attributes"]
+    assert trend_attributes["source_week"].tolist() == [9, 10]
+    assert trend_attributes["target_week"].tolist() == [10, 11]
+    assert not trend_attributes.duplicated(
+        ["source_week", "attr_type", "rank"]
+    ).any()
+    heat_series = tables["attribute_heat_series"]
+    assert set(heat_series["week_id"]) == set(range(2, 11))
+    assert heat_series.groupby("attr_id")["week_id"].max().item() == 10
+
+
 def _minimal_presentation_sources(
     *,
+    report_cases: list[dict[str, object]] | None = None,
+    prediction_rows: list[dict[str, object]] | None = None,
+    sample_rows: list[dict[str, object]] | None = None,
+    heat_rows: list[dict[str, object]] | None = None,
     source_artifacts: dict[str, dict[str, object]] | None = None,
 ) -> PresentationSources:
-    predictions = pd.DataFrame(
+    case_payloads = report_cases or [_case_payload()]
+    predictions = pd.DataFrame(prediction_rows or [_prediction_row(10)])
+    samples = pd.DataFrame(sample_rows or [_sample_row(10)])
+    recommendation_items = pd.concat(
         [
-            {
-                "week_id": 10,
-                "attr_id": "colour_group_name::Black",
-                "attr_type": "colour_group_name",
-                "attr_value": "Black",
-                "model_name": "lightgbm",
-                "split": "test",
-                "share_t": 0.1,
-                "pred_share_t1": 0.2,
-                "target_growth": 0.3,
-                "pred_target_growth": 0.4,
-                "target_rank_in_type_t1": 1,
-            }
-        ]
-    )
-    samples = pd.DataFrame(
-        [
-            {
-                "week_id": 10,
-                "attr_id": "colour_group_name::Black",
-                "attr_type": "colour_group_name",
-                "attr_value": "Black",
-                "heat_t": 100.0,
-                "share_t": 0.1,
-                "target_growth": 0.3,
-                "history_total_heat_t": 500.0,
-                "history_active_weeks_t": 5,
-                "is_trend_eligible_t": 1,
-            }
-        ]
+            _recommendation_rows(
+                cutoff_week=int(case["cutoff_week"]),
+                label_week=int(case["label_week"]),
+            )
+            for case in case_payloads
+        ],
+        ignore_index=True,
     )
     return PresentationSources(
         manifest={"warnings": [], "output_artifacts": {"figures": []}},
-        report_cases=[_case_payload()],
+        report_cases=case_payloads,
         report_tables={},
         predictions=predictions,
         feature_importance=pd.DataFrame(),
@@ -511,26 +544,27 @@ def _minimal_presentation_sources(
                 },
             }
         },
-        recommendation_items=_recommendation_rows(),
+        recommendation_items=recommendation_items,
         experiment={},
         evaluation_labels=pd.DataFrame(
             [
                 {
-                    "customer_id": "000000abcdef123456",
-                    "split": "test",
-                    "cutoff_week": 10,
-                    "label_week": 11,
+                    "customer_id": str(case["customer_id"]),
+                    "split": str(case["split"]),
+                    "cutoff_week": int(case["cutoff_week"]),
+                    "label_week": int(case["label_week"]),
                     "article_id": "0000000001",
                 }
+                for case in case_payloads
             ]
         ),
         user_profile=pd.DataFrame(
             [
                 {
-                    "customer_id": "000000abcdef123456",
-                    "split": "test",
-                    "cutoff_week": 10,
-                    "label_week": 11,
+                    "customer_id": str(case["customer_id"]),
+                    "split": str(case["split"]),
+                    "cutoff_week": int(case["cutoff_week"]),
+                    "label_week": int(case["label_week"]),
                     "attr_id": "colour_group_name::Black",
                     "attr_type": "colour_group_name",
                     "attr_value": "Black",
@@ -538,19 +572,10 @@ def _minimal_presentation_sources(
                     "purchase_count": 3,
                     "last_purchase_week": 9,
                 }
+                for case in case_payloads
             ]
         ),
-        attribute_week_heat=pd.DataFrame(
-            [
-                {
-                    "week_id": 10,
-                    "attr_id": "colour_group_name::Black",
-                    "attr_type": "colour_group_name",
-                    "attr_value": "Black",
-                    "heat_cnt": 100,
-                }
-            ]
-        ),
+        attribute_week_heat=pd.DataFrame(heat_rows or [_heat_row(10)]),
         trend_model_samples=samples,
         article_nodes=pd.DataFrame(),
         attribute_nodes=pd.DataFrame(
@@ -606,3 +631,56 @@ def _minimal_presentation_sources(
         ),
         source_artifacts=source_artifacts,
     )
+
+
+def _prediction_row(
+    week_id: int,
+    *,
+    pred_target_growth: float = 0.4,
+) -> dict[str, object]:
+    return {
+        "week_id": week_id,
+        "attr_id": "colour_group_name::Black",
+        "attr_type": "colour_group_name",
+        "attr_value": "Black",
+        "model_name": "lightgbm",
+        "split": "test",
+        "share_t": 0.1,
+        "pred_share_t1": 0.2,
+        "target_growth": 0.3,
+        "pred_target_growth": pred_target_growth,
+        "target_rank_in_type_t1": 1,
+    }
+
+
+def _sample_row(
+    week_id: int,
+    *,
+    heat_t: float = 100.0,
+) -> dict[str, object]:
+    return {
+        "week_id": week_id,
+        "attr_id": "colour_group_name::Black",
+        "attr_type": "colour_group_name",
+        "attr_value": "Black",
+        "heat_t": heat_t,
+        "share_t": 0.1,
+        "target_growth": 0.3,
+        "history_total_heat_t": 500.0,
+        "history_active_weeks_t": 5,
+        "is_trend_eligible_t": 1,
+    }
+
+
+def _heat_row(
+    week_id: int,
+    *,
+    heat_cnt: int = 100,
+) -> dict[str, object]:
+    return {
+        "week_id": week_id,
+        "attr_id": "colour_group_name::Black",
+        "attr_type": "colour_group_name",
+        "attr_value": "Black",
+        "heat_cnt": heat_cnt,
+    }

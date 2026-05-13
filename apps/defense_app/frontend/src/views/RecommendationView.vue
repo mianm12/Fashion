@@ -1,55 +1,47 @@
 <template>
-  <section class="route-page">
-    <header class="page-header">
-      <p class="eyebrow">Recommendation</p>
-      <h1>轻量 Top-N 推荐实验</h1>
-      <form class="search-strip" @submit.prevent="applyFilters">
-        <input
-          v-model="searchTerm"
-          type="search"
-          aria-label="演示用户搜索"
-          placeholder="case_id / customer_id"
-        />
-        <input
-          v-model="tagFilter"
-          type="search"
-          aria-label="标签筛选"
-          placeholder="tag"
-        />
-        <button type="submit">Filter</button>
-      </form>
-    </header>
+  <section class="route-page recommendation-page">
+    <PageToolbar title="推荐展示" context="预置演示用户池 · pop_similarity_trend · Top-12">
+      <template #actions>
+        <form class="recommendation-toolbar-search" @submit.prevent="applyFilters">
+          <input
+            v-model="searchTerm"
+            type="search"
+            aria-label="演示用户搜索"
+            placeholder="case_id / customer_id"
+          />
+          <button type="submit" class="toolbar-button">
+            <Search aria-hidden="true" />
+            筛选
+          </button>
+        </form>
+        <label class="compact-field recommendation-tag-field">
+          <span>标签</span>
+          <select v-model="tagFilter" @change="applyFilters">
+            <option value="">全部</option>
+            <option v-for="tag in availableTags" :key="tag" :value="tag">
+              {{ tag }}
+            </option>
+          </select>
+        </label>
+        <label class="compact-field recommendation-sort-field">
+          <span>排序</span>
+          <select v-model="sortMode" @change="updateQuery(selectedCaseId)">
+            <option value="hits">命中数优先</option>
+            <option value="case_id">case_id</option>
+          </select>
+        </label>
+        <button type="button" class="toolbar-button" @click="loadUsers">
+          <RefreshCw aria-hidden="true" />
+          刷新
+        </button>
+      </template>
+    </PageToolbar>
 
-    <div class="tag-row filter-tags" aria-label="推荐案例标签">
-      <button
-        type="button"
-        class="segment-button"
-        :class="{ active: tagFilter === '' }"
-        @click="selectTag('')"
-      >
-        全部
-      </button>
-      <button
-        v-for="tag in availableTags"
-        :key="tag"
-        type="button"
-        class="segment-button"
-        :class="{ active: tagFilter === tag }"
-        @click="selectTag(tag)"
-      >
-        {{ tag }}
-      </button>
-    </div>
-
-    <div class="skeleton-grid wide-left">
-      <article class="panel">
-        <header class="panel-heading">
-          <div>
-            <h2>演示用户</h2>
-            <p>sorted by hit count</p>
-          </div>
-          <span class="count-pill">{{ users.length }} cases</span>
-        </header>
+    <div class="recommendation-workspace">
+      <Panel title="演示用户池" :subtitle="userPoolSubtitle">
+        <template #actions>
+          <span class="count-pill">{{ sortedUsers.length }} 个案例</span>
+        </template>
         <DemoUserList
           :users="sortedUsers"
           :selected-case-id="selectedCaseId"
@@ -57,19 +49,31 @@
           :error="usersError"
           @select="selectUser"
         />
-      </article>
+      </Panel>
 
-      <article class="panel">
-        <header class="panel-heading">
+      <Panel title="Top-12 推荐结果" :subtitle="selectedCaseId ?? '暂无选中用户'">
+        <template #actions>
+          <span class="count-pill">{{ recommendations.length }} 件商品</span>
+        </template>
+        <div v-if="selectedUser" class="selected-user-summary">
           <div>
-            <h2>Top-12 推荐</h2>
-            <p>{{ selectedUser?.case_id ?? "select a demo user" }}</p>
+            <span>case_id</span>
+            <strong>{{ selectedUser.case_id }}</strong>
           </div>
-          <span class="count-pill">{{ recommendations.length }} items</span>
-        </header>
-        <div v-if="selectedUser" class="summary-text">
-          <strong>{{ selectedUser.profile_summary }}</strong>
-          <span>{{ selectedUser.recommendation_summary }}</span>
+          <div>
+            <span>customer</span>
+            <strong>{{ shortCustomerId(selectedUser.customer_id) }}</strong>
+          </div>
+          <div>
+            <span>hit_count</span>
+            <strong>{{ selectedUser.hit_count }}</strong>
+          </div>
+          <div>
+            <span>window</span>
+            <strong>W{{ selectedUser.cutoff_week }} -> W{{ selectedUser.label_week }}</strong>
+          </div>
+          <p>{{ selectedUser.profile_summary }}</p>
+          <p>{{ selectedUser.recommendation_summary }}</p>
         </div>
         <RecommendationGrid
           v-if="selectedCaseId"
@@ -78,47 +82,128 @@
           :loading="recommendationsLoading"
           :error="recommendationsError"
         />
-        <div v-else class="dense-state compact-state">
-          选择演示用户查看离线推荐结果
+        <StatusBlock
+          v-else
+          title="暂无选中用户"
+          message="从左侧演示用户池选择一个 case_id"
+          class="compact-state"
+        />
+      </Panel>
+    </div>
+
+    <div class="recommendation-evidence-grid">
+      <Panel title="推荐方法指标" subtitle="稳定推荐方法在 test split 上的核心指标">
+        <RecommendationMetricsStrip
+          :metrics="recommendationMetrics"
+          :loading="metricsLoading"
+          :error="metricsError"
+        />
+      </Panel>
+
+      <Panel title="推荐明细预览" subtitle="Top-12 前 5 行审计视图">
+        <StatusBlock
+          v-if="recommendationsLoading"
+          type="loading"
+          title="加载推荐明细..."
+          class="compact-state"
+        />
+        <StatusBlock
+          v-else-if="recommendations.length === 0"
+          title="暂无推荐明细"
+          class="compact-state"
+        />
+        <div v-else class="recommendation-preview-table">
+          <div class="recommendation-preview-row recommendation-preview-head">
+            <span>rank</span>
+            <span>article_id</span>
+            <span>score</span>
+            <span>is_hit</span>
+            <span>candidate_sources</span>
+            <span>core_attrs</span>
+            <span>操作</span>
+          </div>
+          <div
+            v-for="item in recommendationPreviewRows"
+            :key="`${item.rank}-${item.article_id}`"
+            class="recommendation-preview-row"
+          >
+            <strong>#{{ item.rank }}</strong>
+            <span>{{ item.article_id }}</span>
+            <span>{{ formatScore(item.score) }}</span>
+            <span :class="item.is_hit ? 'hit-marker' : 'miss-marker'">
+              {{ item.is_hit ? "命中" : "未命中" }}
+            </span>
+            <span>{{ item.candidate_sources }}</span>
+            <span>{{ coreAttrs(item) }}</span>
+            <RouterLink
+              :to="{
+                name: 'recommendation-explanation',
+                params: { caseId: selectedCaseId, articleId: item.article_id },
+              }"
+            >
+              推荐理由
+            </RouterLink>
+          </div>
         </div>
-      </article>
+      </Panel>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { RefreshCw, Search } from "lucide-vue-next";
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { getRecommendations, listDemoUsers } from "@/api/defenseApi";
+import {
+  getRecommendations,
+  listDemoUsers,
+  listRecommendationMetrics,
+} from "@/api/defenseApi";
+import PageToolbar from "@/components/layout/PageToolbar.vue";
 import DemoUserList from "@/components/recommendation/DemoUserList.vue";
 import RecommendationGrid from "@/components/recommendation/RecommendationGrid.vue";
-import type { DemoUserItem, RecommendationItem } from "@/types/api";
+import RecommendationMetricsStrip from "@/components/recommendation/RecommendationMetricsStrip.vue";
+import Panel from "@/components/ui/Panel.vue";
+import StatusBlock from "@/components/ui/StatusBlock.vue";
+import type { DemoUserItem, MetricItem, RecommendationItem } from "@/types/api";
 
 const route = useRoute();
 const router = useRouter();
 
 const searchTerm = ref(readQueryString(route.query.q));
 const tagFilter = ref(readQueryString(route.query.tag));
+const sortMode = ref(readSortMode(route.query.sort));
 const users = ref<DemoUserItem[]>([]);
 const recommendations = ref<RecommendationItem[]>([]);
+const recommendationMetrics = ref<MetricItem[]>([]);
 const selectedCaseId = ref(readQueryString(route.query.case_id) || null);
 const usersLoading = ref(false);
 const recommendationsLoading = ref(false);
+const metricsLoading = ref(false);
 const usersError = ref<string | null>(null);
 const recommendationsError = ref<string | null>(null);
+const metricsError = ref<string | null>(null);
 let usersRequestId = 0;
 let recommendationsRequestId = 0;
+let metricsRequestId = 0;
 
-const sortedUsers = computed(() =>
-  [...users.value].sort(
-    (left, right) => right.hit_count - left.hit_count || left.case_id.localeCompare(right.case_id),
-  ),
-);
+const sortedUsers = computed(() => {
+  const items = [...users.value];
+  if (sortMode.value === "case_id") {
+    return items.sort((left, right) => left.case_id.localeCompare(right.case_id));
+  }
+  return items.sort(
+    (left, right) =>
+      right.hit_count - left.hit_count || left.case_id.localeCompare(right.case_id),
+  );
+});
 
 const selectedUser = computed(
   () => users.value.find((user) => user.case_id === selectedCaseId.value) ?? null,
 );
+
+const recommendationPreviewRows = computed(() => recommendations.value.slice(0, 5));
 
 const availableTags = computed(() => {
   const tags = new Set<string>();
@@ -133,18 +218,20 @@ const availableTags = computed(() => {
   return [...tags].sort();
 });
 
+const userPoolSubtitle = computed(() => {
+  const tag = tagFilter.value || "全部";
+  const sort = sortMode.value === "case_id" ? "case_id" : "命中数优先";
+  return `筛选：${tag} · 排序：${sort}`;
+});
+
 onMounted(() => {
   void loadUsers();
+  void loadMetrics();
 });
 
 async function applyFilters() {
   updateQuery(null);
   await loadUsers();
-}
-
-async function selectTag(tag: string) {
-  tagFilter.value = tag;
-  await applyFilters();
 }
 
 async function loadUsers() {
@@ -167,7 +254,9 @@ async function loadUsers() {
     const currentExists = response.items.some(
       (user) => user.case_id === selectedCaseId.value,
     );
-    selectedCaseId.value = currentExists ? selectedCaseId.value : response.items[0]?.case_id ?? null;
+    selectedCaseId.value = currentExists
+      ? selectedCaseId.value
+      : response.items[0]?.case_id ?? null;
     updateQuery(selectedCaseId.value);
 
     if (selectedCaseId.value) {
@@ -184,6 +273,29 @@ async function loadUsers() {
   } finally {
     if (requestId === usersRequestId) {
       usersLoading.value = false;
+    }
+  }
+}
+
+async function loadMetrics() {
+  const requestId = ++metricsRequestId;
+  metricsLoading.value = true;
+  metricsError.value = null;
+  try {
+    const response = await listRecommendationMetrics("test");
+    if (requestId !== metricsRequestId) {
+      return;
+    }
+    recommendationMetrics.value = response.items;
+  } catch (error) {
+    if (requestId !== metricsRequestId) {
+      return;
+    }
+    metricsError.value = getErrorMessage(error);
+    recommendationMetrics.value = [];
+  } finally {
+    if (requestId === metricsRequestId) {
+      metricsLoading.value = false;
     }
   }
 }
@@ -224,6 +336,7 @@ function updateQuery(caseId: string | null) {
       ...route.query,
       q: searchTerm.value || undefined,
       tag: tagFilter.value || undefined,
+      sort: sortMode.value === "hits" ? undefined : sortMode.value,
       case_id: caseId ?? undefined,
     },
   });
@@ -244,8 +357,32 @@ function splitTags(value: string) {
     .filter(Boolean);
 }
 
+function coreAttrs(item: RecommendationItem) {
+  return [
+    item.article.product_type_name,
+    item.article.colour_group_name,
+    item.article.garment_group_name,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function shortCustomerId(customerId: string) {
+  return customerId.length > 16
+    ? `${customerId.slice(0, 8)}...${customerId.slice(-6)}`
+    : customerId;
+}
+
+function formatScore(value: number) {
+  return Number.isFinite(value) ? value.toFixed(3) : "--";
+}
+
 function readQueryString(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function readSortMode(value: unknown) {
+  return value === "case_id" ? "case_id" : "hits";
 }
 
 function getErrorMessage(error: unknown) {

@@ -1,12 +1,15 @@
 <template>
   <div class="app-shell">
-    <header class="topbar">
-      <RouterLink class="brand" to="/" aria-label="Fashion defense demo">
+    <aside class="app-sidebar" aria-label="答辩展示导航">
+      <RouterLink class="brand-block" to="/" aria-label="Fashion Trend Lab">
         <Grid3X3 class="brand-icon" aria-hidden="true" />
-        <span>Fashion Defense</span>
+        <span class="brand-copy">
+          <strong>Fashion Trend Lab</strong>
+          <span>Defense Demo</span>
+        </span>
       </RouterLink>
 
-      <nav class="topnav" aria-label="主导航">
+      <nav class="side-nav" aria-label="主导航">
         <RouterLink
           v-for="item in navItems"
           :key="item.to"
@@ -16,7 +19,7 @@
         >
           <a
             :href="href"
-            class="nav-link"
+            class="side-nav-link"
             :class="{ active: isActive }"
             @click="navigate"
           >
@@ -25,7 +28,23 @@
           </a>
         </RouterLink>
       </nav>
-    </header>
+
+      <section class="sidebar-status" aria-label="展示数据状态">
+        <h2>数据源</h2>
+        <div class="status-line">
+          <Database aria-hidden="true" />
+          <span>SQLite ready</span>
+        </div>
+        <div class="status-line">
+          <Activity aria-hidden="true" />
+          <span>LightGBM stable</span>
+        </div>
+        <div class="status-line">
+          <LockKeyhole aria-hidden="true" />
+          <span>pop_similarity_trend</span>
+        </div>
+      </section>
+    </aside>
 
     <main class="content-frame">
       <RouterView />
@@ -34,16 +53,31 @@
 </template>
 
 <script setup lang="ts">
-import { BarChart3, GitBranch, Grid3X3, Shirt, Users } from "lucide-vue-next";
+import {
+  Activity,
+  BarChart3,
+  Database,
+  GitBranch,
+  Grid3X3,
+  LockKeyhole,
+  MessageSquareQuote,
+  Shirt,
+  Users,
+} from "lucide-vue-next";
 
 const navItems = [
-  { to: "/", label: "Trends", icon: BarChart3 },
-  { to: "/graph/articles", label: "Graph", icon: GitBranch },
-  { to: "/recommendations", label: "Recommendations", icon: Users },
+  { to: "/", label: "趋势看板", icon: BarChart3 },
   {
     to: "/attributes/colour_group_name::Black",
-    label: "Attribute",
+    label: "属性详情",
     icon: Shirt,
+  },
+  { to: "/graph/articles", label: "属性图展示", icon: GitBranch },
+  { to: "/recommendations", label: "推荐展示", icon: Users },
+  {
+    to: "/recommendations/demo_test_102_103_03d54cbe4a45/0706016001",
+    label: "推荐理由",
+    icon: MessageSquareQuote,
   },
 ];
 </script>

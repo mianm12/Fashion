@@ -13,7 +13,10 @@ import type {
   MetricsSummaryResponse,
   RecommendationExplanationResponse,
   RecommendationListResponse,
+  TrendEvidenceResponse,
   TrendListResponse,
+  TrendSourceWeeksResponse,
+  TrendSummaryResponse,
   UserProfileResponse,
 } from "@/types/api";
 
@@ -25,9 +28,35 @@ export function listTrends(params?: {
   return apiGet<TrendListResponse>("/api/trends", { params });
 }
 
+export function listTrendSourceWeeks() {
+  return apiGet<TrendSourceWeeksResponse>("/api/trends/source-weeks");
+}
+
+export function getTrendSummary(params?: {
+  source_week?: number;
+  limit?: number;
+}) {
+  return apiGet<TrendSummaryResponse>("/api/trends/summary", { params });
+}
+
+export function getTrendEvidence(params?: {
+  source_week?: number;
+  limit?: number;
+}) {
+  return apiGet<TrendEvidenceResponse>("/api/trends/evidence", { params });
+}
+
+export function getTrendDetail(params?: {
+  source_week?: number;
+  attr_type?: string;
+  limit?: number;
+}) {
+  return apiGet<TrendListResponse>("/api/trends/detail", { params });
+}
+
 export function getAttribute(attrId: string, sourceWeek?: number) {
   return apiGet<AttributeDetailResponse>(
-    `/api/attributes/${encodeURIComponent(attrId)}`,
+    `/api/attributes/${encodeAttributePathParam(attrId)}`,
     {
       params: { source_week: sourceWeek },
     },
@@ -39,21 +68,21 @@ export function getAttributeHeatSeries(
   params?: { source_week?: number; weeks?: number },
 ) {
   return apiGet<HeatSeriesResponse>(
-    `/api/attributes/${encodeURIComponent(attrId)}/heat-series`,
+    `/api/attributes/${encodeAttributePathParam(attrId)}/heat-series`,
     { params },
   );
 }
 
 export function getAttributeArticles(attrId: string, limit?: number) {
   return apiGet<AttributeArticlesResponse>(
-    `/api/attributes/${encodeURIComponent(attrId)}/articles`,
+    `/api/attributes/${encodeAttributePathParam(attrId)}/articles`,
     { params: { limit } },
   );
 }
 
 export function getAttributeGraph(attrId: string) {
   return apiGet<AttributeGraphResponse>(
-    `/api/attributes/${encodeURIComponent(attrId)}/graph`,
+    `/api/attributes/${encodeAttributePathParam(attrId)}/graph`,
   );
 }
 
@@ -124,4 +153,8 @@ export function listRecommendationMetrics(split?: string) {
   return apiGet<MetricsListResponse>("/api/metrics/recommendation", {
     params: { split },
   });
+}
+
+function encodeAttributePathParam(attrId: string) {
+  return encodeURIComponent(encodeURIComponent(attrId));
 }

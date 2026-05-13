@@ -1,14 +1,23 @@
 <template>
   <div class="demo-user-list">
-    <div v-if="loading" class="dense-state compact-state">
-      加载演示用户...
-    </div>
-    <div v-else-if="error" class="dense-state error-state compact-state">
-      {{ error }}
-    </div>
-    <div v-else-if="users.length === 0" class="dense-state compact-state">
-      未找到匹配演示用户
-    </div>
+    <StatusBlock
+      v-if="loading"
+      type="loading"
+      title="加载演示用户..."
+      class="compact-state"
+    />
+    <StatusBlock
+      v-else-if="error"
+      type="error"
+      title="演示用户加载失败"
+      :message="error"
+      class="compact-state"
+    />
+    <StatusBlock
+      v-else-if="users.length === 0"
+      title="未找到匹配演示用户"
+      class="compact-state"
+    />
     <template v-else>
       <button
         v-for="user in users"
@@ -20,10 +29,14 @@
       >
         <span class="case-id">{{ user.case_id }}</span>
         <strong>{{ shortCustomerId(user.customer_id) }}</strong>
-        <span>{{ user.split }} W{{ user.cutoff_week }} -> W{{ user.label_week }}</span>
-        <span class="hit-count">{{ user.hit_count }} hits</span>
+        <span class="demo-window">{{ user.split }} · W{{ user.cutoff_week }} -> W{{ user.label_week }}</span>
+        <span class="hit-count">{{ user.hit_count }} hit</span>
         <span class="tag-row">
-          <span v-for="tag in tags(user.primary_tags)" :key="tag" class="tag-pill">
+          <span
+            v-for="tag in tags(user.primary_tags).slice(0, 3)"
+            :key="tag"
+            class="tag-pill"
+          >
             {{ tag }}
           </span>
         </span>
@@ -33,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusBlock from "@/components/ui/StatusBlock.vue";
 import type { DemoUserItem } from "@/types/api";
 
 defineProps<{

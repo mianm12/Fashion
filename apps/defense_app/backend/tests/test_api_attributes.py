@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi.testclient import TestClient
 
 
@@ -49,6 +51,16 @@ def test_get_attribute_articles_returns_related_articles(client: TestClient) -> 
     payload = response.json()
     assert payload["items"][0]["article_id"] == "0000000001"
     assert payload["items"][0]["prod_name"] == "Black Shirt"
+
+
+def test_get_attribute_supports_double_encoded_slash_id(client: TestClient) -> None:
+    attr_id = "index_group_name::Baby/Children"
+    encoded_attr_id = quote(quote(attr_id, safe=""), safe="")
+
+    response = client.get(f"/api/attributes/{encoded_attr_id}")
+
+    assert response.status_code == 200
+    assert response.json()["attr_id"] == attr_id
 
 
 def test_get_attribute_graph_returns_parent_and_child_edges(client: TestClient) -> None:

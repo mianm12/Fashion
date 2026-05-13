@@ -5,7 +5,7 @@
         <h2>{{ title }}</h2>
         <p>{{ attrType }}</p>
       </div>
-      <span class="count-pill">{{ items.length }} rows</span>
+      <span class="count-pill">{{ items.length }} 条</span>
     </header>
 
     <div v-if="loading" class="dense-state compact-state">
@@ -25,35 +25,57 @@
         <span class="rank-cell">#{{ item.rank }}</span>
         <RouterLink
           class="trend-attr-link"
-          :to="{ name: 'attribute-detail', params: { attrId: item.attr_id } }"
+          :to="{
+            name: 'attribute-detail',
+            params: { attrId: item.attr_id },
+            query: sourceWeek ? { source_week: sourceWeek } : {},
+          }"
         >
           <strong>{{ item.attr_value }}</strong>
           <span>{{ item.attr_id }}</span>
         </RouterLink>
-        <span class="trend-value">
-          {{ formatSignedPercent(item.pred_target_growth) }}
-        </span>
+        <div class="trend-strength">
+          <span class="trend-bar-track" aria-hidden="true">
+            <span
+              class="trend-bar-fill"
+              :style="{ width: strengthWidth(item.pred_target_growth) }"
+            />
+          </span>
+          <span class="trend-value">
+            {{ formatSignedPercent(item.pred_target_growth) }}
+          </span>
+        </div>
       </li>
     </ol>
   </article>
 </template>
 
 <script setup lang="ts">
-import type { TrendAttribute } from "@/types/api";
+import { computed } from "vue";
 
-defineProps<{
+import type { TrendAttribute } from "@/types/api";
+import { formatSignedPercent } from "@/utils/formatters";
+
+const props = defineProps<{
   title: string;
   attrType: string;
   items: TrendAttribute[];
+  sourceWeek?: number | null;
   loading?: boolean;
   error?: string | null;
 }>();
 
-function formatSignedPercent(value: number | null) {
+const maxGrowth = computed(() =>
+  Math.max(
+    ...props.items.map((item) => Math.abs(item.pred_target_growth ?? 0)),
+    0.01,
+  ),
+);
+
+function strengthWidth(value: number | null) {
   if (value === null || !Number.isFinite(value)) {
-    return "--";
+    return "0%";
   }
-  const formatted = `${(value * 100).toFixed(1)}%`;
-  return value > 0 ? `+${formatted}` : formatted;
+  return `${Math.max((Math.abs(value) / maxGrowth.value) * 100, 6).toFixed(1)}%`;
 }
 </script>
