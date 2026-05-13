@@ -42,6 +42,7 @@ SOURCE_COLUMNS = (
     "source",
     "source_rank",
 )
+GROUP_COLUMNS = ("split", "cutoff_week", "label_week", "customer_id", "article_id")
 CANDIDATE_INPUT_KEYS_BY_STRATEGY = {
     "popularity": ("weekly_transactions", "time_windows", "target_users"),
     "similarity": (
@@ -126,27 +127,11 @@ def build_candidate_items(
         ],
         kind="mergesort",
     )
-    grouped = sorted_sources.groupby(
-        ["split", "cutoff_week", "label_week", "customer_id", "article_id"],
-        sort=False,
-    )
+    result = _aggregate_candidate_sources(sorted_sources, strategy)
     if strategy == "enhanced_default":
-        result = grouped.agg(
-            candidate_sources=("source", _join_sources),
-            primary_source=("source", "first"),
-            best_source_rank=("source_rank", "min"),
-            has_reorder_source=("source", _has_reorder_source),
-        ).reset_index()
         result["allow_seen"] = result["has_reorder_source"]
-        result.insert(3, "strategy", strategy)
         return result.loc[:, list(ENHANCED_CANDIDATE_ITEM_COLUMNS)]
 
-    result = grouped.agg(
-        candidate_sources=("source", _join_sources),
-        primary_source=("source", "first"),
-        best_source_rank=("source_rank", "min"),
-    ).reset_index()
-    result.insert(3, "strategy", strategy)
     return result.loc[:, list(CANDIDATE_ITEM_COLUMNS)]
 
 
@@ -331,13 +316,62 @@ def _prepare_source_frame(source_frame: pd.DataFrame) -> pd.DataFrame:
     return prepared
 
 
-def _join_sources(values: pd.Series) -> str:
-    sources = sorted(set(values.astype(str)), key=SOURCE_ORDER.__getitem__)
-    return "|".join(sources)
+def _aggregate_candidate_sources(
+    sorted_sources: pd.DataFrame,
+    strategy: str,
+) -> pd.DataFrame:
+    first_rows = sorted_sources.drop_duplicates(list(GROUP_COLUMNS), keep="first")
+    result = first_rows.loc[:, list(GROUP_COLUMNS) + ["source", "source_rank"]].rename(
+        columns={"source": "primary_source", "source_rank": "best_source_rank"}
+    )
+    result.insert(3, "strategy", strategy)
+
+    source_flags = _source_presence_flags(sorted_sources)
+    result = result.merge(
+        source_flags,
+        on=list(GROUP_COLUMNS),
+        how="left",
+        validate="one_to_one",
+    )
+    flag_columns = [_source_flag_column(source) for source in SOURCE_ORDER]
+    for column in flag_columns:
+        result[column] = result[column].fillna(False).astype(bool)
+    result["candidate_sources"] = _compose_candidate_sources(result)
+    if strategy == "enhanced_default":
+        result["has_reorder_source"] = result[_source_flag_column("reorder")]
+    return result
 
 
-def _has_reorder_source(values: pd.Series) -> bool:
-    return "reorder" in set(values.astype(str))
+def _source_presence_flags(sorted_sources: pd.DataFrame) -> pd.DataFrame:
+    presence = sorted_sources.loc[:, list(GROUP_COLUMNS) + ["source"]].drop_duplicates()
+    presence["_present"] = True
+    flags = presence.pivot(
+        index=list(GROUP_COLUMNS),
+        columns="source",
+        values="_present",
+    ).reset_index()
+    flags.columns.name = None
+    for source in SOURCE_ORDER:
+        if source not in flags.columns:
+            flags[source] = False
+    return flags.loc[:, list(GROUP_COLUMNS) + list(SOURCE_ORDER)].rename(
+        columns={source: _source_flag_column(source) for source in SOURCE_ORDER}
+    )
+
+
+def _compose_candidate_sources(flag_frame: pd.DataFrame) -> pd.Series:
+    candidate_sources = pd.Series("", index=flag_frame.index, dtype=object)
+    for source in SOURCE_ORDER:
+        present = flag_frame[_source_flag_column(source)]
+        prefix = candidate_sources.where(
+            candidate_sources.eq(""), candidate_sources + "|"
+        )
+        candidate_sources = candidate_sources.mask(present, prefix + source)
+    return candidate_sources
+
+
+def _source_flag_column(source: str) -> str:
+    return f"_has_source_{source}"
 
 
 def _require_enhanced_inputs(
