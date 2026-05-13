@@ -18,6 +18,9 @@ from fashion_trend.recommendation.contracts import (
 from fashion_trend.recommendation.experiments import enhanced_runner
 from fashion_trend.recommendation.experiments import runner as experiment_runner
 from fashion_trend.recommendation.experiments.ablation import build_ablation_summary
+from fashion_trend.recommendation.experiments.enhanced_diagnostics import (
+    filter_candidate_sources_for_ablation,
+)
 from fashion_trend.recommendation.experiments.enhanced_grid_search import (
     iter_enhanced_weight_grid,
     select_best_enhanced_weights,
@@ -317,6 +320,22 @@ def test_recommendation_enhanced_payload_records_valid_test_metrics(
     )
     monkeypatch.setattr(
         enhanced_runner,
+        "build_enhanced_source_level_ablation_rows",
+        lambda **kwargs: [
+            {
+                "variant_id": "full_model",
+                "display_name": "Full Model",
+                "source_filter": {},
+                "weights": {},
+                "metrics": {},
+                "candidate_rows": 1,
+                "lineage": {},
+            }
+        ],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
         "experiment_dir",
         lambda experiment_id: tmp_path / "experiments" / experiment_id,
     )
@@ -339,6 +358,7 @@ def test_recommendation_enhanced_payload_records_valid_test_metrics(
     assert payload["tie_break"] == "ndcg_at_12"
     assert "valid" in payload["metrics"]["enhanced_pop_similarity_trend"]
     assert "test" in payload["metrics"]["enhanced_pop_similarity_trend"]
+    assert payload["named_ablation"][0]["display_name"] == "Full Model"
     assert payload["experiment_path"] == str(
         tmp_path / "experiments" / "recommendation_enhanced" / "experiment.json"
     )
@@ -415,6 +435,12 @@ def test_recommendation_enhanced_does_not_publish_pop_similarity_trend_stable(
         "evaluate_enhanced_weights_by_split",
         lambda **kwargs: {"valid": {}, "test": {}},
     )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "build_enhanced_source_level_ablation_rows",
+        lambda **kwargs: [],
+        raising=False,
+    )
     monkeypatch.setattr(enhanced_runner, "write_json_atomic", lambda *args: None)
 
     payload = enhanced_runner.run_recommendation_enhanced_experiment(
@@ -429,6 +455,318 @@ def test_recommendation_enhanced_does_not_publish_pop_similarity_trend_stable(
         "valid": {},
         "test": {},
     }
+
+
+def test_source_level_ablation_recomputes_source_fields_after_filter() -> None:
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "u1",
+                "article_id": "a1",
+                "candidate_sources": "trend|reorder|age_popularity",
+                "primary_source": "trend",
+                "best_source_rank": 1,
+                "has_reorder_source": True,
+                "allow_seen": True,
+                "source_rank_score": 999.0,
+                "source_count_score": 999.0,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "u1",
+                "article_id": "a2",
+                "candidate_sources": "trend",
+                "primary_source": "trend",
+                "best_source_rank": 1,
+                "has_reorder_source": False,
+                "allow_seen": False,
+                "source_rank_score": 999.0,
+                "source_count_score": 999.0,
+            },
+        ]
+    )
+
+    filtered = filter_candidate_sources_for_ablation(
+        candidates,
+        dropped_sources={"trend"},
+        strategy="enhanced_default",
+    )
+
+    assert filtered["article_id"].tolist() == ["a1"]
+    assert filtered.loc[0, "candidate_sources"] == "reorder|age_popularity"
+    assert filtered.loc[0, "primary_source"] == "reorder"
+    assert filtered.loc[0, "has_reorder_source"] is True
+    assert filtered.loc[0, "allow_seen"] is True
+    assert filtered.loc[0, "source_rank_score"] != 999.0
+    assert filtered.loc[0, "source_count_score"] != 999.0
+
+
+def test_enhanced_seen_filtered_filters_all_seen_items() -> None:
+    from fashion_trend.recommendation.features.cache import build_candidate_seen_flags
+    from fashion_trend.recommendation.ranking.filters import (
+        filter_seen_items_by_source_policy,
+    )
+
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "u1",
+                "article_id": "a1",
+                "candidate_sources": "reorder",
+                "primary_source": "reorder",
+                "best_source_rank": 1,
+                "has_reorder_source": True,
+                "allow_seen": True,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "u1",
+                "article_id": "a2",
+                "candidate_sources": "trend",
+                "primary_source": "trend",
+                "best_source_rank": 2,
+                "has_reorder_source": False,
+                "allow_seen": False,
+            },
+        ]
+    )
+    transactions = pd.DataFrame(
+        [
+            {"customer_id": "u1", "article_id": "a1", "week_id": 10},
+            {"customer_id": "u1", "article_id": "a2", "week_id": 9},
+        ]
+    )
+
+    ablated = filter_candidate_sources_for_ablation(
+        candidates,
+        dropped_sources=set(),
+        strategy="enhanced_default",
+        allow_all_seen=True,
+    )
+    seen_flags = build_candidate_seen_flags(ablated, transactions)
+    merged = ablated.merge(
+        seen_flags.loc[
+            :,
+            [
+                "split",
+                "cutoff_week",
+                "label_week",
+                "strategy",
+                "customer_id",
+                "article_id",
+                "is_seen",
+            ],
+        ],
+        on=[
+            "split",
+            "cutoff_week",
+            "label_week",
+            "strategy",
+            "customer_id",
+            "article_id",
+        ],
+        how="left",
+    )
+    merged["is_seen"] = merged["is_seen"].fillna(False).astype(bool)
+
+    assert ablated["allow_seen"].tolist() == [False, False]
+    assert filter_seen_items_by_source_policy(merged).empty
+
+
+def test_enhanced_payload_contains_required_ablation_rows(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    inputs = RecommendationInputArtifacts(
+        time_windows=pd.DataFrame(
+            [{"split": "valid", "cutoff_week": 10, "label_week": 11}]
+        ),
+        target_users=pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "cutoff_week": 10,
+                    "label_week": 11,
+                    "customer_id": "u1",
+                }
+            ]
+        ),
+        evaluation_labels=pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "cutoff_week": 10,
+                    "label_week": 11,
+                    "customer_id": "u1",
+                    "article_id": "a1",
+                }
+            ]
+        ),
+        user_profile=pd.DataFrame(),
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "u1",
+                "article_id": "a1",
+                "candidate_sources": "trend|reorder",
+                "primary_source": "trend",
+                "best_source_rank": 1,
+                "has_reorder_source": True,
+                "allow_seen": True,
+            }
+        ]
+    )
+    required_rows = [
+        "Full Model",
+        "enhanced_w/o Trend Score",
+        "enhanced_w/o Trend Source+Score",
+        "enhanced_w/o Reorder/Variant",
+        "enhanced_w/o Customer Segment",
+        "enhanced_seen_filtered",
+    ]
+
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_recommendation_inputs",
+        lambda context, force=False: inputs,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_candidate_items",
+        lambda strategy, context, inputs, force=False: candidates,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_feature_cache_for_strategy",
+        lambda strategy, context, inputs, candidates, force=False: None,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "enhanced_feature_cache_partitions_exist",
+        lambda candidates: True,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_comparison_methods",
+        lambda context, inputs, force=False: [],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_enhanced_weight_grid_on_valid",
+        lambda weight_grid, context, inputs, candidates, force=False: [
+            {
+                "grid_index": 0,
+                "weights": dict(weight_grid[0]),
+                "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.30},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_enhanced_weights_by_split",
+        lambda **kwargs: {"valid": {"map_at_12": 0.20}},
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_enhanced_ablation_by_split",
+        lambda **kwargs: {"valid": {"map_at_12": 0.10}},
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "experiment_dir",
+        lambda experiment_id: tmp_path / "experiments" / experiment_id,
+    )
+    monkeypatch.setattr(enhanced_runner, "write_json_atomic", lambda *args: None)
+
+    payload = enhanced_runner.run_recommendation_enhanced_experiment(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        )
+    )
+
+    rows = payload["named_ablation"]
+    by_name = {row["display_name"]: row for row in rows}
+    assert set(by_name) == set(required_rows)
+    assert all(
+        {"source_filter", "weights", "metrics", "candidate_rows", "lineage"} <= set(row)
+        for row in rows
+    )
+    assert by_name["enhanced_w/o Trend Score"]["source_filter"]["dropped_sources"] == []
+    assert by_name["enhanced_w/o Trend Score"]["weights"]["trend_score"] == 0.0
+    assert by_name["enhanced_w/o Trend Source+Score"]["source_filter"][
+        "dropped_sources"
+    ] == ["trend"]
+    assert by_name["enhanced_w/o Reorder/Variant"]["source_filter"][
+        "dropped_sources"
+    ] == ["product_variant", "reorder"]
+    assert by_name["enhanced_w/o Customer Segment"]["source_filter"][
+        "dropped_sources"
+    ] == ["age_popularity"]
+    assert by_name["enhanced_seen_filtered"]["source_filter"]["allow_all_seen"] is True
+    assert "candidate_recall_pre_seen" in payload
+    assert "candidate_recall_post_seen" in payload
+    assert "source_hit_contribution_pre_seen" in payload
+    assert "source_hit_contribution_post_seen" in payload
+    assert "avg_candidates_per_user" in payload
+    assert "source_coverage" in payload
+
+
+def test_source_level_ablation_does_not_write_enhanced_default_artifact(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    artifact_path = tmp_path / "candidate_items.parquet"
+    artifact_path.write_text("existing artifact", encoding="utf-8")
+    monkeypatch.setattr(
+        "fashion_trend.recommendation.retrieval.candidates.candidate_items_path",
+        lambda strategy: artifact_path,
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "u1",
+                "article_id": "a1",
+                "candidate_sources": "trend|reorder",
+                "primary_source": "trend",
+                "best_source_rank": 1,
+                "has_reorder_source": True,
+                "allow_seen": True,
+            }
+        ]
+    )
+
+    filter_candidate_sources_for_ablation(
+        candidates,
+        dropped_sources={"trend"},
+        strategy="enhanced_default",
+    )
+
+    assert artifact_path.read_text(encoding="utf-8") == "existing artifact"
 
 
 def test_enhanced_candidate_build_receives_customer_and_product_artifacts(

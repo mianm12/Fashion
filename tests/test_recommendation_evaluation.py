@@ -12,6 +12,10 @@ from fashion_trend.recommendation.evaluation.metrics import (
     parse_prediction_items,
 )
 from fashion_trend.recommendation.experiments import runner as experiment_runner
+from fashion_trend.recommendation.experiments.enhanced_diagnostics import (
+    compute_candidate_recall,
+    compute_source_hit_contribution,
+)
 from fashion_trend.recommendation.experiments.runner import (
     RecommendationExperimentContext,
     evaluate_result_for_experiment,
@@ -317,6 +321,153 @@ def test_coverage_ignores_recommendations_outside_recommendable_pool() -> None:
     )
 
     assert metrics["valid"]["coverage"] == 1.0
+
+
+def test_candidate_recall_counts_full_target_user_labels_pre_and_post_seen() -> None:
+    target_users = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u2",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u3",
+            },
+        ]
+    )
+    labels = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "a1",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "a2",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u2",
+                "article_id": "b1",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u3",
+                "article_id": "c1",
+            },
+        ]
+    )
+    pre_seen_candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "a1",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u2",
+                "article_id": "b1",
+            },
+        ]
+    )
+    post_seen_candidates = pre_seen_candidates.iloc[[0]].copy()
+
+    pre_seen = compute_candidate_recall(
+        pre_seen_candidates,
+        target_users,
+        labels,
+        split="valid",
+    )
+    post_seen = compute_candidate_recall(
+        post_seen_candidates,
+        target_users,
+        labels,
+        split="valid",
+    )
+
+    assert pre_seen["target_user_count"] == 3.0
+    assert pre_seen["label_item_count"] == 4.0
+    assert pre_seen["hit_label_item_count"] == 2.0
+    assert pre_seen["candidate_recall"] == pytest.approx(0.5)
+    assert post_seen["hit_label_item_count"] == 1.0
+    assert post_seen["candidate_recall"] == pytest.approx(0.25)
+
+
+def test_source_hit_contribution_uses_fractional_all_source_credit() -> None:
+    labels = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "a1",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "a2",
+            },
+        ]
+    )
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "a1",
+                "candidate_sources": "reorder|trend",
+                "primary_source": "reorder",
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": "a2",
+                "candidate_sources": "trend",
+                "primary_source": "trend",
+            },
+        ]
+    )
+
+    contribution = compute_source_hit_contribution(candidates, labels, split="valid")
+
+    assert contribution["hit_label_item_count"] == 2
+    assert contribution["source_credit"] == pytest.approx(
+        {"reorder": 0.5, "trend": 1.5}
+    )
+    assert contribution["primary_source_hit_count"] == {"reorder": 1, "trend": 1}
 
 
 def test_parse_prediction_items_rejects_duplicate_or_too_many_articles() -> None:

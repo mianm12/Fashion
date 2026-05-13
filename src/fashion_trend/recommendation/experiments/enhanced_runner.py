@@ -7,8 +7,16 @@ from typing import Any
 import pandas as pd
 
 from fashion_trend.foundation.io import write_json_atomic
-from fashion_trend.recommendation.contracts import RECOMMENDATION_TOP_K
+from fashion_trend.recommendation.contracts import (
+    ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
+    RECOMMENDATION_TOP_K,
+)
 from fashion_trend.recommendation.evaluation.metrics import evaluate_recommendations
+from fashion_trend.recommendation.experiments.enhanced_diagnostics import (
+    build_candidate_diagnostics_payload,
+    filter_candidate_sources_for_ablation,
+    filter_seen_candidates_for_diagnostics,
+)
 from fashion_trend.recommendation.experiments.enhanced_grid_search import (
     iter_enhanced_weight_grid,
     select_best_enhanced_weights,
@@ -24,8 +32,15 @@ from fashion_trend.recommendation.experiments.runner import (
     generate_experiment_run_id,
 )
 from fashion_trend.recommendation.inputs import RecommendationInputArtifacts
+from fashion_trend.recommendation.outputs import (
+    build_recommendations_csv,
+    format_recommendation_items,
+)
 from fashion_trend.recommendation.paths import experiment_dir, method_output_paths
+from fashion_trend.recommendation.ranking.features import build_ranking_features
+from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.readers import read_recommendations
+from fashion_trend.recommendation.registry import get_recommendation_method
 
 ENHANCED_EXPERIMENT_ID = "recommendation_enhanced"
 ENHANCED_METHOD = "enhanced_pop_similarity_trend"
@@ -93,12 +108,32 @@ def run_recommendation_enhanced_experiment(
         candidates=candidates,
         force=force_cache or force_rebuild_all,
     )
+    post_seen_candidates = filter_seen_candidates_for_diagnostics(
+        candidates,
+        context.transactions,
+    )
+    diagnostics = build_candidate_diagnostics_payload(
+        candidates=candidates,
+        post_seen_candidates=post_seen_candidates,
+        target_users=inputs.target_users,
+        labels=inputs.evaluation_labels,
+    )
+    named_ablation = build_enhanced_source_level_ablation_rows(
+        best_weights=best_weights,
+        full_model_metrics=enhanced_metrics,
+        context=context,
+        inputs=inputs,
+        candidates=candidates,
+        force=force_cache or force_rebuild_all,
+    )
 
     payload = build_enhanced_experiment_payload(
         comparison_payloads=comparison_payloads,
         search_results=search_results,
         best_weights=best_weights,
         enhanced_metrics=enhanced_metrics,
+        diagnostics=diagnostics,
+        named_ablation=named_ablation,
         force={
             "force_experiment": force_experiment,
             "force_methods": list(force_methods),
@@ -235,6 +270,8 @@ def build_enhanced_experiment_payload(
     search_results: list[dict[str, Any]],
     best_weights: dict[str, float],
     enhanced_metrics: dict[str, dict[str, float]],
+    diagnostics: dict[str, object] | None = None,
+    named_ablation: list[dict[str, Any]] | None = None,
     force: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     metrics = {
@@ -254,8 +291,232 @@ def build_enhanced_experiment_payload(
         "search_results": search_results,
         "comparison_methods": list(COMPARISON_METHODS),
         "metrics": metrics,
+        **dict(diagnostics or {}),
+        "named_ablation": list(named_ablation or []),
         "force": dict(force or {}),
     }
+
+
+def build_enhanced_source_level_ablation_rows(
+    *,
+    best_weights: dict[str, float],
+    full_model_metrics: dict[str, dict[str, float]],
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    variants = [
+        {
+            "variant_id": "full_model",
+            "display_name": "Full Model",
+            "dropped_sources": set(),
+            "dropped_weights": set(),
+            "allow_all_seen": False,
+            "metrics": full_model_metrics,
+        },
+        {
+            "variant_id": "without_trend_score",
+            "display_name": "enhanced_w/o Trend Score",
+            "dropped_sources": set(),
+            "dropped_weights": {"trend_score"},
+            "allow_all_seen": False,
+        },
+        {
+            "variant_id": "without_trend_source_score",
+            "display_name": "enhanced_w/o Trend Source+Score",
+            "dropped_sources": {"trend"},
+            "dropped_weights": {"trend_score"},
+            "allow_all_seen": False,
+        },
+        {
+            "variant_id": "without_reorder_variant",
+            "display_name": "enhanced_w/o Reorder/Variant",
+            "dropped_sources": {"reorder", "product_variant"},
+            "dropped_weights": {"reorder_score", "variant_score"},
+            "allow_all_seen": False,
+        },
+        {
+            "variant_id": "without_customer_segment",
+            "display_name": "enhanced_w/o Customer Segment",
+            "dropped_sources": {"age_popularity"},
+            "dropped_weights": {"age_pop_score"},
+            "allow_all_seen": False,
+        },
+        {
+            "variant_id": "enhanced_seen_filtered",
+            "display_name": "enhanced_seen_filtered",
+            "dropped_sources": set(),
+            "dropped_weights": set(),
+            "allow_all_seen": True,
+        },
+    ]
+
+    rows: list[dict[str, Any]] = []
+    for variant in variants:
+        dropped_sources = set(variant["dropped_sources"])
+        dropped_weights = set(variant["dropped_weights"])
+        allow_all_seen = bool(variant["allow_all_seen"])
+        weights = _drop_and_renormalize_enhanced_weights(
+            best_weights,
+            dropped_weights,
+        )
+        if dropped_sources or allow_all_seen:
+            variant_candidates = filter_candidate_sources_for_ablation(
+                candidates,
+                dropped_sources=dropped_sources,
+                strategy=ENHANCED_STRATEGY,
+                allow_all_seen=allow_all_seen,
+            )
+        else:
+            variant_candidates = candidates
+
+        metrics = dict(variant.get("metrics") or {})
+        if not metrics:
+            metrics = evaluate_enhanced_ablation_by_split(
+                weights=weights,
+                context=context,
+                inputs=inputs,
+                candidates=variant_candidates,
+                force=force,
+            )
+        rows.append(
+            {
+                "variant_id": str(variant["variant_id"]),
+                "display_name": str(variant["display_name"]),
+                "method": ENHANCED_METHOD,
+                "base_method": ENHANCED_METHOD,
+                "candidate_strategy": ENHANCED_STRATEGY,
+                "source_filter": {
+                    "dropped_sources": sorted(dropped_sources),
+                    "allow_all_seen": allow_all_seen,
+                },
+                "weight_policy": (
+                    "drop_and_renormalize" if dropped_weights else "unchanged"
+                ),
+                "weights": weights,
+                "metrics": metrics,
+                "candidate_rows": int(len(variant_candidates)),
+                "lineage": {
+                    "base_candidate_strategy": ENHANCED_STRATEGY,
+                    "evaluation_mode": "in_memory",
+                    "writes_candidate_artifact": False,
+                },
+            }
+        )
+    return rows
+
+
+def evaluate_enhanced_ablation_by_split(
+    *,
+    weights: dict[str, float],
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+    force: bool = False,
+) -> dict[str, dict[str, float]]:
+    recommendable_pool = ensure_or_build_recommendable_pool_cache(
+        context,
+        inputs,
+        force=force,
+    )
+    metrics_by_split: dict[str, dict[str, float]] = {}
+    for split in ("valid", "test"):
+        recommendations = _build_uncached_enhanced_recommendations(
+            weights=weights,
+            split=split,
+            context=context,
+            inputs=inputs,
+            candidates=candidates,
+        )
+        metrics = evaluate_recommendations(
+            recommendations,
+            _filter_split(inputs.target_users, split),
+            _filter_split(inputs.evaluation_labels, split),
+            _filter_split(recommendable_pool, split),
+            top_k=RECOMMENDATION_TOP_K,
+            strict_missing_users=False,
+        )
+        metrics_by_split[split] = dict(metrics[split])
+    return metrics_by_split
+
+
+def _build_uncached_enhanced_recommendations(
+    *,
+    weights: dict[str, float],
+    split: str,
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+) -> pd.DataFrame:
+    method = get_recommendation_method(ENHANCED_METHOD)
+    windows = _filter_split(inputs.time_windows, split)
+    split_candidates = _filter_split(candidates, split)
+    split_user_profile = _filter_split(inputs.user_profile, split)
+    recommendation_chunks: list[pd.DataFrame] = []
+
+    for window in windows.loc[:, ["split", "cutoff_week", "label_week"]].to_dict(
+        "records"
+    ):
+        window_candidates = _frame_for_window(split_candidates, window)
+        if window_candidates.empty:
+            continue
+        feature_frame = build_ranking_features(
+            window_candidates,
+            context.transactions,
+            context.article_attributes,
+            _frame_for_window(split_user_profile, window),
+            context.trend_predictions,
+            customer_profile=inputs.customer_profile,
+            article_product_map=inputs.article_product_map,
+        )
+        feature_frame["method"] = ENHANCED_METHOD
+        feature_frame = filter_seen_candidates_for_diagnostics(
+            feature_frame,
+            context.transactions,
+        )
+        ranked = rank_candidate_items(
+            feature_frame,
+            weights=weights,
+            top_k=RECOMMENDATION_TOP_K,
+            required_features=method.required_features,
+        )
+        recommendation_items = format_recommendation_items(ranked)
+        recommendation_chunks.append(
+            build_recommendations_csv(recommendation_items, RECOMMENDATION_TOP_K)
+        )
+
+    if not recommendation_chunks:
+        return pd.DataFrame(
+            columns=[
+                "customer_id",
+                "split",
+                "cutoff_week",
+                "label_week",
+                "method",
+                "prediction",
+            ]
+        )
+    return pd.concat(recommendation_chunks, ignore_index=True)
+
+
+def _drop_and_renormalize_enhanced_weights(
+    weights: dict[str, float],
+    dropped_weights: set[str],
+) -> dict[str, float]:
+    unknown = sorted(dropped_weights - set(ENHANCED_RECOMMENDATION_SCORE_COLUMNS))
+    if unknown:
+        raise ValueError(f"unknown enhanced ablation weights: {unknown}")
+    selected = {
+        feature: float(weights.get(feature, 0.0))
+        for feature in ENHANCED_RECOMMENDATION_SCORE_COLUMNS
+    }
+    for feature in dropped_weights:
+        selected[feature] = 0.0
+    remaining = sum(selected.values())
+    if remaining <= 0.0:
+        raise ValueError("enhanced ablation weights cannot be normalized")
+    return {feature: value / remaining for feature, value in selected.items()}
 
 
 def _evaluate_one_enhanced_weight_run_on_valid(
@@ -310,6 +571,20 @@ def _recommendable_pool_for_split(
 
 def _filter_split(dataframe: pd.DataFrame, split: str) -> pd.DataFrame:
     return dataframe.loc[dataframe["split"].astype(str) == split].reset_index(drop=True)
+
+
+def _frame_for_window(
+    dataframe: pd.DataFrame,
+    window: dict[str, object],
+) -> pd.DataFrame:
+    if dataframe.empty:
+        return dataframe.copy()
+    mask = (
+        (dataframe["split"] == window["split"])
+        & (dataframe["cutoff_week"] == window["cutoff_week"])
+        & (dataframe["label_week"] == window["label_week"])
+    )
+    return dataframe.loc[mask].copy()
 
 
 def _validate_enhanced_force_methods(force_methods: Sequence[str]) -> None:
