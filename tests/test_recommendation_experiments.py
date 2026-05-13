@@ -568,6 +568,11 @@ def test_force_candidates_rebuilds_candidates_cache_and_methods(monkeypatch) -> 
     )
     monkeypatch.setattr(
         experiment_runner,
+        "prepare_weight_variant_windows",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        experiment_runner,
         "select_trend_bucket_representatives",
         lambda search_results: [],
     )
@@ -680,6 +685,11 @@ def test_experiment_records_missing_candidate_and_cache_as_rebuilt(
         experiment_runner,
         "evaluate_weight_variant_by_split",
         lambda **kwargs: _minimal_split_metrics(0.5),
+    )
+    monkeypatch.setattr(
+        experiment_runner,
+        "prepare_weight_variant_windows",
+        lambda *args, **kwargs: [],
     )
     monkeypatch.setattr(
         experiment_runner,

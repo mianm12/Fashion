@@ -50,6 +50,10 @@ from fashion_trend.recommendation.methods.base import (
     RecommendationContext,
     RecommendationResult,
 )
+from fashion_trend.recommendation.outputs import (
+    build_recommendations_csv,
+    format_recommendation_items,
+)
 from fashion_trend.recommendation.paths import (
     EVALUATION_LABELS_PATH,
     FEATURE_CACHE_METADATA_PATH,
@@ -64,6 +68,8 @@ from fashion_trend.recommendation.paths import (
     method_output_paths,
 )
 from fashion_trend.recommendation.perf import StageTimer
+from fashion_trend.recommendation.ranking.backfill import append_backfill_items
+from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.readers import (
     read_candidate_items,
     read_evaluation_labels,
@@ -78,8 +84,10 @@ from fashion_trend.recommendation.retrieval.candidates import (
     candidate_input_paths_for_strategy,
 )
 from fashion_trend.recommendation.runner import (
+    build_cached_feature_frame_for_window,
     build_cached_recommendation_result_for_window,
     feature_artifact_paths_for_method_window,
+    filter_cached_seen_items,
     method_input_paths_for_artifacts,
     run_recommendation_method_by_window,
 )
@@ -106,6 +114,14 @@ class RecommendationExperimentContext:
 class RebuildDecision:
     rebuild: bool
     reason: str
+
+
+@dataclass(frozen=True)
+class _PreparedRecommendationWindow:
+    window: dict[str, object]
+    target_users: pd.DataFrame
+    candidates: pd.DataFrame
+    feature_frame: pd.DataFrame
 
 
 def should_rebuild_method(
@@ -581,6 +597,130 @@ def build_recommendation_result_in_memory(
     )
 
 
+def prepare_weight_variant_windows(
+    method_name: str,
+    split_filter: str,
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+) -> list[_PreparedRecommendationWindow]:
+    method = get_recommendation_method(method_name)
+    strategy = method.default_candidate_strategy
+    if strategy is None:
+        raise ValueError(f"{method_name} requires a candidate strategy")
+    windows = _filter_split(inputs.time_windows, split_filter)
+    target_users = _filter_split(inputs.target_users, split_filter)
+    filtered_candidates = _filter_split(candidates, split_filter)
+    input_paths = _method_input_paths(method_name, _experiment_input_paths(context))
+
+    prepared: list[_PreparedRecommendationWindow] = []
+    for window in windows.loc[:, ["split", "cutoff_week", "label_week"]].to_dict(
+        "records"
+    ):
+        window_candidates = _frame_for_window(filtered_candidates, window)
+        feature_candidates = window_candidates
+        if not window_candidates.empty:
+            feature_candidates, _seen_partition, _seen_metadata = (
+                filter_cached_seen_items(
+                    window_candidates,
+                    strategy=str(strategy),
+                    window=window,
+                    input_paths=input_paths,
+                )
+            )
+        feature_frame, _score_artifacts = build_cached_feature_frame_for_window(
+            method_name=method_name,
+            strategy=str(strategy),
+            window=window,
+            candidates=feature_candidates,
+            required_features=method.required_features,
+            input_paths=input_paths,
+        )
+        prepared.append(
+            _PreparedRecommendationWindow(
+                window=window,
+                target_users=_frame_for_window(target_users, window),
+                candidates=window_candidates,
+                feature_frame=feature_frame,
+            )
+        )
+    return prepared
+
+
+def build_recommendation_result_from_prepared_windows(
+    *,
+    method_name: str,
+    weights: dict[str, float],
+    prepared_windows: list[_PreparedRecommendationWindow],
+    context: RecommendationExperimentContext,
+    inputs: RecommendationInputArtifacts,
+    candidates: pd.DataFrame,
+) -> RecommendationResult:
+    method = get_recommendation_method(method_name)
+    input_paths = _method_input_paths(method_name, _experiment_input_paths(context))
+    recommendation_chunks: list[pd.DataFrame] = []
+    item_chunks: list[pd.DataFrame] = []
+    for prepared in prepared_windows:
+        window_context = RecommendationContext(
+            method=method_name,
+            top_k=RECOMMENDATION_TOP_K,
+            exclude_seen=True,
+            transactions=context.transactions,
+            article_attributes=context.article_attributes,
+            windows=pd.DataFrame(
+                [prepared.window],
+                columns=["split", "cutoff_week", "label_week"],
+            ),
+            target_users=prepared.target_users,
+            candidates=prepared.candidates,
+            user_profile=pd.DataFrame(),
+            trend_predictions=context.trend_predictions,
+            weights=weights,
+            input_paths=input_paths,
+            trend_model_source=context.trend_model_source,
+        )
+        ranked = rank_candidate_items(
+            prepared.feature_frame,
+            weights=weights,
+            top_k=RECOMMENDATION_TOP_K,
+            required_features=method.required_features,
+        )
+        ranked = append_backfill_items(
+            window_context,
+            prepared.candidates,
+            ranked,
+            weights,
+            "recent",
+        )
+        recommendation_items = format_recommendation_items(ranked)
+        recommendation_chunks.append(
+            build_recommendations_csv(recommendation_items, RECOMMENDATION_TOP_K)
+        )
+        item_chunks.append(recommendation_items)
+
+    recommendations = _concat_chunks(recommendation_chunks)
+    recommendation_items = _concat_chunks(item_chunks)
+    return RecommendationResult(
+        recommendations=recommendations,
+        recommendation_items=recommendation_items,
+        params={
+            "method": method_name,
+            "method_type": method.method_type,
+            "top_k": RECOMMENDATION_TOP_K,
+            "exclude_seen": True,
+            "weights": dict(weights),
+            "candidate_strategy": method.default_candidate_strategy,
+            "score_features": list(method.required_features),
+        },
+        metadata={
+            "method": method_name,
+            "candidate_rows": int(len(candidates)),
+            "recommendation_rows": int(len(recommendations)),
+            "recommendation_item_rows": int(len(recommendation_items)),
+        },
+    )
+
+
 def publish_trend_method_with_weights(
     weights: dict[str, float],
     context: RecommendationExperimentContext,
@@ -711,6 +851,9 @@ def evaluate_weight_variant_by_split(
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
     force: bool = False,
+    prepared_windows_by_split: (
+        dict[str, list[_PreparedRecommendationWindow]] | None
+    ) = None,
 ) -> dict[str, dict[str, float]]:
     metrics_by_split: dict[str, dict[str, float]] = {}
     recommendable_pool = ensure_or_build_recommendable_pool_cache(
@@ -719,14 +862,24 @@ def evaluate_weight_variant_by_split(
         force=force,
     )
     for split in ("valid", "test"):
-        result = build_recommendation_result_in_memory(
-            method_name=TREND_METHOD,
-            weights=weights,
-            split_filter=split,
-            context=context,
-            inputs=inputs,
-            candidates=candidates,
-        )
+        if prepared_windows_by_split is None:
+            result = build_recommendation_result_in_memory(
+                method_name=TREND_METHOD,
+                weights=weights,
+                split_filter=split,
+                context=context,
+                inputs=inputs,
+                candidates=candidates,
+            )
+        else:
+            result = build_recommendation_result_from_prepared_windows(
+                method_name=TREND_METHOD,
+                weights=weights,
+                prepared_windows=prepared_windows_by_split[split],
+                context=context,
+                inputs=inputs,
+                candidates=candidates,
+            )
         metrics = evaluate_recommendations(
             result.recommendations,
             _filter_split(inputs.target_users, split),
@@ -951,6 +1104,16 @@ def run_recommendation_experiment(
         stage_status=stage_status,
         timings=timings,
     )
+    prepared_windows_by_split = {
+        split: prepare_weight_variant_windows(
+            TREND_METHOD,
+            split,
+            context,
+            inputs,
+            default_candidates,
+        )
+        for split in ("valid", "test")
+    }
     strict_metrics = {
         variant_id: evaluate_weight_variant_by_split(
             weights=derive_strict_ablation_weights(best_weights, dropped_feature),
@@ -958,6 +1121,7 @@ def run_recommendation_experiment(
             inputs=inputs,
             candidates=default_candidates,
             force=force_cache or force_rebuild_all,
+            prepared_windows_by_split=prepared_windows_by_split,
         )
         for variant_id, _display_name, dropped_feature in STRICT_VARIANTS
     }
@@ -975,6 +1139,7 @@ def run_recommendation_experiment(
             inputs=inputs,
             candidates=default_candidates,
             force=force_cache or force_rebuild_all,
+            prepared_windows_by_split=prepared_windows_by_split,
         )
         trend_bucket_best_by_valid.append({**row, "metrics": metrics})
     payload = build_experiment_payload(
