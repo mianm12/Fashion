@@ -2109,3 +2109,137 @@ def test_build_ablation_summary_flattens_and_sorts_by_split_then_method() -> Non
         {"method": "recent_popularity", "split": "test", "map_at_12": 0.2},
         {"method": "global_popularity", "split": "valid", "map_at_12": 0.1},
     ]
+
+
+def test_drop_and_renormalize_weights_derive_from_best_weights() -> None:
+    from fashion_trend.recommendation.experiments.ablation import (
+        derive_strict_ablation_weights,
+    )
+
+    best_weights = {
+        "pop_score": 0.2,
+        "sim_score": 0.2,
+        "trend_score": 0.1,
+        "recent_score": 0.5,
+    }
+
+    without_trend = derive_strict_ablation_weights(best_weights, "trend_score")
+    assert without_trend == pytest.approx(
+        {
+            "pop_score": 2 / 9,
+            "sim_score": 2 / 9,
+            "trend_score": 0.0,
+            "recent_score": 5 / 9,
+        }
+    )
+
+    without_similarity = derive_strict_ablation_weights(best_weights, "sim_score")
+    assert without_similarity == pytest.approx(
+        {
+            "pop_score": 0.25,
+            "sim_score": 0.0,
+            "trend_score": 0.125,
+            "recent_score": 0.625,
+        }
+    )
+
+    without_recent = derive_strict_ablation_weights(best_weights, "recent_score")
+    assert without_recent == pytest.approx(
+        {
+            "pop_score": 0.4,
+            "sim_score": 0.4,
+            "trend_score": 0.2,
+            "recent_score": 0.0,
+        }
+    )
+
+
+def test_drop_and_renormalize_rejects_invalid_weights() -> None:
+    from fashion_trend.recommendation.experiments.ablation import (
+        derive_strict_ablation_weights,
+    )
+
+    with pytest.raises(ValueError, match="best_weights"):
+        derive_strict_ablation_weights(
+            {"pop_score": 0.0, "trend_score": 0.0},
+            "trend_score",
+        )
+
+    with pytest.raises(ValueError, match="unknown_score"):
+        derive_strict_ablation_weights({"pop_score": 1.0}, "unknown_score")
+
+
+def test_build_named_ablation_rows_keeps_audit_fields_and_selection_split() -> None:
+    from fashion_trend.recommendation.experiments.ablation import (
+        build_named_ablation_rows,
+    )
+
+    best_weights = {
+        "pop_score": 0.2,
+        "sim_score": 0.2,
+        "trend_score": 0.1,
+        "recent_score": 0.5,
+    }
+    rows = build_named_ablation_rows(
+        best_weights=best_weights,
+        strict_metrics={
+            "without_trend_in_rec": {
+                "valid": {"ndcg_at_12": 0.1},
+                "test": {"ndcg_at_12": 0.2},
+            },
+            "without_similarity": {
+                "valid": {"ndcg_at_12": 0.3},
+                "test": {"ndcg_at_12": 0.4},
+            },
+            "without_recent": {
+                "valid": {"ndcg_at_12": 0.5},
+                "test": {"ndcg_at_12": 0.6},
+            },
+        },
+        full_model_metrics={
+            "valid": {"ndcg_at_12": 0.7},
+            "test": {"ndcg_at_12": 0.8},
+        },
+        stable_baseline_metrics={
+            "recent_only_baseline": {
+                "method": "recent_popularity",
+                "display_name": "Recent Only",
+                "metrics": {
+                    "valid": {"ndcg_at_12": 0.9},
+                    "test": {"ndcg_at_12": 1.0},
+                },
+            },
+            "pop_similarity_baseline": {
+                "method": "pop_similarity",
+                "display_name": "Pop + Similarity baseline",
+                "metrics": {
+                    "valid": {"ndcg_at_12": 1.1},
+                    "test": {"ndcg_at_12": 1.2},
+                },
+            },
+        },
+    )
+
+    by_id = {row["variant_id"]: row for row in rows}
+    assert tuple(by_id) == (
+        "full_model",
+        "without_trend_in_rec",
+        "without_similarity",
+        "without_recent",
+        "recent_only_baseline",
+        "pop_similarity_baseline",
+    )
+    assert by_id["without_trend_in_rec"]["selection_split"] == "valid"
+    assert by_id["without_trend_in_rec"]["weight_policy"] == (
+        "strict_drop_and_renormalize_from_full"
+    )
+    assert by_id["without_trend_in_rec"]["weights"] == pytest.approx(
+        {
+            "pop_score": 2 / 9,
+            "sim_score": 2 / 9,
+            "trend_score": 0.0,
+            "recent_score": 5 / 9,
+        }
+    )
+    assert by_id["recent_only_baseline"]["selection_split"] == "not_applicable"
+    assert by_id["recent_only_baseline"]["weight_policy"] == "stable_method_baseline"
