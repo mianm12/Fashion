@@ -336,25 +336,24 @@ def add_source_rank_score(
 ) -> pd.DataFrame:
     result = _with_string_ids(candidates)
     raw_column = "_source_rank_raw"
-    if "candidate_sources" not in result.columns:
+    if (
+        "candidate_sources" not in result.columns
+        or "best_source_rank" not in result.columns
+    ):
         return _with_zero_normalized_score(result, raw_column, "source_rank_score")
 
-    scores = _source_rank_score_frame(
-        result,
-        transactions,
-        article_attributes,
-        user_profile,
-        trend_predictions,
-        customer_profile,
-        article_product_map,
-        raw_column=raw_column,
+    source_sets = _candidate_source_sets(result)
+    source_rank_cap = max(
+        (
+            _source_rank_cap(source)
+            for sources in source_sets
+            for source in sources
+            if source in SOURCE_RANK_CAP_BY_SOURCE
+        ),
+        default=1,
     )
-    return _merge_and_normalize_score(
-        result,
-        scores,
-        raw_column=raw_column,
-        output_column="source_rank_score",
-    )
+    result[raw_column] = _rank_norm(result["best_source_rank"], source_rank_cap)
+    return _normalize_score_column(result, raw_column, "source_rank_score")
 
 
 def add_source_count_score(candidates: pd.DataFrame) -> pd.DataFrame:

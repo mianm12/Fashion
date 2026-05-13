@@ -303,7 +303,7 @@ def test_enhanced_scores_fill_missing_sources_with_zero() -> None:
     ].tolist() == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
-def test_source_rank_score_uses_filtered_candidate_sources() -> None:
+def test_source_rank_score_uses_materialized_best_source_rank() -> None:
     candidates = pd.DataFrame(
         [
             _enhanced_candidate("0000000004", "age_popularity", 1),
@@ -320,7 +320,7 @@ def test_source_rank_score_uses_filtered_candidate_sources() -> None:
         customer_profile=_enhanced_customer_profile(),
     )
 
-    assert scores.loc[1, "source_rank_score"] > scores.loc[0, "source_rank_score"]
+    assert scores.loc[0, "source_rank_score"] > scores.loc[1, "source_rank_score"]
     assert scores.loc[0, "best_source_rank"] < scores.loc[1, "best_source_rank"]
 
 
