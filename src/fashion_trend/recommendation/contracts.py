@@ -28,6 +28,7 @@ RECOMMENDATION_CANDIDATE_STRATEGIES = (
     "similarity",
     "trend_union",
     "default",
+    "enhanced_default",
 )
 SOURCE_ORDER = {
     "popularity": 0,
@@ -106,6 +107,33 @@ CANDIDATE_ITEM_COLUMNS = (
     "primary_source",
     "best_source_rank",
 )
+ENHANCED_CANDIDATE_ITEM_COLUMNS = (
+    *CANDIDATE_ITEM_COLUMNS,
+    "has_reorder_source",
+    "allow_seen",
+)
+ENHANCED_CANDIDATE_SOURCE_CAPS = {
+    "popularity": {"top_n": RECOMMENDATION_CANDIDATES_PER_SOURCE},
+    "similarity": {"top_n": RECOMMENDATION_CANDIDATES_PER_SOURCE},
+    "trend": {"top_n": RECOMMENDATION_CANDIDATES_PER_SOURCE},
+    "reorder": {"top_n": RECOMMENDATION_CANDIDATES_PER_SOURCE},
+    "product_variant": {
+        "seed_top_n": 6,
+        "per_seed_top_n": 3,
+        "top_n": RECOMMENDATION_CANDIDATES_PER_SOURCE,
+    },
+    "age_popularity": {
+        "pool_top_n": 50,
+        "per_user_top_n": RECOMMENDATION_CANDIDATES_PER_SOURCE,
+        "recent_weeks": 4,
+    },
+    "preference_popularity": {
+        "top_attributes": RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
+        "per_attribute_top_n": 4,
+        "per_user_top_n": RECOMMENDATION_CANDIDATES_PER_SOURCE,
+        "recent_weeks": 4,
+    },
+}
 RECOMMENDATIONS_COLUMNS = (
     "customer_id",
     "split",

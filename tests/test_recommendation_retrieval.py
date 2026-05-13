@@ -99,6 +99,239 @@ def test_default_candidates_merge_sources_with_best_rank() -> None:
     ]
 
 
+def test_enhanced_default_candidates_merge_all_sources_with_stable_source_order(
+    monkeypatch,
+) -> None:
+    source_ranks = {
+        "popularity": 5,
+        "similarity": 4,
+        "trend": 3,
+        "reorder": 2,
+        "product_variant": 1,
+        "age_popularity": 1,
+        "preference_popularity": 7,
+    }
+
+    monkeypatch.setattr(
+        candidate_module,
+        "build_recent_popularity_candidates",
+        lambda *args, **kwargs: _source_frame("popularity", source_ranks),
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "build_attribute_similarity_candidates",
+        lambda *args, **kwargs: _source_frame("similarity", source_ranks),
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "build_trend_candidates",
+        lambda *args, **kwargs: _source_frame("trend", source_ranks),
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "build_reorder_candidates",
+        lambda *args, **kwargs: _source_frame("reorder", source_ranks),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "build_product_variant_candidates",
+        lambda *args, **kwargs: _source_frame("product_variant", source_ranks),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "build_age_popularity_candidates",
+        lambda *args, **kwargs: _source_frame("age_popularity", source_ranks),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        candidate_module,
+        "build_preference_popularity_candidates",
+        lambda *args, **kwargs: _source_frame("preference_popularity", source_ranks),
+        raising=False,
+    )
+
+    source_frames = build_source_frames_for_frames(
+        strategy="enhanced_default",
+        transactions=pd.DataFrame(),
+        article_attributes=pd.DataFrame(),
+        trend_predictions=pd.DataFrame(),
+        windows=sample_window(),
+        target_users=sample_targets(),
+        user_profile=pd.DataFrame(),
+        customer_profile=pd.DataFrame(),
+        article_product_map=pd.DataFrame(),
+    )
+    candidates = build_candidate_items("enhanced_default", source_frames)
+
+    assert candidates.to_dict("records") == [
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "strategy": "enhanced_default",
+            "customer_id": "u1",
+            "article_id": "0000000001",
+            "candidate_sources": (
+                "popularity|similarity|trend|reorder|product_variant|"
+                "age_popularity|preference_popularity"
+            ),
+            "primary_source": "product_variant",
+            "best_source_rank": 1,
+            "has_reorder_source": True,
+            "allow_seen": True,
+        }
+    ]
+
+
+def test_enhanced_default_candidates_keep_reorder_allow_seen_after_dedup() -> None:
+    popularity = _source_frame("popularity", {"popularity": 1})
+    reorder = _source_frame("reorder", {"reorder": 3})
+    trend = _source_frame("trend", {"trend": 2}, article_id="0000000002")
+
+    candidates = build_candidate_items(
+        strategy="enhanced_default",
+        source_frames=[popularity, reorder, trend],
+    )
+
+    assert candidates.to_dict("records") == [
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "strategy": "enhanced_default",
+            "customer_id": "u1",
+            "article_id": "0000000001",
+            "candidate_sources": "popularity|reorder",
+            "primary_source": "popularity",
+            "best_source_rank": 1,
+            "has_reorder_source": True,
+            "allow_seen": True,
+        },
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "strategy": "enhanced_default",
+            "customer_id": "u1",
+            "article_id": "0000000002",
+            "candidate_sources": "trend",
+            "primary_source": "trend",
+            "best_source_rank": 2,
+            "has_reorder_source": False,
+            "allow_seen": False,
+        },
+    ]
+
+
+def test_enhanced_candidate_metadata_records_source_caps_and_seen_policy(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    candidate_path = tmp_path / "candidate_items.parquet"
+    monkeypatch.setattr(
+        candidate_module,
+        "candidate_items_path",
+        lambda strategy: candidate_path,
+    )
+    input_paths = {
+        "weekly_transactions": str(tmp_path / "weekly_transactions.parquet"),
+        "article_attributes": str(tmp_path / "article_attributes.csv"),
+        "trend_predictions": str(tmp_path / "trend_predictions.csv"),
+        "time_windows": str(tmp_path / "time_windows.parquet"),
+        "target_users": str(tmp_path / "target_users.parquet"),
+        "user_profile": str(tmp_path / "user_profile.parquet"),
+        "customer_profile": str(tmp_path / "customer_profile.parquet"),
+        "article_product_map": str(tmp_path / "article_product_map.parquet"),
+    }
+
+    output_path = build_and_write_candidate_items(
+        strategy="enhanced_default",
+        transactions=pd.DataFrame(
+            [
+                {"customer_id": "u1", "article_id": "0000000001", "week_id": 10},
+                {"customer_id": "buyer", "article_id": "0000000002", "week_id": 10},
+                {"customer_id": "buyer", "article_id": "0000000003", "week_id": 10},
+            ]
+        ),
+        article_attributes=pd.DataFrame(
+            [
+                {
+                    "article_id": "0000000001",
+                    "attr_type": "product_type_name",
+                    "attr_value": "dress",
+                },
+                {
+                    "article_id": "0000000002",
+                    "attr_type": "product_type_name",
+                    "attr_value": "dress",
+                },
+                {
+                    "article_id": "0000000003",
+                    "attr_type": "product_type_name",
+                    "attr_value": "dress",
+                },
+            ]
+        ),
+        trend_predictions=pd.DataFrame(
+            [
+                {
+                    "split": "valid",
+                    "week_id": 10,
+                    "attr_type": "product_type_name",
+                    "attr_value": "dress",
+                    "pred_target_growth": 1.0,
+                }
+            ]
+        ),
+        windows=sample_window(),
+        target_users=sample_targets(),
+        user_profile=pd.DataFrame(
+            [_profile_row("u1", "product_type_name", "dress", 1)]
+        ),
+        customer_profile=pd.DataFrame(
+            [
+                {"customer_id": "u1", "age_bucket": "20-29"},
+                {"customer_id": "buyer", "age_bucket": "20-29"},
+            ]
+        ),
+        article_product_map=pd.DataFrame(
+            [
+                {"article_id": "0000000001", "product_code": "p1"},
+                {"article_id": "0000000003", "product_code": "p1"},
+            ]
+        ),
+        input_paths=input_paths,
+    )
+    metadata = json.loads(
+        output_path.with_name("metadata.json").read_text(encoding="utf-8")
+    )
+
+    assert set(metadata["input_artifacts"]) == set(input_paths)
+    assert metadata["config"]["seen_policy"] == "source_level_reorder_only"
+    assert metadata["config"]["include_seen_for_reorder"] is True
+    assert metadata["config"]["source_order"] == candidate_module.SOURCE_ORDER
+    assert metadata["config"]["source_caps"] == {
+        "popularity": {"top_n": 12},
+        "similarity": {"top_n": 12},
+        "trend": {"top_n": 12},
+        "reorder": {"top_n": 12},
+        "product_variant": {"seed_top_n": 6, "per_seed_top_n": 3, "top_n": 12},
+        "age_popularity": {
+            "pool_top_n": 50,
+            "per_user_top_n": 12,
+            "recent_weeks": 4,
+        },
+        "preference_popularity": {
+            "top_attributes": 3,
+            "per_attribute_top_n": 4,
+            "per_user_top_n": 12,
+            "recent_weeks": 4,
+        },
+    }
+
+
 def test_trend_union_requires_predictions() -> None:
     with pytest.raises(FileNotFoundError):
         build_candidate_items(strategy="trend_union", source_frames=[])
@@ -973,3 +1206,24 @@ def _profile_row(
         "purchase_count": 1,
         "last_purchase_week": 10,
     }
+
+
+def _source_frame(
+    source: str,
+    source_ranks: dict[str, int],
+    *,
+    article_id: str = "0000000001",
+) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "customer_id": "u1",
+                "article_id": article_id,
+                "source": source,
+                "source_rank": source_ranks[source],
+            }
+        ]
+    )

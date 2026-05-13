@@ -7,6 +7,8 @@ import pandas as pd
 from fashion_trend.foundation.io import write_json_atomic, write_parquet_atomic
 from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
+    ENHANCED_CANDIDATE_ITEM_COLUMNS,
+    ENHANCED_CANDIDATE_SOURCE_CAPS,
     RECOMMENDATION_CANDIDATE_STRATEGIES,
     RECOMMENDATION_CANDIDATES_PER_SOURCE,
     SOURCE_ORDER,
@@ -16,9 +18,19 @@ from fashion_trend.recommendation.paths import candidate_items_path
 from fashion_trend.recommendation.retrieval.attributes import (
     build_attribute_similarity_candidates,
 )
+from fashion_trend.recommendation.retrieval.customer_segments import (
+    build_age_popularity_candidates,
+)
 from fashion_trend.recommendation.retrieval.popularity import (
     build_recent_popularity_candidates,
 )
+from fashion_trend.recommendation.retrieval.preference_popularity import (
+    build_preference_popularity_candidates,
+)
+from fashion_trend.recommendation.retrieval.product_variants import (
+    build_product_variant_candidates,
+)
+from fashion_trend.recommendation.retrieval.reorder import build_reorder_candidates
 from fashion_trend.recommendation.retrieval.trend import build_trend_candidates
 
 SOURCE_COLUMNS = (
@@ -52,6 +64,16 @@ CANDIDATE_INPUT_KEYS_BY_STRATEGY = {
         "target_users",
         "user_profile",
     ),
+    "enhanced_default": (
+        "weekly_transactions",
+        "article_attributes",
+        "trend_predictions",
+        "time_windows",
+        "target_users",
+        "user_profile",
+        "customer_profile",
+        "article_product_map",
+    ),
 }
 
 
@@ -83,7 +105,12 @@ def build_candidate_items(
     if strategy == "trend_union" and not non_empty_frames:
         raise FileNotFoundError("trend_union strategy requires trend source candidates")
     if not non_empty_frames:
-        return pd.DataFrame(columns=CANDIDATE_ITEM_COLUMNS)
+        columns = (
+            ENHANCED_CANDIDATE_ITEM_COLUMNS
+            if strategy == "enhanced_default"
+            else CANDIDATE_ITEM_COLUMNS
+        )
+        return pd.DataFrame(columns=columns)
 
     sources = pd.concat(non_empty_frames, ignore_index=True)
     sources = _prepare_source_frame(sources)
@@ -103,6 +130,17 @@ def build_candidate_items(
         ["split", "cutoff_week", "label_week", "customer_id", "article_id"],
         sort=False,
     )
+    if strategy == "enhanced_default":
+        result = grouped.agg(
+            candidate_sources=("source", _join_sources),
+            primary_source=("source", "first"),
+            best_source_rank=("source_rank", "min"),
+            has_reorder_source=("source", _has_reorder_source),
+        ).reset_index()
+        result["allow_seen"] = result["has_reorder_source"]
+        result.insert(3, "strategy", strategy)
+        return result.loc[:, list(ENHANCED_CANDIDATE_ITEM_COLUMNS)]
+
     result = grouped.agg(
         candidate_sources=("source", _join_sources),
         primary_source=("source", "first"),
@@ -120,19 +158,30 @@ def build_source_frames_for_frames(
     windows: pd.DataFrame,
     target_users: pd.DataFrame,
     user_profile: pd.DataFrame | None,
+    customer_profile: pd.DataFrame | None = None,
+    article_product_map: pd.DataFrame | None = None,
 ) -> list[pd.DataFrame]:
     validate_candidate_strategy(strategy)
+    if strategy == "enhanced_default":
+        _require_enhanced_inputs(
+            article_attributes=article_attributes,
+            trend_predictions=trend_predictions,
+            user_profile=user_profile,
+            customer_profile=customer_profile,
+            article_product_map=article_product_map,
+        )
+
     frames: list[pd.DataFrame] = []
-    if strategy in {"popularity", "default"}:
+    if strategy in {"popularity", "default", "enhanced_default"}:
         frames.append(
             build_recent_popularity_candidates(
                 transactions,
                 windows,
                 target_users,
-                top_n=RECOMMENDATION_CANDIDATES_PER_SOURCE,
+                top_n=_source_cap("popularity", "top_n"),
             )
         )
-    if strategy in {"similarity", "default"}:
+    if strategy in {"similarity", "default", "enhanced_default"}:
         if user_profile is None or article_attributes is None:
             raise FileNotFoundError(
                 "similarity strategy requires user profile and article attributes"
@@ -143,10 +192,10 @@ def build_source_frames_for_frames(
                 article_attributes,
                 windows,
                 target_users,
-                top_n=RECOMMENDATION_CANDIDATES_PER_SOURCE,
+                top_n=_source_cap("similarity", "top_n"),
             )
         )
-    if strategy in {"trend_union", "default"}:
+    if strategy in {"trend_union", "default", "enhanced_default"}:
         if trend_predictions is None or article_attributes is None:
             raise FileNotFoundError(
                 "trend strategy requires trend predictions and article attributes"
@@ -157,7 +206,56 @@ def build_source_frames_for_frames(
                 article_attributes,
                 windows,
                 target_users,
-                top_n=RECOMMENDATION_CANDIDATES_PER_SOURCE,
+                top_n=_source_cap("trend", "top_n"),
+            )
+        )
+    if strategy == "enhanced_default":
+        reorder_candidates = build_reorder_candidates(
+            transactions,
+            windows,
+            target_users,
+            top_n=_source_cap("reorder", "top_n"),
+        )
+        frames.append(reorder_candidates)
+        frames.append(
+            build_product_variant_candidates(
+                reorder_candidates,
+                transactions,
+                article_product_map,
+                windows,
+                seed_top_n=_source_cap("product_variant", "seed_top_n"),
+                per_seed_top_n=_source_cap("product_variant", "per_seed_top_n"),
+                top_n=_source_cap("product_variant", "top_n"),
+            )
+        )
+        frames.append(
+            build_age_popularity_candidates(
+                transactions,
+                customer_profile,
+                windows,
+                target_users,
+                pool_top_n=_source_cap("age_popularity", "pool_top_n"),
+                per_user_top_n=_source_cap("age_popularity", "per_user_top_n"),
+                recent_weeks=_source_cap("age_popularity", "recent_weeks"),
+            )
+        )
+        frames.append(
+            build_preference_popularity_candidates(
+                transactions,
+                article_attributes,
+                user_profile,
+                windows,
+                target_users,
+                top_attributes=_source_cap("preference_popularity", "top_attributes"),
+                per_attribute_top_n=_source_cap(
+                    "preference_popularity",
+                    "per_attribute_top_n",
+                ),
+                per_user_top_n=_source_cap(
+                    "preference_popularity",
+                    "per_user_top_n",
+                ),
+                recent_weeks=_source_cap("preference_popularity", "recent_weeks"),
             )
         )
     return frames
@@ -172,6 +270,8 @@ def build_and_write_candidate_items(
     target_users: pd.DataFrame,
     user_profile: pd.DataFrame | None,
     input_paths: dict[str, str] | None = None,
+    customer_profile: pd.DataFrame | None = None,
+    article_product_map: pd.DataFrame | None = None,
 ) -> Path:
     candidate_input_paths = candidate_input_paths_for_strategy(strategy, input_paths)
     source_frames = build_source_frames_for_frames(
@@ -182,6 +282,8 @@ def build_and_write_candidate_items(
         windows=windows,
         target_users=target_users,
         user_profile=user_profile,
+        customer_profile=customer_profile,
+        article_product_map=article_product_map,
     )
     candidates = build_candidate_items(strategy, source_frames)
     output_path = candidate_items_path(strategy)
@@ -198,6 +300,7 @@ def build_and_write_candidate_items(
                 config={
                     "strategy": strategy,
                     "candidates_per_source": RECOMMENDATION_CANDIDATES_PER_SOURCE,
+                    **_enhanced_config(strategy),
                 },
                 row_counts={"candidate_rows": candidate_rows},
             ),
@@ -231,3 +334,48 @@ def _prepare_source_frame(source_frame: pd.DataFrame) -> pd.DataFrame:
 def _join_sources(values: pd.Series) -> str:
     sources = sorted(set(values.astype(str)), key=SOURCE_ORDER.__getitem__)
     return "|".join(sources)
+
+
+def _has_reorder_source(values: pd.Series) -> bool:
+    return "reorder" in set(values.astype(str))
+
+
+def _require_enhanced_inputs(
+    *,
+    article_attributes: pd.DataFrame | None,
+    trend_predictions: pd.DataFrame | None,
+    user_profile: pd.DataFrame | None,
+    customer_profile: pd.DataFrame | None,
+    article_product_map: pd.DataFrame | None,
+) -> None:
+    missing = []
+    if article_attributes is None:
+        missing.append("article_attributes")
+    if trend_predictions is None:
+        missing.append("trend_predictions")
+    if user_profile is None:
+        missing.append("user_profile")
+    if customer_profile is None:
+        missing.append("customer_profile")
+    if article_product_map is None:
+        missing.append("article_product_map")
+    if missing:
+        raise FileNotFoundError(
+            "enhanced_default strategy requires input artifacts: "
+            f"{', '.join(missing)}"
+        )
+
+
+def _source_cap(source: str, key: str) -> int:
+    return int(ENHANCED_CANDIDATE_SOURCE_CAPS[source][key])
+
+
+def _enhanced_config(strategy: str) -> dict[str, object]:
+    if strategy != "enhanced_default":
+        return {}
+    return {
+        "source_caps": ENHANCED_CANDIDATE_SOURCE_CAPS,
+        "seen_policy": "source_level_reorder_only",
+        "include_seen_for_reorder": True,
+        "source_order": SOURCE_ORDER,
+    }

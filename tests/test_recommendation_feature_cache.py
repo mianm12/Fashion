@@ -19,6 +19,7 @@ from fashion_trend.recommendation.paths import (
     FEATURE_CACHE_METADATA_PATH,
     feature_cache_partition_path,
 )
+from fashion_trend.recommendation.ranking import filters as filter_module
 
 
 def test_feature_cache_partition_path_is_strategy_window_scoped() -> None:
@@ -121,6 +122,129 @@ def test_candidate_seen_flags_deduplicates_candidate_keys() -> None:
             "article_id": "0000000001",
             "seen": True,
         }
+    ]
+
+
+def test_source_level_seen_filter_keeps_seen_reorder_and_filters_other_seen_sources() -> (
+    None
+):
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "1",
+                "article_id": "0000000001",
+                "is_seen": True,
+                "allow_seen": False,
+                "has_reorder_source": False,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "1",
+                "article_id": "0000000002",
+                "is_seen": True,
+                "allow_seen": True,
+                "has_reorder_source": True,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "1",
+                "article_id": "0000000003",
+                "is_seen": False,
+                "allow_seen": False,
+                "has_reorder_source": False,
+            },
+        ]
+    )
+
+    assert hasattr(filter_module, "filter_seen_items_by_source_policy")
+
+    result = filter_module.filter_seen_items_by_source_policy(candidates)
+
+    assert result["article_id"].tolist() == ["0000000002", "0000000003"]
+
+
+def test_candidate_seen_flags_include_is_seen_allow_seen_and_has_reorder_source() -> (
+    None
+):
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "1",
+                "article_id": "0000000001",
+                "allow_seen": True,
+                "has_reorder_source": True,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "1",
+                "article_id": "0000000002",
+                "allow_seen": False,
+                "has_reorder_source": False,
+            },
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": "1",
+                "article_id": "0000000003",
+                "allow_seen": False,
+                "has_reorder_source": False,
+            },
+        ]
+    )
+    transactions = pd.DataFrame(
+        {
+            "customer_id": ["1", "1"],
+            "article_id": ["0000000001", "0000000002"],
+            "week_id": [10, 9],
+        }
+    )
+
+    result = build_candidate_seen_flags(candidates, transactions)
+
+    assert result.to_dict("records") == [
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "strategy": "enhanced_default",
+            "customer_id": "1",
+            "article_id": "0000000001",
+            "seen": True,
+            "is_seen": True,
+            "allow_seen": True,
+            "has_reorder_source": True,
+        },
+        {
+            "split": "valid",
+            "cutoff_week": 10,
+            "label_week": 11,
+            "strategy": "enhanced_default",
+            "customer_id": "1",
+            "article_id": "0000000002",
+            "seen": True,
+            "is_seen": True,
+            "allow_seen": False,
+            "has_reorder_source": False,
+        },
     ]
 
 

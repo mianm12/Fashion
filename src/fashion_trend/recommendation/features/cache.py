@@ -34,6 +34,12 @@ CANDIDATE_KEY_COLUMNS = [
     "article_id",
 ]
 SEEN_FLAG_COLUMNS = [*CANDIDATE_KEY_COLUMNS, "seen"]
+ENHANCED_SEEN_FLAG_COLUMNS = [
+    *SEEN_FLAG_COLUMNS,
+    "is_seen",
+    "allow_seen",
+    "has_reorder_source",
+]
 ARTICLE_SCORE_FEATURES = {
     "popularity_scores": "pop_score",
     "recent_scores": "recent_score",
@@ -86,14 +92,24 @@ def build_candidate_seen_flags(
 ) -> pd.DataFrame:
     """Return only candidate pairs seen by cutoff week, never full history."""
     _require_columns(candidates, CANDIDATE_KEY_COLUMNS, "candidates")
+    seen_flag_columns = _seen_flag_columns(candidates)
+    if _requires_source_seen_policy(candidates):
+        _require_columns(
+            candidates,
+            ("allow_seen", "has_reorder_source"),
+            "enhanced candidates",
+        )
     _require_columns(
         transactions, ("customer_id", "article_id", "week_id"), "transactions"
     )
 
     if candidates.empty or transactions.empty:
-        return pd.DataFrame(columns=SEEN_FLAG_COLUMNS)
+        return pd.DataFrame(columns=seen_flag_columns)
 
-    candidate_frame = _with_string_ids(candidates.loc[:, CANDIDATE_KEY_COLUMNS])
+    candidate_columns = list(CANDIDATE_KEY_COLUMNS)
+    if _requires_source_seen_policy(candidates):
+        candidate_columns.extend(["allow_seen", "has_reorder_source"])
+    candidate_frame = _with_string_ids(candidates.loc[:, candidate_columns])
     candidate_frame["_candidate_order"] = range(len(candidate_frame))
     transaction_frame = _with_string_ids(transactions)
     transaction_frame["week_id"] = pd.to_numeric(
@@ -120,14 +136,16 @@ def build_candidate_seen_flags(
             how="inner",
         )
         if not matched.empty:
+            if _requires_source_seen_policy(candidates):
+                matched["is_seen"] = matched["seen"]
             frames.append(matched)
 
     if not frames:
-        return pd.DataFrame(columns=SEEN_FLAG_COLUMNS)
+        return pd.DataFrame(columns=seen_flag_columns)
 
-    result = pd.concat(frames, ignore_index=True).drop_duplicates(SEEN_FLAG_COLUMNS)
+    result = pd.concat(frames, ignore_index=True).drop_duplicates(seen_flag_columns)
     result = result.sort_values("_candidate_order", kind="mergesort")
-    return result.loc[:, SEEN_FLAG_COLUMNS].reset_index(drop=True)
+    return result.loc[:, seen_flag_columns].reset_index(drop=True)
 
 
 def build_recommendable_pool(
@@ -465,8 +483,9 @@ def _feature_partition_frames(
             for feature_name, score_column in CUSTOMER_ARTICLE_SCORE_FEATURES.items()
         }
     )
+    seen_flag_columns = _seen_flag_columns(seen_flags)
     frames["candidate_seen_flags"] = (
-        seen_flags.loc[:, SEEN_FLAG_COLUMNS].drop_duplicates().reset_index(drop=True)
+        seen_flags.loc[:, seen_flag_columns].drop_duplicates().reset_index(drop=True)
     )
     return frames
 
@@ -525,6 +544,20 @@ def _require_columns(
     missing = [column for column in columns if column not in dataframe.columns]
     if missing:
         raise ValueError(f"{name} missing required columns: {missing}")
+
+
+def _seen_flag_columns(dataframe: pd.DataFrame) -> list[str]:
+    if _requires_source_seen_policy(dataframe):
+        return ENHANCED_SEEN_FLAG_COLUMNS
+    return SEEN_FLAG_COLUMNS
+
+
+def _requires_source_seen_policy(dataframe: pd.DataFrame) -> bool:
+    if {"allow_seen", "has_reorder_source"}.issubset(dataframe.columns):
+        return True
+    if "strategy" not in dataframe.columns or dataframe.empty:
+        return False
+    return "enhanced_default" in set(dataframe["strategy"].astype(str))
 
 
 def _frame_for_window(

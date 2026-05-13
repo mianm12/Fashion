@@ -7,12 +7,16 @@ from fashion_trend.catalog.readers import read_article_attribute_edges
 from fashion_trend.foundation import logging as log
 from fashion_trend.recommendation.contracts import RECOMMENDATION_CANDIDATE_STRATEGIES
 from fashion_trend.recommendation.paths import (
+    ARTICLE_PRODUCT_MAP_PATH,
+    CUSTOMER_PROFILE_PATH,
     TARGET_USERS_PATH,
     TIME_WINDOWS_PATH,
     USER_PROFILE_PATH,
 )
 from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 from fashion_trend.recommendation.readers import (
+    read_article_product_map,
+    read_customer_profile,
     read_target_users,
     read_time_windows,
     read_user_profile,
@@ -45,19 +49,29 @@ def main() -> int:
     timer = StageTimer("candidate_build", details={"strategy": args.strategy})
     try:
         article_attributes = None
+        article_product_map = None
+        customer_profile = None
         user_profile = None
         trend_predictions = None
-        if args.strategy in {"similarity", "trend_union", "default"}:
+        if args.strategy in {
+            "similarity",
+            "trend_union",
+            "default",
+            "enhanced_default",
+        }:
             article_attributes = read_article_attribute_edges(
                 GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH
             )
-        if args.strategy in {"similarity", "default"}:
+        if args.strategy in {"similarity", "default", "enhanced_default"}:
             user_profile = read_user_profile(USER_PROFILE_PATH)
-        if args.strategy in {"trend_union", "default"}:
+        if args.strategy in {"trend_union", "default", "enhanced_default"}:
             trend_prediction_path = OUTPUT_MODELS_DIR / "lightgbm" / "predictions.csv"
             trend_predictions = read_trend_model_predictions(trend_prediction_path)
         else:
             trend_prediction_path = None
+        if args.strategy == "enhanced_default":
+            customer_profile = read_customer_profile(CUSTOMER_PROFILE_PATH)
+            article_product_map = read_article_product_map(ARTICLE_PRODUCT_MAP_PATH)
         input_paths = {
             "weekly_transactions": str(WEEKLY_TRANSACTIONS_PATH),
             "article_attributes": str(GRAPH_EDGES_ARTICLE_ATTRIBUTE_PATH),
@@ -67,6 +81,8 @@ def main() -> int:
             "time_windows": str(TIME_WINDOWS_PATH),
             "target_users": str(TARGET_USERS_PATH),
             "user_profile": str(USER_PROFILE_PATH),
+            "customer_profile": str(CUSTOMER_PROFILE_PATH),
+            "article_product_map": str(ARTICLE_PRODUCT_MAP_PATH),
         }
         output_path = build_and_write_candidate_items(
             strategy=args.strategy,
@@ -77,6 +93,8 @@ def main() -> int:
             target_users=read_target_users(TARGET_USERS_PATH),
             user_profile=user_profile,
             input_paths=candidate_input_paths_for_strategy(args.strategy, input_paths),
+            customer_profile=customer_profile,
+            article_product_map=article_product_map,
         )
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         log.error(f"处理失败: {exc}", source=LOG_SOURCE)

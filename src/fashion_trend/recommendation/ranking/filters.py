@@ -39,6 +39,23 @@ def filter_seen_items(items: pd.DataFrame, transactions: pd.DataFrame) -> pd.Dat
     return result.loc[:, original_columns]
 
 
+def filter_seen_items_by_source_policy(candidates: pd.DataFrame) -> pd.DataFrame:
+    """Apply source-level seen policy after enhanced candidate flags are attached."""
+    required_columns = ("is_seen", "allow_seen", "has_reorder_source")
+    missing = [
+        column for column in required_columns if column not in candidates.columns
+    ]
+    if missing:
+        raise ValueError(f"candidates missing source-level seen columns: {missing}")
+    if candidates.empty:
+        return candidates.copy()
+
+    is_seen = candidates["is_seen"].fillna(False).astype(bool)
+    allow_seen = candidates["allow_seen"].fillna(False).astype(bool)
+    keep = (~is_seen) | allow_seen
+    return candidates.loc[keep, candidates.columns].reset_index(drop=True)
+
+
 def _items_for_window(
     items: pd.DataFrame,
     window: dict[str, object],
