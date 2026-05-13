@@ -13,7 +13,6 @@ from fashion_trend.presentation.paths import (
 )
 from fashion_trend.presentation.schema import apply_schema, read_schema_version
 
-
 REQUIRED_TABLES = {
     "app_metadata",
     "demo_users",

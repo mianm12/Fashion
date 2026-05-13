@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 FRONTEND_SRC = Path("apps/defense_app/frontend/src")
 
 

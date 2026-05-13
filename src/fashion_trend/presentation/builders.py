@@ -306,9 +306,7 @@ def build_attribute_heat_series(
             prediction = predictions.get((attr_id, int(week_id)))
             if prediction is None:
                 continue
-            history.at[row_index, "actual_target_growth"] = prediction[
-                "target_growth"
-            ]
+            history.at[row_index, "actual_target_growth"] = prediction["target_growth"]
             history.at[row_index, "pred_target_growth"] = prediction[
                 "pred_target_growth"
             ]
@@ -341,12 +339,16 @@ def build_attribute_heat_series(
                 "pred_share_t1",
             ]
         )
-    return pd.concat(rows, ignore_index=True).drop_duplicates(
-        ["attr_id", "week_id"],
-        keep="last",
-    ).sort_values(
-        ["attr_id", "week_id"],
-        kind="mergesort",
+    return (
+        pd.concat(rows, ignore_index=True)
+        .drop_duplicates(
+            ["attr_id", "week_id"],
+            keep="last",
+        )
+        .sort_values(
+            ["attr_id", "week_id"],
+            kind="mergesort",
+        )
     )
 
 

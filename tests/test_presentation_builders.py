@@ -261,7 +261,7 @@ def test_build_attribute_heat_series_uses_recent_window_and_predictions() -> Non
                 "pred_target_growth": 0.7,
                 "pred_share_t1": 0.2,
                 "target_growth": 0.6,
-            }
+            },
         ]
     )
 
@@ -467,10 +467,7 @@ def test_build_presentation_tables_includes_default_and_demo_source_weeks() -> N
             _sample_row(9, heat_t=90.0),
             _sample_row(10, heat_t=100.0),
         ],
-        heat_rows=[
-            _heat_row(week, heat_cnt=week * 10)
-            for week in range(2, 11)
-        ],
+        heat_rows=[_heat_row(week, heat_cnt=week * 10) for week in range(2, 11)],
     )
 
     tables = build_presentation_tables(sources)
@@ -478,9 +475,7 @@ def test_build_presentation_tables_includes_default_and_demo_source_weeks() -> N
     trend_attributes = tables["trend_attributes"]
     assert trend_attributes["source_week"].tolist() == [9, 10]
     assert trend_attributes["target_week"].tolist() == [10, 11]
-    assert not trend_attributes.duplicated(
-        ["source_week", "attr_type", "rank"]
-    ).any()
+    assert not trend_attributes.duplicated(["source_week", "attr_type", "rank"]).any()
     heat_series = tables["attribute_heat_series"]
     assert set(heat_series["week_id"]) == set(range(2, 11))
     assert heat_series.groupby("attr_id")["week_id"].max().item() == 10

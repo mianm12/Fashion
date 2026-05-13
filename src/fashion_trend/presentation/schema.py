@@ -4,7 +4,6 @@ import sqlite3
 
 from fashion_trend.presentation.contracts import PRESENTATION_SCHEMA_VERSION
 
-
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS app_metadata (
     key TEXT PRIMARY KEY,
@@ -152,10 +151,7 @@ CREATE INDEX IF NOT EXISTS idx_attribute_heat_series_week
 def apply_schema(connection: sqlite3.Connection) -> None:
     """Create the presentation database schema and record its version."""
     existing_version = read_schema_version(connection)
-    if (
-        existing_version is not None
-        and existing_version != PRESENTATION_SCHEMA_VERSION
-    ):
+    if existing_version is not None and existing_version != PRESENTATION_SCHEMA_VERSION:
         raise ValueError(
             "presentation schema version mismatch: "
             f"found {existing_version}, expected {PRESENTATION_SCHEMA_VERSION}"
@@ -186,11 +182,9 @@ def read_schema_version(connection: sqlite3.Connection) -> str | None:
 
 
 def _metadata_table_exists(connection: sqlite3.Connection) -> bool:
-    row = connection.execute(
-        """
+    row = connection.execute("""
         SELECT 1
         FROM sqlite_master
         WHERE type = 'table' AND name = 'app_metadata'
-        """
-    ).fetchone()
+        """).fetchone()
     return row is not None
