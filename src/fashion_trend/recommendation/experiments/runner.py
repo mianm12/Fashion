@@ -14,9 +14,11 @@ from fashion_trend.foundation.artifacts import validate_safe_path_segment
 from fashion_trend.foundation.io import write_json_atomic
 from fashion_trend.recommendation.contracts import (
     CUSTOMER_AGE_BUCKETS,
+    ENHANCED_CANDIDATE_SOURCE_CAPS,
     RECOMMENDATION_CANDIDATES_PER_SOURCE,
     RECOMMENDATION_PROFILE_TOP_ATTRIBUTES,
     RECOMMENDATION_TOP_K,
+    SOURCE_ORDER,
 )
 from fashion_trend.recommendation.evaluation.metrics import evaluate_recommendations
 from fashion_trend.recommendation.evaluation.runner import (
@@ -1634,12 +1636,26 @@ def _validate_candidate_items_fresh(
         expected_output_artifacts={"candidate_items": str(candidate_path)},
         expected_schema_version=1,
         expected_algorithm_version="recommendation-candidates-v1",
-        expected_config={
-            "strategy": strategy,
-            "candidates_per_source": RECOMMENDATION_CANDIDATES_PER_SOURCE,
-        },
+        expected_config=_candidate_config(strategy),
         stale_message=lambda reason: _stale_candidate_message(strategy, reason),
     )
+
+
+def _candidate_config(strategy: str) -> dict[str, object]:
+    config: dict[str, object] = {
+        "strategy": strategy,
+        "candidates_per_source": RECOMMENDATION_CANDIDATES_PER_SOURCE,
+    }
+    if strategy == "enhanced_default":
+        config.update(
+            {
+                "source_caps": ENHANCED_CANDIDATE_SOURCE_CAPS,
+                "seen_policy": "source_level_reorder_only",
+                "include_seen_for_reorder": True,
+                "source_order": SOURCE_ORDER,
+            }
+        )
+    return config
 
 
 def _stale_output_message(method_name: str, reason: str) -> str:

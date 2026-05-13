@@ -16,6 +16,7 @@ from fashion_trend.recommendation.freshness import (
     assert_fresh_metadata,
     build_artifact_metadata,
 )
+from fashion_trend.recommendation.retrieval.candidates import _enhanced_config
 
 
 def test_build_artifact_metadata_records_versions_config_and_rows(tmp_path) -> None:
@@ -128,7 +129,11 @@ def test_enhanced_candidate_freshness_requires_customer_profile_and_product_map(
         output_artifacts={"candidate_items": str(candidate_path)},
         schema_version=1,
         algorithm_version="recommendation-candidates-v1",
-        config={"strategy": "enhanced_default", "candidates_per_source": 12},
+        config={
+            "strategy": "enhanced_default",
+            "candidates_per_source": 12,
+            **_enhanced_config("enhanced_default"),
+        },
         row_counts={"candidate_rows": 1},
     )
     write_json_atomic(metadata, candidate_path.with_name("metadata.json"))
