@@ -366,6 +366,90 @@ def test_experiment_helpers_flatten_real_payload_shape() -> None:
     assert rows[2]["trend_score"] == ""
 
 
+def test_flatten_recommendation_experiment_rows_includes_new_sections() -> None:
+    from fashion_trend.reports import runner
+
+    payload = {
+        "best_weights": {
+            "pop_score": 0.2,
+            "sim_score": 0.2,
+            "trend_score": 0.1,
+            "recent_score": 0.5,
+        },
+        "search_results": [],
+        "ablation": [],
+        "named_ablation": [
+            {
+                "variant_id": "without_recent",
+                "display_name": "w/o Recent",
+                "weights": {
+                    "pop_score": 0.4,
+                    "sim_score": 0.4,
+                    "trend_score": 0.2,
+                    "recent_score": 0.0,
+                },
+                "metrics": {
+                    "valid": {
+                        "map_at_12": 0.1,
+                        "recall_at_12": 0.2,
+                        "hit_rate_at_12": 0.3,
+                        "ndcg_at_12": 0.4,
+                        "coverage": 0.5,
+                    },
+                    "test": {
+                        "map_at_12": 0.6,
+                        "recall_at_12": 0.7,
+                        "hit_rate_at_12": 0.8,
+                        "ndcg_at_12": 0.9,
+                        "coverage": 1.0,
+                    },
+                },
+            }
+        ],
+        "trend_bucket_best_by_valid": [
+            {
+                "variant_id": "trend_bucket_0_1",
+                "display_name": "trend_score=0.1 valid-best",
+                "weights": {
+                    "pop_score": 0.2,
+                    "sim_score": 0.2,
+                    "trend_score": 0.1,
+                    "recent_score": 0.5,
+                },
+                "metrics": {
+                    "valid": {
+                        "map_at_12": 0.11,
+                        "recall_at_12": 0.12,
+                        "hit_rate_at_12": 0.13,
+                        "ndcg_at_12": 0.14,
+                        "coverage": 0.15,
+                    },
+                    "test": {
+                        "map_at_12": 0.21,
+                        "recall_at_12": 0.22,
+                        "hit_rate_at_12": 0.23,
+                        "ndcg_at_12": 0.24,
+                        "coverage": 0.25,
+                    },
+                },
+            }
+        ],
+    }
+
+    rows = runner.flatten_recommendation_experiment_rows(payload)
+
+    assert [row["section"] for row in rows] == [
+        "named_ablation",
+        "named_ablation",
+        "trend_bucket_best_by_valid",
+        "trend_bucket_best_by_valid",
+    ]
+    assert rows[0]["method"] == "w/o Recent"
+    assert rows[0]["split"] == "valid"
+    assert rows[1]["split"] == "test"
+    assert rows[2]["method"] == "trend_score=0.1 valid-best"
+
+
 def test_manifest_helpers_capture_all_inputs_and_warnings(tmp_path) -> None:
     from fashion_trend.reports import runner
 
@@ -401,6 +485,24 @@ def test_manifest_helpers_capture_all_inputs_and_warnings(tmp_path) -> None:
 
     artifacts = runner._build_input_artifacts(input_paths)
     warnings = runner._build_report_warnings(payload, input_paths)
+    payload_with_strict_ablation = {
+        **payload,
+        "named_ablation": [
+            {
+                "display_name": "w/o Recent",
+                "weight_policy": "strict_drop_and_renormalize_from_full",
+                "weights": {"recent_score": 0.0},
+                "metrics": {
+                    "valid": {"ndcg_at_12": 0.1},
+                    "test": {"ndcg_at_12": 0.2},
+                },
+            }
+        ],
+    }
+    warnings_with_strict_ablation = runner._build_report_warnings(
+        payload_with_strict_ablation,
+        input_paths,
+    )
 
     assert artifacts["data_artifact__trend_model_samples"].endswith("samples.parquet")
     assert artifacts["trend_split_sample__test"].endswith("samples_test.parquet")
@@ -411,6 +513,9 @@ def test_manifest_helpers_capture_all_inputs_and_warnings(tmp_path) -> None:
     assert any("grid search 只有 valid 指标" in warning for warning in warnings)
     assert any("缺少严格 w/o Recent" in warning for warning in warnings)
     assert any("recommendation_items.csv" in warning for warning in warnings)
+    assert not any(
+        "缺少严格 w/o Recent" in warning for warning in warnings_with_strict_ablation
+    )
 
 
 def test_recommendation_weight_analysis_includes_best_weights(monkeypatch) -> None:

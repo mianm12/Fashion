@@ -497,6 +497,61 @@ def flatten_recommendation_experiment_rows(
                 blank_missing_weights=method != "pop_similarity_trend",
             )
         )
+    rows.extend(
+        _flatten_named_experiment_rows(
+            payload.get("named_ablation", []),
+            section="named_ablation",
+        )
+    )
+    rows.extend(
+        _flatten_named_experiment_rows(
+            payload.get("trend_bucket_best_by_valid", []),
+            section="trend_bucket_best_by_valid",
+        )
+    )
+    return rows
+
+
+def _flatten_named_experiment_rows(
+    values: object,
+    *,
+    section: str,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    if values is None:
+        return rows
+    if not isinstance(values, list):
+        raise ValueError(f"{section} 必须是列表")
+    for rank, result in enumerate(values, start=1):
+        if not isinstance(result, dict):
+            raise ValueError(f"{section}[{rank - 1}] 必须是对象")
+        weights = _required_mapping(result, "weights", f"{section}[{rank - 1}]")
+        metrics_by_split = _required_mapping(
+            result,
+            "metrics",
+            f"{section}[{rank - 1}]",
+        )
+        display_name = str(result.get("display_name") or result.get("variant_id") or "")
+        blank_missing_weights = (
+            str(result.get("weight_policy", "")) == "stable_method_baseline"
+        )
+        for split in ("valid", "test"):
+            metrics = _required_mapping(
+                metrics_by_split,
+                split,
+                f"{section}[{rank - 1}].metrics",
+            )
+            rows.append(
+                _recommendation_experiment_row(
+                    section=section,
+                    rank=rank,
+                    method=display_name,
+                    split=split,
+                    weights=weights,
+                    metrics=metrics,
+                    blank_missing_weights=blank_missing_weights,
+                )
+            )
     return rows
 
 
@@ -807,25 +862,23 @@ def _extract_best_weights(payload: dict[str, object]) -> dict[str, float]:
 
 
 def _has_strict_without_recent_ablation(payload: dict[str, object]) -> bool:
-    for row in payload.get("ablation", []):
+    for row in payload.get("named_ablation", []):
         if not isinstance(row, dict):
             continue
-        fields = " ".join(
-            str(row.get(key, "")).lower()
-            for key in ("section", "name", "method", "variant")
-        )
-        if any(
-            token in fields for token in ("w/o recent", "without_recent", "no_recent")
-        ):
-            return True
+        if str(row.get("display_name", "")).lower() != "w/o recent":
+            continue
+        if row.get("weight_policy") != "strict_drop_and_renormalize_from_full":
+            continue
         weights = row.get("weights")
-        if isinstance(weights, dict):
-            try:
-                recent_score = float(weights.get("recent_score", -1.0))
-            except (TypeError, ValueError):
-                continue
-            if recent_score == 0.0:
-                return True
+        metrics = row.get("metrics")
+        if not isinstance(weights, dict) or not isinstance(metrics, dict):
+            continue
+        try:
+            recent_score = float(weights.get("recent_score", -1.0))
+        except (TypeError, ValueError):
+            continue
+        if recent_score == 0.0 and {"valid", "test"} <= set(metrics):
+            return True
     return False
 
 
