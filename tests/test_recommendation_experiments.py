@@ -2427,7 +2427,10 @@ def test_select_trend_bucket_best_by_valid_uses_ndcg_and_grid_order() -> None:
                     "trend_score": 0.1,
                     "recent_score": 0.4,
                 },
-                "valid_metrics": {"ndcg_at_12": 0.4},
+                "valid_metrics": {
+                    "ndcg_at_12": 0.4,
+                    "coverage_by_window": [{"cutoff_week": 88, "coverage": 0.01}],
+                },
             },
             {
                 "grid_index": 1,
@@ -2437,7 +2440,10 @@ def test_select_trend_bucket_best_by_valid_uses_ndcg_and_grid_order() -> None:
                     "trend_score": 0.1,
                     "recent_score": 0.5,
                 },
-                "valid_metrics": {"ndcg_at_12": 0.4},
+                "valid_metrics": {
+                    "ndcg_at_12": 0.4,
+                    "coverage_by_window": [{"cutoff_week": 88, "coverage": 0.01}],
+                },
             },
             {
                 "grid_index": 3,
@@ -2455,3 +2461,6 @@ def test_select_trend_bucket_best_by_valid_uses_ndcg_and_grid_order() -> None:
 
     assert [row["trend_score"] for row in rows] == [0.1, 0.2]
     assert rows[0]["grid_index"] == 1
+    assert rows[0]["metrics"]["valid"]["coverage_by_window"] == [
+        {"cutoff_week": 88, "coverage": 0.01}
+    ]

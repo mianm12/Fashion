@@ -162,7 +162,7 @@ def select_trend_bucket_representatives(
                 "weights": weights,
                 "metrics": {
                     "valid": {
-                        str(metric_name): _finite_number(
+                        str(metric_name): _read_metric_value(
                             metric_value,
                             f"trend bucket {trend_score}.valid",
                         )
