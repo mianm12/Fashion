@@ -306,13 +306,18 @@ def test_recommendation_enhanced_payload_records_valid_test_metrics(
     monkeypatch.setattr(
         enhanced_runner,
         "evaluate_enhanced_weight_grid_on_valid",
-        lambda weight_grid, context, inputs, candidates, force=False: [
+        lambda weight_grid, context, inputs, candidates, force=False, feature_windows=None: [
             {
                 "grid_index": 0,
                 "weights": dict(weight_grid[0]),
                 "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.30},
             }
         ],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "_prepare_cached_enhanced_feature_windows",
+        lambda **kwargs: [],
     )
     monkeypatch.setattr(
         enhanced_runner,
@@ -426,13 +431,18 @@ def test_recommendation_enhanced_does_not_publish_pop_similarity_trend_stable(
     monkeypatch.setattr(
         enhanced_runner,
         "evaluate_enhanced_weight_grid_on_valid",
-        lambda weight_grid, context, inputs, candidates, force=False: [
+        lambda weight_grid, context, inputs, candidates, force=False, feature_windows=None: [
             {
                 "grid_index": 0,
                 "weights": dict(weight_grid[0]),
                 "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.30},
             }
         ],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "_prepare_cached_enhanced_feature_windows",
+        lambda **kwargs: [],
     )
     monkeypatch.setattr(
         enhanced_runner,
@@ -869,13 +879,18 @@ def test_enhanced_payload_contains_required_ablation_rows(
     monkeypatch.setattr(
         enhanced_runner,
         "evaluate_enhanced_weight_grid_on_valid",
-        lambda weight_grid, context, inputs, candidates, force=False: [
+        lambda weight_grid, context, inputs, candidates, force=False, feature_windows=None: [
             {
                 "grid_index": 0,
                 "weights": dict(weight_grid[0]),
                 "valid_metrics": {"map_at_12": 0.20, "ndcg_at_12": 0.30},
             }
         ],
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "_prepare_cached_enhanced_feature_windows",
+        lambda **kwargs: [],
     )
     monkeypatch.setattr(
         enhanced_runner,

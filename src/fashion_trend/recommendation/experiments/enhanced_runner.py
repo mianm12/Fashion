@@ -15,6 +15,7 @@ from fashion_trend.recommendation.contracts import (
 from fashion_trend.recommendation.evaluation.metrics import evaluate_recommendations
 from fashion_trend.recommendation.experiments.enhanced_diagnostics import (
     build_candidate_diagnostics_payload,
+    compute_candidate_recall,
     filter_candidate_sources_for_ablation,
     filter_seen_candidates_for_diagnostics,
 )
@@ -114,15 +115,33 @@ def run_recommendation_enhanced_experiment(
         force=force_cache or force_rebuild_all,
     )
     weight_grid = iter_enhanced_weight_grid()
+    valid_feature_windows = _prepare_cached_enhanced_feature_windows(
+        split="valid",
+        context=context,
+        inputs=inputs,
+        candidates=candidates,
+    )
     search_results = evaluate_enhanced_weight_grid_on_valid(
         weight_grid,
         context,
         inputs,
         candidates,
         force=force_cache or force_rebuild_all or force_experiment,
+        feature_windows=valid_feature_windows,
     )
     best_weights = select_best_enhanced_weights(search_results)
     best_search_result = select_best_enhanced_result(search_results)
+    named_ablation = build_enhanced_source_level_ablation_rows(
+        best_weights=best_weights,
+        full_model_metrics={"valid": dict(best_search_result["valid_metrics"])},
+        context=context,
+        inputs=inputs,
+        candidates=candidates,
+        force=force_cache or force_rebuild_all,
+        valid_feature_windows=valid_feature_windows,
+    )
+    del valid_feature_windows
+
     enhanced_metrics = evaluate_enhanced_weights_by_split(
         weights=best_weights,
         context=context,
@@ -140,14 +159,6 @@ def run_recommendation_enhanced_experiment(
         post_seen_candidates=post_seen_candidates,
         target_users=inputs.target_users,
         labels=inputs.evaluation_labels,
-    )
-    named_ablation = build_enhanced_source_level_ablation_rows(
-        best_weights=best_weights,
-        full_model_metrics=enhanced_metrics,
-        context=context,
-        inputs=inputs,
-        candidates=candidates,
-        force=force_cache or force_rebuild_all,
     )
 
     payload = build_enhanced_experiment_payload(
@@ -241,6 +252,7 @@ def evaluate_enhanced_weight_grid_on_valid(
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
     force: bool = False,
+    feature_windows: list[tuple[dict[str, object], pd.DataFrame]] | None = None,
 ) -> list[dict[str, Any]]:
     recommendable_pool = _recommendable_pool_for_split(
         context,
@@ -250,12 +262,13 @@ def evaluate_enhanced_weight_grid_on_valid(
     )
     target_users = _filter_split(inputs.target_users, "valid")
     labels = _filter_split(inputs.evaluation_labels, "valid")
-    feature_windows = _prepare_cached_enhanced_feature_windows(
-        split="valid",
-        context=context,
-        inputs=inputs,
-        candidates=candidates,
-    )
+    if feature_windows is None:
+        feature_windows = _prepare_cached_enhanced_feature_windows(
+            split="valid",
+            context=context,
+            inputs=inputs,
+            candidates=candidates,
+        )
     return [
         _evaluate_one_enhanced_weight_run_on_valid(
             grid_index=grid_index,
@@ -443,6 +456,7 @@ def build_enhanced_source_level_ablation_rows(
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
     force: bool = False,
+    valid_feature_windows: list[tuple[dict[str, object], pd.DataFrame]] | None = None,
 ) -> list[dict[str, Any]]:
     variants = [
         {
@@ -510,14 +524,41 @@ def build_enhanced_source_level_ablation_rows(
             variant_candidates = candidates
 
         metrics = dict(variant.get("metrics") or {})
+        evaluation_mode = "in_memory"
         if not metrics:
-            metrics = evaluate_enhanced_ablation_by_split(
-                weights=weights,
-                context=context,
-                inputs=inputs,
-                candidates=variant_candidates,
-                force=force,
-            )
+            if valid_feature_windows and _can_rank_prepared_ablation(
+                dropped_sources,
+                allow_all_seen=allow_all_seen,
+            ):
+                metrics = evaluate_enhanced_ablation_from_feature_windows(
+                    weights=weights,
+                    feature_windows=valid_feature_windows,
+                    dropped_sources=dropped_sources,
+                    allow_all_seen=allow_all_seen,
+                    target_users=_filter_split(inputs.target_users, "valid"),
+                    labels=_filter_split(inputs.evaluation_labels, "valid"),
+                    recommendable_pool=_recommendable_pool_for_split(
+                        context=context,
+                        inputs=inputs,
+                        split="valid",
+                        force=force,
+                    ),
+                )
+                evaluation_mode = "prepared_valid_feature_windows"
+            elif valid_feature_windows:
+                metrics = _candidate_only_ablation_metrics(
+                    variant_candidates,
+                    inputs,
+                )
+                evaluation_mode = "candidate_diagnostic_only"
+            else:
+                metrics = evaluate_enhanced_ablation_by_split(
+                    weights=weights,
+                    context=context,
+                    inputs=inputs,
+                    candidates=variant_candidates,
+                    force=force,
+                )
         rows.append(
             {
                 "variant_id": str(variant["variant_id"]),
@@ -537,13 +578,79 @@ def build_enhanced_source_level_ablation_rows(
                 "candidate_rows": int(len(variant_candidates)),
                 "lineage": {
                     "base_candidate_strategy": ENHANCED_STRATEGY,
-                    "evaluation_mode": "in_memory",
+                    "evaluation_mode": evaluation_mode,
                     "evaluation_splits": sorted(metrics),
                     "writes_candidate_artifact": False,
                 },
             }
         )
     return rows
+
+
+def _can_rank_prepared_ablation(
+    dropped_sources: set[str],
+    *,
+    allow_all_seen: bool,
+) -> bool:
+    if allow_all_seen:
+        return False
+    seen_sensitive_sources = {"reorder", "product_variant"}
+    return not bool(dropped_sources & seen_sensitive_sources)
+
+
+def evaluate_enhanced_ablation_from_feature_windows(
+    *,
+    weights: dict[str, float],
+    feature_windows: list[tuple[dict[str, object], pd.DataFrame]],
+    dropped_sources: set[str],
+    allow_all_seen: bool,
+    target_users: pd.DataFrame,
+    labels: pd.DataFrame,
+    recommendable_pool: pd.DataFrame,
+) -> dict[str, dict[str, float]]:
+    feature_windows_for_variant: list[tuple[dict[str, object], pd.DataFrame]] = []
+    for window, feature_frame in feature_windows:
+        if dropped_sources or allow_all_seen:
+            feature_frame = filter_candidate_sources_for_ablation(
+                feature_frame,
+                dropped_sources=dropped_sources,
+                strategy=ENHANCED_STRATEGY,
+                allow_all_seen=allow_all_seen,
+            )
+        feature_windows_for_variant.append((window, feature_frame))
+
+    recommendations = _rank_cached_feature_windows(
+        feature_windows_for_variant,
+        weights=weights,
+    )
+    metrics = evaluate_recommendations(
+        recommendations,
+        target_users,
+        labels,
+        recommendable_pool,
+        top_k=RECOMMENDATION_TOP_K,
+        strict_missing_users=False,
+    )
+    return {"valid": dict(metrics["valid"])}
+
+
+def _candidate_only_ablation_metrics(
+    candidates: pd.DataFrame,
+    inputs: RecommendationInputArtifacts,
+) -> dict[str, dict[str, float]]:
+    recall = compute_candidate_recall(
+        candidates,
+        inputs.target_users,
+        inputs.evaluation_labels,
+        split="valid",
+    )
+    return {
+        "valid": {
+            "candidate_recall": float(recall["candidate_recall"]),
+            "hit_label_item_count": float(recall["hit_label_item_count"]),
+            "label_item_count": float(recall["label_item_count"]),
+        }
+    }
 
 
 def evaluate_enhanced_ablation_by_split(
