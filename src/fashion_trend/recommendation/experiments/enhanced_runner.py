@@ -737,10 +737,10 @@ def _build_cached_enhanced_ablation_recommendations(
             weights=weights,
             top_k=RECOMMENDATION_TOP_K,
             required_features=method.required_features,
+            include_candidate_sources=False,
         )
-        recommendation_items = format_recommendation_items(ranked)
         recommendation_chunks.append(
-            build_recommendations_csv(recommendation_items, RECOMMENDATION_TOP_K)
+            build_recommendations_csv(ranked, RECOMMENDATION_TOP_K)
         )
 
     if not recommendation_chunks:

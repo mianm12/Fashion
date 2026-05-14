@@ -10,6 +10,7 @@ from fashion_trend.recommendation.ranking.weights import validate_score_weights
 
 RANK_GROUP_COLUMNS = ["customer_id", "split", "cutoff_week", "label_week"]
 _RANK_BASE_COLUMNS = [*RANK_GROUP_COLUMNS, "method", "article_id", "candidate_sources"]
+_LIGHTWEIGHT_RANK_BASE_COLUMNS = [*RANK_GROUP_COLUMNS, "method", "article_id"]
 
 
 def rank_candidate_items(
@@ -17,6 +18,7 @@ def rank_candidate_items(
     weights: dict[str, float],
     top_k: int,
     required_features: Sequence[str],
+    include_candidate_sources: bool = True,
 ) -> pd.DataFrame:
     """Score and rank candidates with deterministic tie-breaking."""
     if top_k <= 0:
@@ -31,8 +33,13 @@ def rank_candidate_items(
         for column in ENHANCED_RECOMMENDATION_SCORE_COLUMNS
         if column in feature_frame.columns
     ]
+    base_columns = (
+        _RANK_BASE_COLUMNS
+        if include_candidate_sources
+        else _LIGHTWEIGHT_RANK_BASE_COLUMNS
+    )
     result_columns = list(
-        dict.fromkeys([*_RANK_BASE_COLUMNS, *score_columns, *validated_weights])
+        dict.fromkeys([*base_columns, *score_columns, *validated_weights])
     )
     missing_columns = set(result_columns) - set(feature_frame.columns)
     if missing_columns:
