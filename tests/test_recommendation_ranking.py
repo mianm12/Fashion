@@ -149,6 +149,40 @@ def test_rank_candidate_items_uses_stable_tie_break_and_top_k() -> None:
     assert ranked["rank"].tolist() == [1, 2]
 
 
+def test_rank_candidate_items_drops_unneeded_feature_cache_columns() -> None:
+    candidates = pd.DataFrame(
+        {
+            "customer_id": ["u1", "u1"],
+            "split": ["valid", "valid"],
+            "cutoff_week": [10, 10],
+            "label_week": [11, 11],
+            "method": ["pop_similarity", "pop_similarity"],
+            "article_id": ["0000000010", "0000000020"],
+            "pop_score": [0.6, 0.4],
+            "recent_score": [0.0, 0.0],
+            "sim_score": [0.4, 0.5],
+            "trend_score": [0.0, 0.0],
+            "candidate_sources": ["popularity", "similarity"],
+            "large_cache_only_column": ["x" * 1000, "y" * 1000],
+        }
+    )
+
+    ranked = rank_candidate_items(
+        candidates,
+        weights={
+            "pop_score": 0.5,
+            "recent_score": 0.0,
+            "sim_score": 0.5,
+            "trend_score": 0.0,
+        },
+        top_k=2,
+        required_features=REQUIRED_WEIGHTS,
+    )
+
+    assert "large_cache_only_column" not in ranked.columns
+    assert ranked["article_id"].tolist() == ["0000000010", "0000000020"]
+
+
 def test_rank_candidate_items_rejects_weights_outside_required_features() -> None:
     candidates = pd.DataFrame(
         {
