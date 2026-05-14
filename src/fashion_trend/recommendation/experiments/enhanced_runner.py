@@ -505,6 +505,7 @@ def build_enhanced_source_level_ablation_rows(
     ]
 
     rows: list[dict[str, Any]] = []
+    candidate_scope = _filter_splits(candidates, ENHANCED_ABLATION_SPLITS)
     for variant in variants:
         dropped_sources = set(variant["dropped_sources"])
         dropped_weights = set(variant["dropped_weights"])
@@ -513,45 +514,51 @@ def build_enhanced_source_level_ablation_rows(
             best_weights,
             dropped_weights,
         )
-        if dropped_sources or allow_all_seen:
-            variant_candidates = filter_candidate_sources_for_ablation(
-                candidates,
-                dropped_sources=dropped_sources,
-                strategy=ENHANCED_STRATEGY,
-                allow_all_seen=allow_all_seen,
-            )
-        else:
-            variant_candidates = candidates
-
+        variant_candidates: pd.DataFrame | None = None
         metrics = dict(variant.get("metrics") or {})
+        candidate_rows = int(len(candidate_scope))
         evaluation_mode = "in_memory"
         if not metrics:
             if valid_feature_windows and _can_rank_prepared_ablation(
                 dropped_sources,
                 allow_all_seen=allow_all_seen,
             ):
-                metrics = evaluate_enhanced_ablation_from_feature_windows(
-                    weights=weights,
-                    feature_windows=valid_feature_windows,
-                    dropped_sources=dropped_sources,
-                    allow_all_seen=allow_all_seen,
-                    target_users=_filter_split(inputs.target_users, "valid"),
-                    labels=_filter_split(inputs.evaluation_labels, "valid"),
-                    recommendable_pool=_recommendable_pool_for_split(
-                        context=context,
-                        inputs=inputs,
-                        split="valid",
-                        force=force,
-                    ),
+                metrics, candidate_rows = (
+                    evaluate_enhanced_ablation_from_feature_windows(
+                        weights=weights,
+                        feature_windows=valid_feature_windows,
+                        dropped_sources=dropped_sources,
+                        allow_all_seen=allow_all_seen,
+                        target_users=_filter_split(inputs.target_users, "valid"),
+                        labels=_filter_split(inputs.evaluation_labels, "valid"),
+                        recommendable_pool=_recommendable_pool_for_split(
+                            context=context,
+                            inputs=inputs,
+                            split="valid",
+                            force=force,
+                        ),
+                    )
                 )
                 evaluation_mode = "prepared_valid_feature_windows"
             elif valid_feature_windows:
+                variant_candidates = _filter_candidates_for_ablation_variant(
+                    candidate_scope,
+                    dropped_sources=dropped_sources,
+                    allow_all_seen=allow_all_seen,
+                )
+                candidate_rows = int(len(variant_candidates))
                 metrics = _candidate_only_ablation_metrics(
                     variant_candidates,
                     inputs,
                 )
                 evaluation_mode = "candidate_diagnostic_only"
             else:
+                variant_candidates = _filter_candidates_for_ablation_variant(
+                    candidate_scope,
+                    dropped_sources=dropped_sources,
+                    allow_all_seen=allow_all_seen,
+                )
+                candidate_rows = int(len(variant_candidates))
                 metrics = evaluate_enhanced_ablation_by_split(
                     weights=weights,
                     context=context,
@@ -575,7 +582,7 @@ def build_enhanced_source_level_ablation_rows(
                 ),
                 "weights": weights,
                 "metrics": metrics,
-                "candidate_rows": int(len(variant_candidates)),
+                "candidate_rows": candidate_rows,
                 "lineage": {
                     "base_candidate_strategy": ENHANCED_STRATEGY,
                     "evaluation_mode": evaluation_mode,
@@ -585,6 +592,22 @@ def build_enhanced_source_level_ablation_rows(
             }
         )
     return rows
+
+
+def _filter_candidates_for_ablation_variant(
+    candidates: pd.DataFrame,
+    *,
+    dropped_sources: set[str],
+    allow_all_seen: bool,
+) -> pd.DataFrame:
+    if dropped_sources or allow_all_seen:
+        return filter_candidate_sources_for_ablation(
+            candidates,
+            dropped_sources=dropped_sources,
+            strategy=ENHANCED_STRATEGY,
+            allow_all_seen=allow_all_seen,
+        )
+    return candidates
 
 
 def _can_rank_prepared_ablation(
@@ -607,8 +630,9 @@ def evaluate_enhanced_ablation_from_feature_windows(
     target_users: pd.DataFrame,
     labels: pd.DataFrame,
     recommendable_pool: pd.DataFrame,
-) -> dict[str, dict[str, float]]:
+) -> tuple[dict[str, dict[str, float]], int]:
     feature_windows_for_variant: list[tuple[dict[str, object], pd.DataFrame]] = []
+    candidate_rows = 0
     for window, feature_frame in feature_windows:
         if dropped_sources or allow_all_seen:
             feature_frame = filter_candidate_sources_for_ablation(
@@ -617,6 +641,7 @@ def evaluate_enhanced_ablation_from_feature_windows(
                 strategy=ENHANCED_STRATEGY,
                 allow_all_seen=allow_all_seen,
             )
+        candidate_rows += int(len(feature_frame))
         feature_windows_for_variant.append((window, feature_frame))
 
     recommendations = _rank_cached_feature_windows(
@@ -631,7 +656,7 @@ def evaluate_enhanced_ablation_from_feature_windows(
         top_k=RECOMMENDATION_TOP_K,
         strict_missing_users=False,
     )
-    return {"valid": dict(metrics["valid"])}
+    return {"valid": dict(metrics["valid"])}, candidate_rows
 
 
 def _candidate_only_ablation_metrics(
@@ -893,6 +918,15 @@ def _recommendable_pool_for_split(
 
 def _filter_split(dataframe: pd.DataFrame, split: str) -> pd.DataFrame:
     return dataframe.loc[dataframe["split"].astype(str) == split].reset_index(drop=True)
+
+
+def _filter_splits(dataframe: pd.DataFrame, splits: Sequence[str]) -> pd.DataFrame:
+    if dataframe.empty or "split" not in dataframe.columns:
+        return dataframe.iloc[0:0].copy()
+    split_values = {str(split) for split in splits}
+    return dataframe.loc[dataframe["split"].astype(str).isin(split_values)].reset_index(
+        drop=True
+    )
 
 
 def _frame_for_window(
