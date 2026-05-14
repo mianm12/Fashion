@@ -909,6 +909,7 @@ def test_enhanced_payload_contains_required_ablation_rows(
         {"source_filter", "weights", "metrics", "candidate_rows", "lineage"} <= set(row)
         for row in rows
     )
+    assert all(row["lineage"]["evaluation_splits"] == ["valid"] for row in rows)
     assert by_name["enhanced_w/o Trend Score"]["source_filter"]["dropped_sources"] == []
     assert by_name["enhanced_w/o Trend Score"]["weights"]["trend_score"] == 0.0
     assert by_name["enhanced_w/o Trend Source+Score"]["source_filter"][

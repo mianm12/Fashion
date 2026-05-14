@@ -50,7 +50,6 @@ from fashion_trend.recommendation.paths import (
     experiment_dir,
     method_output_paths,
 )
-from fashion_trend.recommendation.ranking.features import build_ranking_features
 from fashion_trend.recommendation.ranking.scoring import rank_candidate_items
 from fashion_trend.recommendation.readers import read_recommendations
 from fashion_trend.recommendation.registry import get_recommendation_method
@@ -65,6 +64,8 @@ ENHANCED_METHOD = "enhanced_pop_similarity_trend"
 ENHANCED_STRATEGY = "enhanced_default"
 ENHANCED_SELECTION_METRIC = "map_at_12"
 ENHANCED_TIE_BREAK = "ndcg_at_12"
+ENHANCED_ABLATION_SPLITS = ("valid",)
+SOURCE_DERIVED_SCORE_COLUMNS = {"source_rank_score", "source_count_score"}
 COMPARISON_METHODS = (
     "recent_popularity",
     "pop_similarity",
@@ -537,6 +538,7 @@ def build_enhanced_source_level_ablation_rows(
                 "lineage": {
                     "base_candidate_strategy": ENHANCED_STRATEGY,
                     "evaluation_mode": "in_memory",
+                    "evaluation_splits": sorted(metrics),
                     "writes_candidate_artifact": False,
                 },
             }
@@ -552,14 +554,15 @@ def evaluate_enhanced_ablation_by_split(
     candidates: pd.DataFrame,
     force: bool = False,
 ) -> dict[str, dict[str, float]]:
-    recommendable_pool = ensure_or_build_recommendable_pool_cache(
-        context,
-        inputs,
-        force=force,
-    )
     metrics_by_split: dict[str, dict[str, float]] = {}
-    for split in ("valid", "test"):
-        recommendations = _build_uncached_enhanced_recommendations(
+    for split in ENHANCED_ABLATION_SPLITS:
+        recommendable_pool = _recommendable_pool_for_split(
+            context=context,
+            inputs=inputs,
+            split=split,
+            force=force,
+        )
+        recommendations = _build_cached_enhanced_ablation_recommendations(
             weights=weights,
             split=split,
             context=context,
@@ -570,7 +573,7 @@ def evaluate_enhanced_ablation_by_split(
             recommendations,
             _filter_split(inputs.target_users, split),
             _filter_split(inputs.evaluation_labels, split),
-            _filter_split(recommendable_pool, split),
+            recommendable_pool,
             top_k=RECOMMENDATION_TOP_K,
             strict_missing_users=False,
         )
@@ -578,7 +581,7 @@ def evaluate_enhanced_ablation_by_split(
     return metrics_by_split
 
 
-def _build_uncached_enhanced_recommendations(
+def _build_cached_enhanced_ablation_recommendations(
     *,
     weights: dict[str, float],
     split: str,
@@ -587,9 +590,17 @@ def _build_uncached_enhanced_recommendations(
     candidates: pd.DataFrame,
 ) -> pd.DataFrame:
     method = get_recommendation_method(ENHANCED_METHOD)
+    input_paths = method_input_paths_for_artifacts(
+        ENHANCED_METHOD,
+        _experiment_input_paths(context),
+    )
+    cached_required_features = [
+        feature
+        for feature in method.required_features
+        if feature not in SOURCE_DERIVED_SCORE_COLUMNS
+    ]
     windows = _filter_split(inputs.time_windows, split)
     split_candidates = _filter_split(candidates, split)
-    split_user_profile = _filter_split(inputs.user_profile, split)
     recommendation_chunks: list[pd.DataFrame] = []
 
     for window in windows.loc[:, ["split", "cutoff_week", "label_week"]].to_dict(
@@ -598,16 +609,14 @@ def _build_uncached_enhanced_recommendations(
         window_candidates = _frame_for_window(split_candidates, window)
         if window_candidates.empty:
             continue
-        feature_frame = build_ranking_features(
-            window_candidates,
-            context.transactions,
-            context.article_attributes,
-            _frame_for_window(split_user_profile, window),
-            context.trend_predictions,
-            customer_profile=inputs.customer_profile,
-            article_product_map=inputs.article_product_map,
+        feature_frame, _ = build_cached_feature_frame_for_window(
+            method_name=ENHANCED_METHOD,
+            strategy=ENHANCED_STRATEGY,
+            window=window,
+            candidates=window_candidates,
+            required_features=cached_required_features,
+            input_paths=input_paths,
         )
-        feature_frame["method"] = ENHANCED_METHOD
         feature_frame = filter_seen_candidates_for_diagnostics(
             feature_frame,
             context.transactions,
