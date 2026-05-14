@@ -41,7 +41,10 @@ from fashion_trend.recommendation.experiments.runner import (
 from fashion_trend.recommendation.fingerprints import build_input_fingerprints
 from fashion_trend.recommendation.freshness import build_artifact_metadata
 from fashion_trend.recommendation.inputs import RecommendationInputArtifacts
-from fashion_trend.recommendation.paths import experiment_run_dir
+from fashion_trend.recommendation.paths import (
+    RecommendationOutputPaths,
+    experiment_run_dir,
+)
 from fashion_trend.recommendation.perf import StageTimer, format_stage_log
 
 
@@ -455,6 +458,76 @@ def test_recommendation_enhanced_does_not_publish_pop_similarity_trend_stable(
         "valid": {},
         "test": {},
     }
+
+
+def test_enhanced_comparison_methods_read_existing_metrics_payloads(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output_root = tmp_path / "outputs" / "recommendation"
+
+    for method in enhanced_runner.COMPARISON_METHODS:
+        method_dir = output_root / method
+        method_dir.mkdir(parents=True)
+        (method_dir / "metrics.json").write_text(
+            json.dumps(
+                {
+                    "method": method,
+                    "metrics": {
+                        "valid": {"map_at_12": 0.1},
+                        "test": {"map_at_12": 0.2},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def output_paths(method: str) -> RecommendationOutputPaths:
+        method_dir = output_root / method
+        return RecommendationOutputPaths(
+            output_dir=method_dir,
+            recommendations=method_dir / "recommendations.csv",
+            recommendation_items=method_dir / "recommendation_items.parquet",
+            recommendation_items_csv=method_dir / "recommendation_items.csv",
+            params=method_dir / "params.json",
+            metadata=method_dir / "metadata.json",
+            metrics=method_dir / "metrics.json",
+        )
+
+    monkeypatch.setattr(enhanced_runner, "method_output_paths", output_paths)
+    monkeypatch.setattr(
+        enhanced_runner,
+        "ensure_or_build_recommendable_pool_cache",
+        lambda *args, **kwargs: pytest.fail("existing metrics should be reused"),
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "read_recommendations",
+        lambda *args, **kwargs: pytest.fail("recommendations.csv should not be read"),
+    )
+
+    payloads = enhanced_runner.evaluate_comparison_methods(
+        RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        ),
+        RecommendationInputArtifacts(
+            time_windows=pd.DataFrame(),
+            target_users=pd.DataFrame(),
+            evaluation_labels=pd.DataFrame(),
+            user_profile=pd.DataFrame(),
+        ),
+        force=True,
+    )
+
+    assert [payload["method"] for payload in payloads] == list(
+        enhanced_runner.COMPARISON_METHODS
+    )
+    assert all(payload["metrics"]["valid"]["map_at_12"] == 0.1 for payload in payloads)
+    assert all(
+        payload["metrics_source"].endswith("metrics.json") for payload in payloads
+    )
 
 
 def test_source_level_ablation_recomputes_source_fields_after_filter() -> None:

@@ -177,16 +177,27 @@ def evaluate_comparison_methods(
     inputs: RecommendationInputArtifacts,
     force: bool = False,
 ) -> list[dict[str, Any]]:
-    recommendable_pool = ensure_or_build_recommendable_pool_cache(
-        context,
-        inputs,
-        force=force,
-    )
     payloads: list[dict[str, Any]] = []
+    recommendable_pool: pd.DataFrame | None = None
     for method in COMPARISON_METHODS:
-        recommendations = read_recommendations(
-            method_output_paths(method).recommendations
-        )
+        output_paths = method_output_paths(method)
+        if output_paths.metrics.exists():
+            payloads.append(
+                {
+                    "method": method,
+                    "metrics": _read_comparison_metrics(output_paths.metrics, method),
+                    "metrics_source": str(output_paths.metrics),
+                }
+            )
+            continue
+
+        if recommendable_pool is None:
+            recommendable_pool = ensure_or_build_recommendable_pool_cache(
+                context,
+                inputs,
+                force=force,
+            )
+        recommendations = read_recommendations(output_paths.recommendations)
         metrics = evaluate_recommendations(
             recommendations,
             inputs.target_users,
@@ -195,8 +206,29 @@ def evaluate_comparison_methods(
             top_k=RECOMMENDATION_TOP_K,
             strict_missing_users=False,
         )
-        payloads.append({"method": method, "metrics": metrics})
+        payloads.append(
+            {
+                "method": method,
+                "metrics": metrics,
+                "metrics_source": "computed_from_recommendations",
+            }
+        )
     return payloads
+
+
+def _read_comparison_metrics(path: Path, method: str) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("method") != method:
+        raise RuntimeError(
+            f"{method} metrics payload method mismatch: {payload.get('method')}"
+        )
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        raise RuntimeError(f"{method} metrics payload missing metrics")
+    missing_splits = sorted({"valid", "test"} - set(metrics))
+    if missing_splits:
+        raise RuntimeError(f"{method} metrics payload missing splits: {missing_splits}")
+    return metrics
 
 
 def evaluate_enhanced_weight_grid_on_valid(
