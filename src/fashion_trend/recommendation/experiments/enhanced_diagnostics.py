@@ -179,7 +179,7 @@ def build_candidate_diagnostics_payload(
     avg_candidates: dict[str, dict[str, float]] = {"pre_seen": {}, "post_seen": {}}
     coverage: dict[str, dict[str, object]] = {"pre_seen": {}, "post_seen": {}}
 
-    for split in _diagnostic_splits(target_users, labels, candidates):
+    for split in _diagnostic_splits(target_users, labels):
         recall_pre[split] = compute_candidate_recall(
             candidates,
             target_users,
@@ -366,7 +366,8 @@ def _diagnostic_splits(*frames: pd.DataFrame) -> list[str]:
     splits: set[str] = set()
     for frame in frames:
         if not frame.empty and "split" in frame.columns:
-            splits.update(frame["split"].dropna().astype(str))
+            split_values = frame["split"].dropna().drop_duplicates().astype(str)
+            splits.update(split_values.tolist())
     return sorted(splits or {"valid", "test"})
 
 

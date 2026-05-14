@@ -667,6 +667,38 @@ def test_candidate_diagnostics_source_coverage_counts_repeated_source_sets() -> 
     }
 
 
+def test_candidate_diagnostics_uses_evaluation_splits() -> None:
+    candidates = pd.DataFrame(
+        {
+            "split": ["valid", "candidate_only"],
+            "cutoff_week": [10, 10],
+            "label_week": [11, 11],
+            "customer_id": ["c1", "c2"],
+            "article_id": ["0000000001", "0000000002"],
+            "candidate_sources": ["popularity", "trend"],
+        }
+    )
+    targets = pd.DataFrame(
+        {
+            "split": ["valid"],
+            "cutoff_week": [10],
+            "label_week": [11],
+            "customer_id": ["c1"],
+        }
+    )
+    labels = targets.assign(article_id="0000000001")
+
+    payload = build_candidate_diagnostics_payload(
+        candidates=candidates,
+        post_seen_candidates=candidates,
+        target_users=targets,
+        labels=labels,
+    )
+
+    assert set(payload["candidate_recall_pre_seen"]) == {"valid"}
+    assert set(payload["source_coverage"]["pre_seen"]) == {"valid"}
+
+
 def test_source_level_ablation_recomputes_source_fields_after_filter() -> None:
     candidates = pd.DataFrame(
         [
