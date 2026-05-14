@@ -373,8 +373,12 @@ def _source_coverage(candidates: pd.DataFrame, split: str) -> dict[str, object]:
     if split_candidates.empty or "candidate_sources" not in split_candidates.columns:
         return {"candidate_rows": int(len(split_candidates)), "source_rows": {}}
     source_counts: Counter[str] = Counter()
-    for value in split_candidates["candidate_sources"]:
-        source_counts.update(_source_tuple(value))
+    source_values = (
+        split_candidates["candidate_sources"].astype("string").value_counts()
+    )
+    for value, count in source_values.items():
+        for source in _source_tuple(value):
+            source_counts[source] += int(count)
     return {
         "candidate_rows": int(len(split_candidates)),
         "source_rows": dict(sorted(source_counts.items(), key=lambda item: item[0])),
