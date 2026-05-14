@@ -1,6 +1,6 @@
 # 论文撰写数据汇总
 
-更新时间：2026-05-13
+更新时间：2026-05-14
 
 ## 1. 使用边界
 
@@ -10,11 +10,15 @@
 - `data/processed/basic/date_range.json`
 - `data/processed/features/trend_model_samples_split_metadata.json`
 - `data/processed/recommend/metadata.json`
+- `data/processed/recommend/customer_profile.parquet`
+- `data/processed/recommend/article_product_map.parquet`
+- `data/processed/recommend/candidates/<strategy>/candidate_items.parquet`
 - `outputs/metrics/<model>/trend_metrics.json`
 - `outputs/models/lightgbm/params.json`
 - `outputs/models/lightgbm/feature_importance.csv`
 - `outputs/recommendation/<method>/metrics.json`
 - `outputs/recommendation/experiments/main/experiment.json`
+- `outputs/recommendation/experiments/recommendation_enhanced/experiment.json`
 - `outputs/reports/tables/*.md`
 - `outputs/reports/manifest.json`
 
@@ -59,10 +63,11 @@ H&M articles.csv（商品属性知识）
 | 趋势 baseline | 已实现 | `last_week`、`previous_growth`、`moving_average` |
 | 趋势主模型 | 已实现 | `lightgbm` |
 | 趋势评价 | 已实现 | `outputs/metrics/<model>/trend_metrics.json` |
-| 推荐输入 | 已实现 | `time_windows`、`target_users`、`evaluation_labels`、`user_profile` |
-| 推荐候选 | 已实现 | `popularity`、`similarity`、`trend_union`、`default` |
-| 推荐方法 | 已实现 | 5 个离线 Top-N 方法 |
+| 推荐输入 | 已实现 | `time_windows`、`target_users`、`evaluation_labels`、`user_profile`、`customer_profile`、`article_product_map` |
+| 推荐候选 | 已实现 | `popularity`、`similarity`、`trend_union`、`default`、`enhanced_default` |
+| 推荐方法 | 已实现 | 5 个默认稳定 Top-N 方法；1 个可选增强方法通过实验入口评价 |
 | 推荐评价与主实验 | 已实现 | `outputs/recommendation/<method>/metrics.json`、`experiments/main/experiment.json` |
+| 可选推荐增强实验 | 已实现 | `experiments/recommendation_enhanced/experiment.json` |
 | 论文素材导出 | 已实现 | `outputs/reports/figures/`、`tables/`、`case_studies/`、`manifest.json` |
 | 本地答辩展示应用 | 已实现 | `outputs/defense_app/fashion_demo.sqlite`、`apps/defense_app/` |
 
@@ -105,6 +110,8 @@ H&M articles.csv（商品属性知识）
 | recommendation | `target_users.parquet` | 1,203,649 | 6 | 推荐目标用户集合 |
 | recommendation | `evaluation_labels.parquet` | 4,195,886 | 5 | 推荐真实标签 |
 | recommendation | `user_profile.parquet` | 3,610,947 | 10 | 用户属性画像 |
+| recommendation | `customer_profile.parquet` | 1,371,980 | 5 | 用户基础画像和年龄段增强特征 |
+| recommendation | `article_product_map.parquet` | 105,542 | 2 | 商品款式族映射和变体增强候选 |
 
 属性图覆盖 10 类商品属性字段：`colour_group_name`、`department_name`、`garment_group_name`、`graphical_appearance_name`、`index_group_name`、`index_name`、`perceived_colour_master_name`、`product_group_name`、`product_type_name`、`section_name`。每个商品连接 10 个属性字段，因此商品-属性边为 `105,542 * 10 = 1,055,420`。
 
@@ -308,7 +315,7 @@ LightGBM normalized gain 重要性 Top-10：
 
 ## 10. 推荐输入、候选与方法
 
-推荐模块对应题目中的“推荐”部分，用于在离线 Top-N 场景中融合用户行为、商品属性知识图谱和趋势预测信号。它依赖已发布的 LightGBM stable 预测、周级交易、用户历史画像和商品属性边；实现目标是构造可解释、可复现的趋势感知推荐实验，而不是扩展为在线推荐服务。
+推荐模块对应题目中的“推荐”部分，用于在离线 Top-N 场景中融合用户行为、商品属性知识图谱和趋势预测信号。它依赖已发布的 LightGBM stable 预测、周级交易、用户历史画像、用户基础画像、商品款式族映射和商品属性边；实现目标是构造可解释、可复现的趋势感知推荐实验，而不是扩展为在线推荐服务。
 
 推荐候选策略：
 
@@ -318,18 +325,22 @@ LightGBM normalized gain 重要性 Top-10：
 | `similarity` | 14,443,788 | 12 | 用户属性相似候选 |
 | `trend_union` | 14,443,788 | 12 | 趋势属性商品候选 |
 | `default` | 43,331,363 | 35-36 | 热门、相似、趋势候选合并 |
+| `enhanced_default` | 76,790,040 | 63-64 | 可选增强候选，加入复购、款式变体、年龄段和偏好热门等多源候选 |
 
 推荐方法：
 
-| 方法 | 类型 | 使用分数 | 是否使用趋势分 | 输出目录 |
+| 方法 | 类型 | 使用分数 | 是否使用趋势分 | 默认或实验产物 |
 | --- | --- | --- | --- | --- |
 | `global_popularity` | baseline | 全局热门 | 否 | `outputs/recommendation/global_popularity/` |
 | `recent_popularity` | 强 baseline | 近期热门 | 否 | `outputs/recommendation/recent_popularity/` |
 | `attribute_similarity` | baseline | 用户属性偏好相似度 | 否 | `outputs/recommendation/attribute_similarity/` |
 | `pop_similarity` | 融合 baseline | `pop_score`、`sim_score` | 否 | `outputs/recommendation/pop_similarity/` |
 | `pop_similarity_trend` | 趋势感知主方法 | `pop_score`、`sim_score`、`trend_score`、`recent_score` | 是 | `outputs/recommendation/pop_similarity_trend/` |
+| `enhanced_pop_similarity_trend` | 可选增强实验方法 | 热门、近期、相似、趋势、复购、变体、年龄段、偏好热门和 source 质量分 | 是 | `outputs/recommendation/experiments/recommendation_enhanced/experiment.json` |
 
-每个 stable method 当前输出 `recommendations.csv` 1,203,649 行、`recommendation_items.parquet` 14,443,788 行。默认内部长表是 `recommendation_items.parquet`；历史存在的 `recommendation_items.csv` 不应作为默认 reader 来源。
+前 5 个 stable method 当前输出 `recommendations.csv` 1,203,649 行、`recommendation_items.parquet` 14,443,788 行。默认内部长表是 `recommendation_items.parquet`；历史存在的 `recommendation_items.csv` 不应作为默认 reader 来源。
+
+`enhanced_pop_similarity_trend` 当前只作为 `recommendation_enhanced` 实验中的可选增强方法记录指标，仓库当前没有 `outputs/recommendation/enhanced_pop_similarity_trend/` stable 单方法输出目录。reports 和 defense app 默认仍消费 `outputs/recommendation/pop_similarity_trend/`，不受可选增强实验影响。
 
 `pop_similarity_trend` 当前权重：
 
@@ -340,7 +351,24 @@ LightGBM normalized gain 重要性 Top-10：
 | `trend_score` | 0.1 |
 | `recent_score` | 0.5 |
 
-## 11. 推荐评价指标
+`recommendation_enhanced` 当前 best weights：
+
+| 分数项 | 权重 |
+| --- | ---: |
+| `pop_score` | 0.16 |
+| `recent_score` | 0.28 |
+| `sim_score` | 0.10 |
+| `trend_score` | 0.08 |
+| `reorder_score` | 0.16 |
+| `variant_score` | 0.08 |
+| `age_pop_score` | 0.04 |
+| `preference_pop_score` | 0.04 |
+| `source_rank_score` | 0.03 |
+| `source_count_score` | 0.03 |
+
+## 11. 默认稳定推荐评价指标
+
+下表只包含当前默认 stable method 的 `metrics.json` 指标；可选增强实验指标单独放在 12.1 节，避免把增强实验误写成默认主结果。
 
 | method | split | MAP@12 | Recall@12 | HitRate@12 | NDCG@12 | Coverage | user_count |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -404,6 +432,32 @@ trend weight bucket 代表组合：
 - 严格 `w/o Trend in Rec` 与 Full Model 基本持平，趋势分在当前推荐实验中的独立边际贡献较弱。
 - 去掉 `recent_score` 后指标下降明显，说明近期热门是 H&M 短期推荐中的强信号。
 - 趋势分更适合作为可解释的轻量补充信号，而不是单独决定推荐排序的主因。
+
+### 12.1 可选增强推荐实验
+
+`recommendation_enhanced` 是第一阶段推荐增强的独立可选实验，只写入 `outputs/recommendation/experiments/recommendation_enhanced/experiment.json`。它使用 `enhanced_default` 候选和 `enhanced_pop_similarity_trend` 方法，不覆盖 `experiments/main/experiment.json`、`outputs/recommendation/pop_similarity_trend/`、reports 或 defense app 默认输入。
+
+增强实验主结果：
+
+| method | split | MAP@12 | Recall@12 | HitRate@12 | NDCG@12 | Coverage | user_count |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `enhanced_pop_similarity_trend` | valid | 0.006618 | 0.025382 | 0.065545 | 0.014079 | 0.146255 | 660,710 |
+| `enhanced_pop_similarity_trend` | test | 0.007032 | 0.027712 | 0.066308 | 0.014800 | 0.088785 | 542,939 |
+
+增强实验 valid 消融摘要：
+
+| 版本 | MAP@12 | Recall@12 | HitRate@12 | NDCG@12 | Coverage | 说明 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Full Model | 0.006618 | 0.025382 | 0.065545 | 0.014079 | 0.146255 | 完整增强候选和增强打分 |
+| enhanced_w/o Trend Score | 0.006609 | 0.025333 | 0.065399 | 0.014056 | 0.145570 | 只去掉趋势打分，指标基本持平 |
+| enhanced_w/o Trend Source+Score | 0.006747 | 0.025753 | 0.066108 | 0.014293 | 0.150395 | 同时去掉趋势候选源和趋势打分，valid 指标略高 |
+| enhanced_w/o Customer Segment | 0.007584 | 0.028748 | 0.071470 | 0.015818 | 0.195626 | 去掉年龄段热门源后 valid 指标更高 |
+
+增强实验结论应作为扩展结果谨慎表述：
+
+- 相比默认 stable `pop_similarity_trend`，增强实验的 MAP@12、NDCG@12、Recall@12 和 Coverage 都明显更高，但它同时扩大了候选集并增加多源重排特征，因此应写成“可选增强实验整体有效”，不要写成单一趋势信号带来的提升。
+- 去掉趋势打分几乎不影响指标，同时去掉趋势候选源和趋势打分后 valid 指标略高，说明增强版趋势来源的独立正贡献还没有被该实验严格证明。
+- 去掉年龄段热门源后 valid 指标更高，说明当前用户年龄段增强特征还不适合作为论文中的强贡献点，可放入后续优化或误差分析。
 
 ## 13. 已导出的论文素材
 
@@ -475,9 +529,10 @@ trend weight bucket 代表组合：
 3. 商品属性层次图将商品和结构化属性连接起来，为趋势特征、属性热度聚合和推荐解释提供统一语义层。
 4. 周级属性热度、趋势标签和时间切分构成了可复现的服装流行趋势预测实验设置。
 5. LightGBM 融合用户行为聚合后的历史热度、增长、图结构和时间特征，在趋势预测上显著优于简单 baseline。
-6. 趋势感知推荐在验证集上取得最高 NDCG@12，并在测试集上接近强近期热门 baseline。
-7. 严格推荐层消融显示趋势分的独立边际增益较弱，但它能作为解释性补充信号服务于推荐展示。
-8. 当前 reports 和 defense app 已覆盖论文图表、实验表格和可复现推荐解释案例。
+6. 默认稳定推荐实验中，`pop_similarity_trend` 在验证集上取得最高 NDCG@12，并在测试集上接近强近期热门 baseline。
+7. 可选增强推荐实验在 MAP@12、NDCG@12、Recall@12 和 Coverage 上明显高于默认 stable 推荐方法，但它不是 reports 和 defense app 的默认输入，应作为扩展实验单独表述。
+8. 严格推荐层消融显示趋势分的独立边际增益较弱，但它能作为解释性补充信号服务于推荐展示。
+9. 当前 reports 和 defense app 已覆盖论文图表、实验表格和可复现推荐解释案例。
 
 ## 16. 当前缺口与风险
 
@@ -487,6 +542,10 @@ trend weight bucket 代表组合：
 | 推荐指标绝对值 | MAP@12 和 NDCG@12 绝对值较低 | 写成应用验证和解释性实验，不写成高性能推荐系统 |
 | 近期热门 baseline | `recent_popularity` 在 test 上略优于趋势主方法 | 如实报告，强调短期热门信号强 |
 | 趋势分边际贡献 | `w/o Trend in Rec` 与 Full Model 基本持平 | 不夸大趋势分的单因素效果 |
+| 可选增强实验边界 | `recommendation_enhanced` 独立写入 experiment，不替换 stable 主推荐输出 | 作为扩展实验写，默认论文图表和展示应用仍以 stable method 为准 |
+| 增强趋势来源贡献 | `enhanced_w/o Trend Source+Score` 的 valid 指标略高于 Full Model | 不声称增强趋势候选源已证明单独有效，只写整体增强候选和多源重排效果 |
+| 用户年龄段增强 | `enhanced_w/o Customer Segment` 的 valid 指标高于 Full Model | 不把年龄段热门源写成已验证强特征，可列入后续优化 |
+| 增强单方法 stable 输出 | 当前不存在 `outputs/recommendation/enhanced_pop_similarity_trend/` 目录 | 指标以 `experiments/recommendation_enhanced/experiment.json` 为准 |
 | 历史 CSV 长表 | 本地存在历史 `recommendation_items.csv` | 论文和代码契约以 `recommendation_items.parquet` 为默认内部长表 |
 | 图表字体 | reports 依赖可用 CJK 字体 | 重新导出前确保本机有可用中文字体；当前 manifest 记录 `Songti SC` |
 
@@ -507,7 +566,7 @@ uv run python src/11_eval_trend_model.py --model moving_average
 uv run python src/11_eval_trend_model.py --model lightgbm
 ```
 
-推荐实验：
+默认稳定推荐实验：
 
 ```sh
 uv run python src/12_build_recommendation_inputs.py
@@ -515,6 +574,16 @@ uv run python src/13_build_recommend_candidates.py --strategy default
 uv run python src/14_rerank_recommendations.py --method pop_similarity_trend
 uv run python src/15_eval_recommendations.py --method pop_similarity_trend
 uv run python src/16_run_recommendation_experiment.py --experiment main
+```
+
+可选增强推荐实验：
+
+```sh
+uv run python src/12_build_recommendation_inputs.py
+uv run python src/13_build_recommend_candidates.py --strategy enhanced_default
+uv run python src/14_rerank_recommendations.py --method enhanced_pop_similarity_trend
+uv run python src/15_eval_recommendations.py --method enhanced_pop_similarity_trend
+uv run python src/16_run_recommendation_experiment.py --experiment recommendation_enhanced
 ```
 
 论文素材与展示库：
