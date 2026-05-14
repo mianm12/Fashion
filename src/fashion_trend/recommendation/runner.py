@@ -466,7 +466,10 @@ def _prepare_cached_scores_for_join(
         if column not in code_maps:
             raise ValueError(f"cached join column missing from candidates: {column}")
         mapped = result[column].astype("string").map(code_maps[column])
-        result = result.loc[mapped.notna()].copy()
+        matched = mapped.notna()
+        if not bool(matched.all()):
+            result = result.loc[matched].copy()
+            mapped = mapped.loc[result.index]
         result[code_column] = mapped.loc[result.index].astype("int64")
         join_keys.append(code_column)
 
