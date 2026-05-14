@@ -27,11 +27,11 @@ def iter_enhanced_weight_grid() -> list[dict[str, float]]:
     ]
 
 
-def select_best_enhanced_weights(results: list[dict[str, Any]]) -> dict[str, float]:
+def select_best_enhanced_result(results: list[dict[str, Any]]) -> dict[str, Any]:
     if not results:
         raise ValueError("enhanced grid search results are empty")
 
-    best = min(
+    return min(
         results,
         key=lambda item: (
             -float(dict(item["valid_metrics"])["map_at_12"]),
@@ -39,6 +39,10 @@ def select_best_enhanced_weights(results: list[dict[str, Any]]) -> dict[str, flo
             int(item["grid_index"]),
         ),
     )
+
+
+def select_best_enhanced_weights(results: list[dict[str, Any]]) -> dict[str, float]:
+    best = select_best_enhanced_result(results)
     return {
         feature: float(dict(best["weights"])[feature])
         for feature in ENHANCED_RECOMMENDATION_SCORE_COLUMNS

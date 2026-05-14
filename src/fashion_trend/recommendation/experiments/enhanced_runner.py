@@ -20,6 +20,7 @@ from fashion_trend.recommendation.experiments.enhanced_diagnostics import (
 )
 from fashion_trend.recommendation.experiments.enhanced_grid_search import (
     iter_enhanced_weight_grid,
+    select_best_enhanced_result,
     select_best_enhanced_weights,
 )
 from fashion_trend.recommendation.experiments.runner import (
@@ -120,12 +121,14 @@ def run_recommendation_enhanced_experiment(
         force=force_cache or force_rebuild_all or force_experiment,
     )
     best_weights = select_best_enhanced_weights(search_results)
+    best_search_result = select_best_enhanced_result(search_results)
     enhanced_metrics = evaluate_enhanced_weights_by_split(
         weights=best_weights,
         context=context,
         inputs=inputs,
         candidates=candidates,
         force=force_cache or force_rebuild_all,
+        valid_metrics=dict(best_search_result["valid_metrics"]),
     )
     post_seen_candidates = filter_seen_candidates_for_diagnostics(
         candidates,
@@ -272,27 +275,35 @@ def evaluate_enhanced_weights_by_split(
     inputs: RecommendationInputArtifacts,
     candidates: pd.DataFrame,
     force: bool = False,
+    valid_metrics: dict[str, float] | None = None,
 ) -> dict[str, dict[str, float]]:
     metrics_by_split: dict[str, dict[str, float]] = {}
-    recommendable_pool = ensure_or_build_recommendable_pool_cache(
-        context,
-        inputs,
-        force=force,
-    )
     for split in ("valid", "test"):
-        result = build_recommendation_result_in_memory(
-            method_name=ENHANCED_METHOD,
-            weights=weights,
-            split_filter=split,
+        if split == "valid" and valid_metrics is not None:
+            metrics_by_split[split] = dict(valid_metrics)
+            continue
+
+        recommendable_pool = _recommendable_pool_for_split(
+            context=context,
+            inputs=inputs,
+            split=split,
+            force=force,
+        )
+        feature_windows = _prepare_cached_enhanced_feature_windows(
+            split=split,
             context=context,
             inputs=inputs,
             candidates=candidates,
         )
+        recommendations = _rank_cached_feature_windows(
+            feature_windows,
+            weights=weights,
+        )
         metrics = evaluate_recommendations(
-            result.recommendations,
+            recommendations,
             _filter_split(inputs.target_users, split),
             _filter_split(inputs.evaluation_labels, split),
-            _filter_split(recommendable_pool, split),
+            recommendable_pool,
             top_k=RECOMMENDATION_TOP_K,
             strict_missing_users=False,
         )

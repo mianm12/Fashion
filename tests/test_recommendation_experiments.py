@@ -530,6 +530,95 @@ def test_enhanced_comparison_methods_read_existing_metrics_payloads(
     )
 
 
+def test_enhanced_final_metrics_reuse_valid_search_metrics(monkeypatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        enhanced_runner,
+        "build_recommendation_result_in_memory",
+        lambda *args, **kwargs: pytest.fail("final metrics should use cached windows"),
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "_recommendable_pool_for_split",
+        lambda *args, **kwargs: pd.DataFrame(
+            {
+                "split": ["test"],
+                "cutoff_week": [11],
+                "label_week": [12],
+                "article_id": ["0000000001"],
+            }
+        ),
+    )
+
+    def prepare_windows(*, split, **kwargs):
+        calls.append(split)
+        return [
+            (
+                {"split": split, "cutoff_week": 11, "label_week": 12},
+                pd.DataFrame(),
+            )
+        ]
+
+    monkeypatch.setattr(
+        enhanced_runner,
+        "_prepare_cached_enhanced_feature_windows",
+        prepare_windows,
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "_rank_cached_feature_windows",
+        lambda feature_windows, weights: pd.DataFrame(
+            {
+                "customer_id": ["c1"],
+                "split": ["test"],
+                "cutoff_week": [11],
+                "label_week": [12],
+                "method": [enhanced_runner.ENHANCED_METHOD],
+                "prediction": ["0000000001"],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        enhanced_runner,
+        "evaluate_recommendations",
+        lambda *args, **kwargs: {"test": {"map_at_12": 0.2}},
+    )
+
+    metrics = enhanced_runner.evaluate_enhanced_weights_by_split(
+        weights=dict(iter_enhanced_weight_grid()[0]),
+        context=RecommendationExperimentContext(
+            transactions=pd.DataFrame(),
+            article_attributes=pd.DataFrame(),
+            trend_predictions=pd.DataFrame(),
+        ),
+        inputs=RecommendationInputArtifacts(
+            time_windows=pd.DataFrame(),
+            target_users=pd.DataFrame(
+                columns=["split", "cutoff_week", "label_week", "customer_id"]
+            ),
+            evaluation_labels=pd.DataFrame(
+                columns=[
+                    "split",
+                    "cutoff_week",
+                    "label_week",
+                    "customer_id",
+                    "article_id",
+                ]
+            ),
+            user_profile=pd.DataFrame(),
+        ),
+        candidates=pd.DataFrame(),
+        valid_metrics={"map_at_12": 0.1},
+    )
+
+    assert metrics == {
+        "valid": {"map_at_12": 0.1},
+        "test": {"map_at_12": 0.2},
+    }
+    assert calls == ["test"]
+
+
 def test_source_level_ablation_recomputes_source_fields_after_filter() -> None:
     candidates = pd.DataFrame(
         [
