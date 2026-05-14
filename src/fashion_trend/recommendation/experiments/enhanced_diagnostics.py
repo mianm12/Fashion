@@ -110,15 +110,14 @@ def filter_candidate_sources_for_ablation(
         raise ValueError("candidates missing candidate_sources")
 
     result = candidates.copy()
-    source_sets = [
-        tuple(
-            source for source in _source_tuple(value) if source not in dropped_sources
-        )
-        for value in result["candidate_sources"]
-    ]
-    keep_mask = [bool(sources) for sources in source_sets]
+    source_lookup = _source_tuple_lookup(
+        result["candidate_sources"],
+        dropped_sources=dropped_sources,
+    )
+    source_sets = result["candidate_sources"].map(source_lookup)
+    keep_mask = source_sets.map(bool)
     result = result.loc[keep_mask].copy().reset_index(drop=True)
-    source_sets = [sources for sources in source_sets if sources]
+    source_sets = source_sets.loc[keep_mask].tolist()
     if result.empty:
         return _empty_like_with_source_columns(candidates)
 
@@ -267,6 +266,20 @@ def _source_tuple(value: Any) -> tuple[str, ...]:
     return tuple(sorted(set(sources), key=SOURCE_ORDER.__getitem__))
 
 
+def _source_tuple_lookup(
+    values: pd.Series,
+    *,
+    dropped_sources: set[str] | None = None,
+) -> dict[object, tuple[str, ...]]:
+    dropped_sources = dropped_sources or set()
+    return {
+        value: tuple(
+            source for source in _source_tuple(value) if source not in dropped_sources
+        )
+        for value in values.drop_duplicates()
+    }
+
+
 def _validate_sources(sources: set[str]) -> None:
     unknown = sorted(sources - set(SOURCE_ORDER))
     if unknown:
@@ -295,8 +308,9 @@ def _with_recomputed_source_scores(candidates: pd.DataFrame) -> pd.DataFrame:
         rank_values,
     )
     if "candidate_sources" in result.columns:
+        source_lookup = _source_tuple_lookup(result["candidate_sources"])
         source_counts = result["candidate_sources"].map(
-            lambda value: len(_source_tuple(value))
+            {value: len(sources) for value, sources in source_lookup.items()}
         )
     else:
         source_counts = pd.Series([0] * len(result), index=result.index)

@@ -15,7 +15,10 @@ from fashion_trend.recommendation.contracts import (
     CANDIDATE_ITEM_COLUMNS,
     ENHANCED_RECOMMENDATION_SCORE_COLUMNS,
 )
-from fashion_trend.recommendation.experiments import enhanced_runner
+from fashion_trend.recommendation.experiments import (
+    enhanced_diagnostics,
+    enhanced_runner,
+)
 from fashion_trend.recommendation.experiments import runner as experiment_runner
 from fashion_trend.recommendation.experiments.ablation import build_ablation_summary
 from fashion_trend.recommendation.experiments.enhanced_diagnostics import (
@@ -713,6 +716,51 @@ def test_source_level_ablation_recomputes_source_fields_after_filter() -> None:
     assert filtered.loc[0, "allow_seen"] is True
     assert filtered.loc[0, "source_rank_score"] != 999.0
     assert filtered.loc[0, "source_count_score"] != 999.0
+
+
+def test_source_filter_reuses_repeated_source_parsing(monkeypatch) -> None:
+    candidates = pd.DataFrame(
+        [
+            {
+                "split": "valid",
+                "cutoff_week": 10,
+                "label_week": 11,
+                "strategy": "enhanced_default",
+                "customer_id": f"u{index}",
+                "article_id": f"a{index}",
+                "candidate_sources": "trend|reorder",
+                "primary_source": "trend",
+                "best_source_rank": 1,
+                "has_reorder_source": True,
+                "allow_seen": True,
+                "source_rank_score": 0.0,
+                "source_count_score": 0.0,
+            }
+            for index in range(100)
+        ]
+    )
+    calls: list[str] = []
+    original_source_tuple = enhanced_diagnostics._source_tuple
+
+    def wrapped_source_tuple(value):
+        calls.append(str(value))
+        return original_source_tuple(value)
+
+    monkeypatch.setattr(
+        enhanced_diagnostics,
+        "_source_tuple",
+        wrapped_source_tuple,
+    )
+
+    filtered = filter_candidate_sources_for_ablation(
+        candidates,
+        dropped_sources={"trend"},
+        strategy="enhanced_default",
+    )
+
+    assert len(filtered) == 100
+    assert filtered["candidate_sources"].unique().tolist() == ["reorder"]
+    assert calls == ["trend|reorder", "reorder"]
 
 
 def test_enhanced_seen_filtered_filters_all_seen_items() -> None:
