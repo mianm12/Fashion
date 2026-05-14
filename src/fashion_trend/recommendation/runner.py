@@ -55,6 +55,12 @@ COMMON_METHOD_INPUT_KEYS = (
     "target_users",
 )
 SCORE_COLUMNS = ENHANCED_RECOMMENDATION_SCORE_COLUMNS
+_ARTICLE_CODE_COLUMN = "__article_code"
+_CUSTOMER_CODE_COLUMN = "__customer_code"
+_CODE_JOIN_COLUMNS = {
+    "article_id": _ARTICLE_CODE_COLUMN,
+    "customer_id": _CUSTOMER_CODE_COLUMN,
+}
 FEATURE_REQUIRED_INPUT_KEYS = {
     "candidate_seen_flags": ("weekly_transactions", "candidate_items"),
     "popularity_scores": ("weekly_transactions", "candidate_items"),
@@ -358,7 +364,7 @@ def build_cached_feature_frame_for_window(
     required_features: Sequence[str],
     input_paths: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
-    feature_frame = candidates.copy()
+    feature_frame, code_maps = _with_cached_join_codes(candidates)
     for score_column in SCORE_COLUMNS:
         if score_column not in feature_frame.columns:
             feature_frame[score_column] = 0.0
@@ -396,9 +402,15 @@ def build_cached_feature_frame_for_window(
                 current_input_paths=input_paths,
             )
         scores = pd.read_parquet(path).loc[:, [*join_columns, score_column]]
+        scores, join_keys = _prepare_cached_scores_for_join(
+            scores,
+            join_columns=join_columns,
+            score_column=score_column,
+            code_maps=code_maps,
+        )
         feature_frame = feature_frame.merge(
-            scores.drop_duplicates(join_columns),
-            on=join_columns,
+            scores,
+            on=join_keys,
             how="left",
             suffixes=("", "_cached"),
         )
@@ -412,7 +424,58 @@ def build_cached_feature_frame_for_window(
         used_artifacts.extend([str(path), str(metadata_path)])
 
     feature_frame["method"] = method_name
+    feature_frame = feature_frame.drop(
+        columns=[_ARTICLE_CODE_COLUMN, _CUSTOMER_CODE_COLUMN],
+        errors="ignore",
+    )
     return feature_frame, used_artifacts
+
+
+def _with_cached_join_codes(
+    candidates: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, pd.Series]]:
+    feature_frame = candidates.copy()
+    code_maps: dict[str, pd.Series] = {}
+    for column, code_column in _CODE_JOIN_COLUMNS.items():
+        if column not in feature_frame.columns:
+            continue
+        codes, uniques = pd.factorize(
+            feature_frame[column].astype("string"), sort=False
+        )
+        feature_frame[code_column] = codes
+        code_maps[column] = pd.Series(
+            range(len(uniques)),
+            index=pd.Index(uniques.astype("string")),
+        )
+    return feature_frame, code_maps
+
+
+def _prepare_cached_scores_for_join(
+    scores: pd.DataFrame,
+    *,
+    join_columns: Sequence[str],
+    score_column: str,
+    code_maps: dict[str, pd.Series],
+) -> tuple[pd.DataFrame, list[str]]:
+    result = scores
+    join_keys: list[str] = []
+    for column in join_columns:
+        code_column = _CODE_JOIN_COLUMNS.get(column)
+        if code_column is None:
+            continue
+        if column not in code_maps:
+            raise ValueError(f"cached join column missing from candidates: {column}")
+        mapped = result[column].astype("string").map(code_maps[column])
+        result = result.loc[mapped.notna()].copy()
+        result[code_column] = mapped.loc[result.index].astype("int64")
+        join_keys.append(code_column)
+
+    if not join_keys:
+        raise ValueError(f"cached score feature has no item join keys: {join_columns}")
+    return (
+        result.loc[:, [*join_keys, score_column]].drop_duplicates(join_keys),
+        join_keys,
+    )
 
 
 def build_cached_recommendation_result_for_window(
