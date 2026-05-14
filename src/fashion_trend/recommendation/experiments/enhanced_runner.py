@@ -609,17 +609,21 @@ def _build_cached_enhanced_ablation_recommendations(
         window_candidates = _frame_for_window(split_candidates, window)
         if window_candidates.empty:
             continue
+        filtered_candidates, _, _ = filter_cached_seen_items(
+            window_candidates,
+            strategy=ENHANCED_STRATEGY,
+            window=window,
+            input_paths=input_paths,
+        )
+        if filtered_candidates.empty:
+            continue
         feature_frame, _ = build_cached_feature_frame_for_window(
             method_name=ENHANCED_METHOD,
             strategy=ENHANCED_STRATEGY,
             window=window,
-            candidates=window_candidates,
+            candidates=filtered_candidates,
             required_features=cached_required_features,
             input_paths=input_paths,
-        )
-        feature_frame = filter_seen_candidates_for_diagnostics(
-            feature_frame,
-            context.transactions,
         )
         ranked = rank_candidate_items(
             feature_frame,
