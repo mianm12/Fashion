@@ -64,6 +64,7 @@ wo_sibling_competition
 NDCG@10
 Spearman
 Precision@10
+Recall@10
 ```
 
 MAE 和 RMSE 保留为辅助诊断，不作为本实验的主要结论依据。
@@ -122,9 +123,10 @@ data/processed/features/trend_model_samples_valid.parquet
 data/processed/features/trend_model_samples_test.parquet
 data/processed/graph/nodes_attribute.csv
 data/processed/graph/edges_attribute_hierarchy.csv
+outputs/models/lightgbm/params.json
 ```
 
-输入缺失时直接失败，不做 fallback，不重建上游数据。
+默认样本和图 artifact 缺失时直接失败，不做 fallback，不重建上游数据。LightGBM 参数解析沿用当前 stable-or-default 语义：优先读取 `outputs/models/lightgbm/params.json`，如果该文件不存在则使用源码内置默认参数；两种情况都必须写入 `input_hashes.json` 和每个 run 的 `params.json`，记录实际 resolved 参数来源。
 
 增强特征只读取当前周 `t` 及以前在默认趋势样本中已经存在的字段，例如：
 
@@ -183,7 +185,24 @@ sibling 规则：
 
 - sibling 是与当前节点共享至少一个直接父节点的其他子节点。
 - 多父节点时，所有父节点贡献都保留。
-- sibling 加权可由父边权和 sibling 边权组合得到，并归一化为加权均值。
+- sibling 权重公式固定，不由实现自行选择：
+
+```text
+raw_sibling_weight(current, sibling, parent)
+  = edge_weight(parent, current) * edge_weight(parent, sibling)
+
+raw_sibling_weight(current, sibling)
+  = sum(raw_sibling_weight(current, sibling, parent)
+        for every shared parent)
+
+normalized_sibling_weight(current, sibling)
+  = raw_sibling_weight(current, sibling)
+    / sum(raw_sibling_weight(current, other_sibling)
+          for every sibling of current)
+```
+
+- sibling 加权均值使用 `normalized_sibling_weight`。
+- sibling max 特征使用 sibling 集合上的原始动态值最大值，不做权重放大。
 - 没有 sibling 时 sibling 动态字段补 0，并通过 `kg_has_sibling` 标记解释。
 
 ## 增强特征组
@@ -280,13 +299,15 @@ kg_self_child_share_gap_t
 kg_self_child_growth_gap_lag_1
 ```
 
-排名类聚合统一使用 `rank_pct` 口径，不直接聚合原始 rank。建议口径为同一 `week_id + attr_type` 内：
+排名类聚合统一使用 `rank_pct` 口径，不直接聚合原始 rank。固定口径为同一 `week_id + attr_type` 内：
 
 ```text
 rank_pct_t = (rank_in_type_t - 1) / max(type_attr_count - 1, 1)
 ```
 
 这样数值越小代表排名越靠前，且不同属性类型之间更可比。
+
+`rank_pct_t` 只作为 `build_features` 阶段的内部 helper，不写入 `enhanced_samples_*.parquet`，也不进入任何 feature mask。落盘字段只能是带 `kg_` 前缀的聚合结果，例如 `kg_parent_rank_pct_t_wavg`、`kg_child_rank_pct_t_wavg` 和 `kg_sibling_rank_pct_t_wavg`。如果后续为了调试临时落盘 helper，字段名也必须使用 `kg_` 前缀，并且必须在 `feature_schema.json` 中标记为 `debug_only=true` 且不进入任何 variant mask。
 
 ### sibling_competition
 
@@ -426,6 +447,17 @@ outputs/experiments/trend_graph_feature_ablation/
 - 新增数值特征无缺失且全部为有限值。
 - 新增特征名统一使用 `kg_` 前缀。
 
+主键口径固定为：
+
+| 样本文件 | 主键列 |
+| --- | --- |
+| `enhanced_samples_all.parquet` | `week_id + attr_id` |
+| `enhanced_samples_train.parquet` | `split + week_id + attr_id` |
+| `enhanced_samples_valid.parquet` | `split + week_id + attr_id` |
+| `enhanced_samples_test.parquet` | `split + week_id + attr_id` |
+
+`enhanced_samples_all.parquet` 不新增 `split` 列；all 样本的 split 归属只能通过默认 split 文件的主键集合推导，不能在 all 文件中混入 split 字段。
+
 ### feature_groups.json
 
 记录：
@@ -442,6 +474,7 @@ outputs/experiments/trend_graph_feature_ablation/
 - 每个 variant 不包含目标列、标识列或 split 列。
 - 每个 variant 不包含未知字段。
 - `current_coarse_graph` 不包含新增 `kg_*` 特征。
+- `current_coarse_graph` 的有序 feature mask 必须与 stable LightGBM 当前训练特征集合一致，即 `LIGHTGBM_NUMERIC_FEATURES + LIGHTGBM_CATEGORICAL_FEATURES`。该校验失败时直接失败，避免把当前粗图版本和 stable LightGBM 特征集合写成两个不同口径。
 - `no_graph` 不包含 `coarse_graph` 或新增 `kg_*` 特征。
 
 ### feature_schema.json
@@ -490,7 +523,10 @@ trend_model_samples_valid.parquet
 trend_model_samples_test.parquet
 nodes_attribute.csv
 edges_attribute_hierarchy.csv
+outputs/models/lightgbm/params.json
 ```
+
+`outputs/models/lightgbm/params.json` 即使不存在也必须记录一条 entry，包含 `exists=false`、`hash=null`、`row_count=null` 和最终参数来源说明；如果存在，则按文件字节计算 SHA-256。
 
 ### Run Artifacts
 
@@ -501,11 +537,37 @@ edges_attribute_hierarchy.csv
 | `predictions.csv` | 标准趋势预测列，覆盖 train/valid/test |
 | `metrics.json` | valid/test 趋势评价指标 |
 | `feature_importance.csv` | LightGBM split/gain importance |
-| `metadata.json` | variant、feature mask、输入 hash、输出路径、训练摘要 |
+| `metadata.json` | variant、feature mask、feature mask digest、输入 hash、输出路径、训练摘要 |
 | `params.json` | 实际 resolved LightGBM 参数和 early stopping 配置 |
 | `model.txt` | LightGBM booster 文本模型 |
 
 `params.json` 必须记录实际 resolved 参数，而不是只记录源码默认或用户输入片段。
+
+`predictions.csv` 必须包含并固定使用以下字段，确保 `metrics.json` 可以独立复算：
+
+```text
+week_id
+attr_id
+attr_type
+attr_value
+model_name
+split
+share_t
+pred_share_t1
+target_growth
+pred_target_growth
+target_rank_in_type_t1
+```
+
+`metadata.json` 至少额外记录：
+
+```text
+feature_mask_digest
+best_iteration
+training_elapsed_seconds
+```
+
+`feature_mask_digest` 使用 SHA-256，对 variant 名称、ordered numeric feature list、ordered categorical feature list 和 schema version 进行稳定序列化后计算。
 
 ### metrics_summary
 
@@ -517,11 +579,13 @@ feature_count
 valid_ndcg_at_10
 valid_spearman
 valid_precision_at_10
+valid_recall_at_10
 valid_mae
 valid_rmse
 test_ndcg_at_10
 test_spearman
 test_precision_at_10
+test_recall_at_10
 test_mae
 test_rmse
 ```
@@ -601,6 +665,7 @@ wo_sibling_competition
 ndcg@10
 spearman
 precision@10
+recall@10
 ```
 
 辅助指标：
@@ -644,7 +709,7 @@ summary 不写入默认 reports，不进入 `outputs/reports/manifest.json`。
 
 ## 错误处理
 
-- 输入 artifact 缺失时直接失败。
+- 默认样本和图 artifact 缺失时直接失败；`outputs/models/lightgbm/params.json` 缺失时按 stable-or-default 语义记录 `exists=false` 并使用内置默认参数。
 - 输入字段缺失、主键重复、目标列不一致或 row alignment 失败时直接失败。
 - 新增 `kg_*` 特征存在缺失值或非有限值时直接失败。
 - feature mask 包含未知列、目标列、标识列或 split 列时直接失败。
@@ -652,7 +717,45 @@ summary 不写入默认 reports，不进入 `outputs/reports/manifest.json`。
 - 任一 run 评价失败时整个脚本返回非零。
 - 失败时不生成伪完整 `metrics_summary.csv/md`。
 - 输出目录存在时可以覆盖实验目录内同名产物，但不得删除或覆盖实验目录外文件。
-- 写文件应使用原子写入或先写临时路径后替换，避免半成品被误读为完整结果。
+- 写文件必须使用 staging 目录或文件级原子替换，避免半成品被误读为完整结果。
+
+### Forbidden Write Path Guard
+
+实验 runner 必须在任何写入前对目标路径做 guard 校验：
+
+- 所有输出路径必须位于 `outputs/experiments/trend_graph_feature_ablation/` 内。
+- 解析后的绝对路径不得逃逸实验根目录。
+- 禁止写入或替换以下路径及其子路径：
+
+```text
+data/processed/features/trend_model_samples.parquet
+data/processed/features/trend_model_samples_train.parquet
+data/processed/features/trend_model_samples_valid.parquet
+data/processed/features/trend_model_samples_test.parquet
+outputs/models/lightgbm/
+outputs/metrics/lightgbm/
+outputs/reports/
+outputs/defense_app/
+apps/defense_app/
+```
+
+如果任何待写路径命中 forbidden path，脚本必须在开始写文件前失败。
+
+### Staging 与原子发布
+
+实验写入必须同时满足 staging 和文件级 atomic rename 规则：
+
+1. 将本次运行的中间文件写入实验根目录下的 staging 目录：
+
+```text
+outputs/experiments/trend_graph_feature_ablation/.staging/<run_token>/
+```
+
+2. 单个文件先写同目录临时文件，再用 atomic rename 替换最终文件。
+3. run 目录中的文件全部生成并校验通过后，再发布到 `runs/<variant>/`。
+4. `metrics_summary.csv/md`、`experiment.md` 和 `manifest.json` 必须最后发布。
+5. 如果最终目录已存在，只能替换本设计列出的实验文件，不做递归删除。
+6. staging 目录清理只能作用于实验根目录下的 `.staging/<run_token>/`，不得清理实验根目录外路径。
 
 ## 测试计划
 
@@ -672,13 +775,20 @@ tests/test_trend_graph_feature_ablation_runner.py
 - 无 sibling 时补 0，并设置 `kg_has_sibling = 0`。
 - sibling 聚合排除当前节点自身。
 - rank 聚合使用 `rank_pct`，不直接聚合原始 rank。
+- `rank_pct_t` 仅作为内部 helper，不落盘；如后续 debug 落盘，必须使用 `kg_` 前缀且不进入任何 mask。
 - `row_alignment_check.json` 能发现行数变化、排序变化、主键变化和目标列变化。
 - `feature_groups.json` 中五个 variant 的 mask 与设计一致。
 - `no_graph` 不包含粗图结构和 `kg_*` 特征。
 - `current_coarse_graph` 不包含新增 `kg_*` 特征。
+- `current_coarse_graph` 有序 feature mask 与 stable LightGBM 当前训练特征集合一致。
 - `wo_hierarchy_context` 只移除 `hierarchy_context`，保留 `light_structure`。
+- `predictions.csv` 包含复算 `metrics.json` 所需的全部固定字段。
+- `metrics.json` 和 `metrics_summary.csv/md` 包含 `recall@10`。
+- `metadata.json` 包含 `feature_mask_digest`、`best_iteration` 和 `training_elapsed_seconds`。
 - 训练阶段使用同一 resolved params。
 - 训练阶段不写 `outputs/models/lightgbm/`。
+- forbidden write path guard 会拒绝实验根目录外和默认 stable/report/defense app 路径。
+- staging 或文件级 atomic rename 失败时不发布伪完整结果。
 - 评价和 summary 只写实验目录。
 - `src/19_run_trend_graph_feature_ablation.py` 任一阶段失败时返回非零。
 
@@ -703,7 +813,7 @@ uv run python src/19_run_trend_graph_feature_ablation.py
 - 五个 `runs/<variant>/` 目录全部存在。
 - 每个 run 都包含 `predictions.csv`、`metrics.json`、`feature_importance.csv`、`metadata.json`、`params.json`、`model.txt`。
 - `metrics_summary.csv` 和 `metrics_summary.md` 存在。
-- `metrics_summary` 同时包含 valid/test 的 `ndcg@10`、`spearman`、`precision@10`。
+- `metrics_summary` 同时包含 valid/test 的 `ndcg@10`、`spearman`、`precision@10`、`recall@10`。
 - `outputs/models/lightgbm/`、`outputs/reports/` 和 defense app 数据源没有被本实验写入。
 
 ## 文档同步
