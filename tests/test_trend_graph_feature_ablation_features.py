@@ -5,6 +5,7 @@ import math
 import pandas as pd
 import pytest
 
+import experiments.trend_graph_feature_ablation.build_features as build_features_module
 from experiments.trend_graph_feature_ablation.build_features import (
     build_graph_context_features,
 )
@@ -180,6 +181,82 @@ def test_target_week_columns_do_not_affect_graph_features() -> None:
     changed = build_graph_context_features(mutated, _sample_edges())
 
     pd.testing.assert_frame_equal(changed, baseline)
+
+
+def test_repeated_attr_ids_are_aggregated_by_week_without_row_amplification() -> None:
+    samples = pd.concat(
+        [
+            _sample_graph_samples(),
+            _sample_graph_samples().assign(
+                week_id=5,
+                share_t=[0.10, 0.90, 0.40, 0.30, 0.20, 0.05],
+                growth_lag_1=[0.20, 0.40, 0.60, 0.10, -0.20, 0.00],
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    features = build_graph_context_features(samples, _sample_edges())
+    child_x = features.set_index(["week_id", "attr_id"]).loc[(5, "child::X")]
+
+    assert len(features) == len(samples)
+    assert list(features["week_id"]) == list(samples["week_id"])
+    assert list(features["attr_id"]) == list(samples["attr_id"])
+    assert math.isclose(child_x["kg_parent_share_t_wavg"], 0.70)
+    assert math.isclose(child_x["kg_self_parent_share_gap_t"], -0.30)
+
+
+def test_duplicate_edges_accumulate_weight_in_one_hop_aggregation() -> None:
+    edges = _sample_edges()
+    duplicate = edges.iloc[[0]].copy()
+    duplicate["relation_type"] = "also_contains"
+    duplicate["edge_weight"] = 8.0
+    edges = pd.concat([edges, duplicate], ignore_index=True)
+
+    features = build_graph_context_features(_sample_graph_samples(), edges)
+    child_x = features.set_index("attr_id").loc["child::X"]
+
+    assert math.isclose(child_x["kg_parent_share_t_wavg"], 0.4375)
+    assert math.isclose(child_x["kg_parent_edge_weight_sum"], 16.0)
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    (
+        ("heat_t", float("nan")),
+        ("share_t", float("inf")),
+        ("growth_lag_1", "-"),
+        ("rank_in_type_t", "first"),
+    ),
+)
+def test_source_dynamic_columns_must_be_numeric_and_finite(
+    column: str,
+    value: object,
+) -> None:
+    samples = _sample_graph_samples()
+    samples[column] = samples[column].astype(object)
+    samples.loc[0, column] = value
+
+    with pytest.raises(ValueError, match=f"graph context source.*{column}"):
+        build_graph_context_features(samples, _sample_edges())
+
+
+def test_output_alignment_guard_rejects_row_amplification(monkeypatch) -> None:
+    def duplicate_structure_rows(*args, **kwargs) -> pd.DataFrame:
+        frame = build_features_module._zero_feature_frame(
+            _sample_graph_samples(),
+            list(LIGHT_STRUCTURE_FEATURES),
+        )
+        return pd.concat([frame, frame.iloc[[0]]], ignore_index=True)
+
+    monkeypatch.setattr(
+        build_features_module,
+        "_build_light_structure_features",
+        duplicate_structure_rows,
+    )
+
+    with pytest.raises(ValueError, match="row alignment"):
+        build_graph_context_features(_sample_graph_samples(), _sample_edges())
 
 
 @pytest.mark.parametrize("edge_weight", [0, -1, float("nan"), "heavy"])

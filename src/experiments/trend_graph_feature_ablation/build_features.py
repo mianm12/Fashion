@@ -30,6 +30,12 @@ _DYNAMIC_CONTEXT_COLUMNS: tuple[str, ...] = (
     "growth_lag_1",
     "rank_pct_t",
 )
+_NUMERIC_SOURCE_COLUMNS: tuple[str, ...] = (
+    "heat_t",
+    "share_t",
+    "growth_lag_1",
+    "rank_in_type_t",
+)
 
 
 def build_graph_context_features(
@@ -95,6 +101,7 @@ def build_graph_context_features(
     features[kg_columns] = features[kg_columns].fillna(0.0)
     _add_hierarchy_gap_features(features)
     features = features.loc[:, output_columns]
+    _validate_output_alignment(features, samples_all)
     _validate_kg_features(features, kg_columns)
     return features
 
@@ -116,12 +123,27 @@ def _prepare_hierarchy_edges(hierarchy_edges: pd.DataFrame) -> pd.DataFrame:
 
 def _build_base_context_frame(samples_all: pd.DataFrame) -> pd.DataFrame:
     base = samples_all.loc[:, list(GRAPH_CONTEXT_SOURCE_COLUMNS)].copy()
+    _coerce_numeric_source_columns(base)
     type_counts = base.groupby(["week_id", "attr_type"])["attr_id"].transform("count")
     denominator = (type_counts - 1).clip(lower=1)
     base["rank_pct_t"] = (
-        pd.to_numeric(base["rank_in_type_t"], errors="raise").astype(float) - 1.0
+        base["rank_in_type_t"].astype(float) - 1.0
     ) / denominator.astype(float)
     return base
+
+
+def _coerce_numeric_source_columns(base: pd.DataFrame) -> None:
+    for column in _NUMERIC_SOURCE_COLUMNS:
+        try:
+            base[column] = pd.to_numeric(base[column], errors="raise")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"graph context source column {column} contains non-numeric values"
+            ) from exc
+        if not np.isfinite(base[column].to_numpy(dtype=float)).all():
+            raise ValueError(
+                f"graph context source column {column} contains non-finite values"
+            )
 
 
 def _aggregate_neighbor_features(
@@ -391,3 +413,15 @@ def _validate_kg_features(features: pd.DataFrame, kg_columns: list[str]) -> None
     values = features.loc[:, kg_columns].to_numpy(dtype=float)
     if not np.isfinite(values).all():
         raise ValueError("graph context kg features contain non-finite values")
+
+
+def _validate_output_alignment(
+    features: pd.DataFrame,
+    samples_all: pd.DataFrame,
+) -> None:
+    expected = samples_all.loc[:, ["week_id", "attr_id"]].reset_index(drop=True)
+    actual = features.loc[:, ["week_id", "attr_id"]].reset_index(drop=True)
+    if len(actual) != len(expected) or not actual.equals(expected):
+        raise ValueError(
+            "graph context row alignment mismatch: output rows must match samples_all"
+        )
