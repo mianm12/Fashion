@@ -290,6 +290,20 @@ def test_enhanced_sample_frames_reject_missing_split_column() -> None:
         )
 
 
+def test_enhanced_sample_frames_reject_missing_split_values() -> None:
+    split_samples = _split_samples()
+    split_samples["valid"] = split_samples["valid"].copy()
+    split_samples["valid"]["split"] = split_samples["valid"]["split"].astype("string")
+    split_samples["valid"].loc[split_samples["valid"].index[0], "split"] = pd.NA
+
+    with pytest.raises(ValueError, match="split.*缺失|split.*missing"):
+        build_enhanced_sample_frames(
+            _sample_graph_samples(),
+            split_samples,
+            _sample_edges(),
+        )
+
+
 def test_enhanced_sample_frames_reject_split_value_mismatch() -> None:
     split_samples = _split_samples()
     split_samples["train"] = split_samples["train"].copy()

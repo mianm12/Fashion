@@ -229,6 +229,8 @@ def _validate_split_samples(split_samples: dict[str, pd.DataFrame]) -> None:
             (*SPLIT_SAMPLE_KEY_COLUMNS, *TARGET_COLUMNS),
             source_name=f"{split_name} trend samples",
         )
+        if bool(frame["split"].isna().any()):
+            raise ValueError(f"{split_name} samples split 列存在缺失值")
         mismatched_split = frame["split"].ne(split_name)
         if bool(mismatched_split.any()):
             bad_values = sorted(
