@@ -44,9 +44,15 @@ def digest_dataframe_columns(dataframe: pd.DataFrame, columns: tuple[str, ...]) 
         column_bytes = column.encode("utf-8")
         digest.update(len(column_bytes).to_bytes(8, byteorder="big"))
         digest.update(column_bytes)
-        values = dataframe[column].astype("string").fillna("<NA>")
-        for value in values:
-            value_bytes = str(value).encode("utf-8")
+        for value in dataframe[column]:
+            if pd.isna(value):
+                kind_bytes = b"NULL"
+                value_bytes = b""
+            else:
+                kind_bytes = b"VALUE"
+                value_bytes = str(value).encode("utf-8")
+            digest.update(len(kind_bytes).to_bytes(8, byteorder="big"))
+            digest.update(kind_bytes)
             digest.update(len(value_bytes).to_bytes(8, byteorder="big"))
             digest.update(value_bytes)
     return digest.hexdigest()

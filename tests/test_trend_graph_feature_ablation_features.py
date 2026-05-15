@@ -254,6 +254,42 @@ def test_enhanced_sample_frames_reject_missing_split() -> None:
         )
 
 
+def test_enhanced_sample_frames_reject_unexpected_split_key() -> None:
+    split_samples = _split_samples()
+    split_samples["dev"] = split_samples["train"].copy().assign(split="dev")
+
+    with pytest.raises(ValueError, match="非法 split"):
+        build_enhanced_sample_frames(
+            _sample_graph_samples(),
+            split_samples,
+            _sample_edges(),
+        )
+
+
+def test_enhanced_sample_frames_reject_empty_split() -> None:
+    split_samples = _split_samples()
+    split_samples["valid"] = split_samples["valid"].iloc[0:0].copy()
+
+    with pytest.raises(ValueError, match="valid.*为空|valid.*empty"):
+        build_enhanced_sample_frames(
+            _sample_graph_samples(),
+            split_samples,
+            _sample_edges(),
+        )
+
+
+def test_enhanced_sample_frames_reject_missing_split_column() -> None:
+    split_samples = _split_samples()
+    split_samples["test"] = split_samples["test"].drop(columns=["split"])
+
+    with pytest.raises(ValueError, match="test.*split"):
+        build_enhanced_sample_frames(
+            _sample_graph_samples(),
+            split_samples,
+            _sample_edges(),
+        )
+
+
 def test_enhanced_sample_frames_reject_split_value_mismatch() -> None:
     split_samples = _split_samples()
     split_samples["train"] = split_samples["train"].copy()
@@ -311,6 +347,15 @@ def test_digest_dataframe_columns_tracks_row_order_and_values() -> None:
     assert baseline != digest_dataframe_columns(mutated, ("week_id", "attr_id"))
     with pytest.raises(ValueError, match="缺少 checksum 列"):
         digest_dataframe_columns(frame, ("missing",))
+
+
+def test_digest_dataframe_columns_distinguishes_na_from_sentinel_string() -> None:
+    missing = pd.DataFrame({"attr_id": [None]})
+    sentinel = pd.DataFrame({"attr_id": ["<NA>"]})
+
+    assert digest_dataframe_columns(missing, ("attr_id",)) != (
+        digest_dataframe_columns(sentinel, ("attr_id",))
+    )
 
 
 def test_target_week_columns_do_not_affect_graph_features() -> None:

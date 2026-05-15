@@ -209,6 +209,11 @@ def _validate_all_samples(samples_all: pd.DataFrame) -> None:
 def _validate_split_samples(split_samples: dict[str, pd.DataFrame]) -> None:
     if not isinstance(split_samples, dict):
         raise ValueError("split samples must be a dict")
+    unexpected_splits = [
+        split_name for split_name in split_samples if split_name not in _SPLIT_NAMES
+    ]
+    if unexpected_splits:
+        raise ValueError(f"split samples 包含非法 split: {unexpected_splits}")
     missing_splits = [
         split_name for split_name in _SPLIT_NAMES if split_name not in split_samples
     ]
@@ -217,6 +222,8 @@ def _validate_split_samples(split_samples: dict[str, pd.DataFrame]) -> None:
 
     for split_name in _SPLIT_NAMES:
         frame = split_samples[split_name]
+        if frame.empty:
+            raise ValueError(f"{split_name} samples 为空")
         validate_required_columns(
             frame,
             (*SPLIT_SAMPLE_KEY_COLUMNS, *TARGET_COLUMNS),
