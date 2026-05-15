@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
+import experiments.trend_graph_feature_ablation.runner as ablation_runner
 import experiments.trend_graph_feature_ablation.train_runs as train_runs
 from experiments.trend_graph_feature_ablation.contracts import (
+    ABLATION_EXPERIMENT_ID,
     ABLATION_VARIANTS,
+    RUN_ARTIFACT_FILENAMES,
+    SCHEMA_VERSION,
     SUMMARY_COLUMNS,
 )
 from experiments.trend_graph_feature_ablation.evaluate import (
@@ -20,6 +26,7 @@ from experiments.trend_graph_feature_ablation.summarize import (
     build_metrics_summary_frame,
     render_metrics_summary_markdown,
 )
+from experiments.trend_graph_feature_ablation.write_docs import render_experiment_doc
 from fashion_trend.foundation.paths import OUTPUT_DIR
 from fashion_trend.trend.models.supervised.lightgbm import _build_lightgbm_predictions
 from fashion_trend.trend.schema import TREND_MODEL_PREDICTION_COLUMNS
@@ -365,6 +372,253 @@ def test_render_metrics_summary_markdown_falls_back_without_tabulate(
     assert markdown.endswith("\n")
 
 
+def test_render_experiment_doc_contains_non_stable_boundaries() -> None:
+    document = render_experiment_doc(
+        "| variant | valid_ndcg_at_10 |\n|---|---:|\n| no_graph | 0.1 |\n",
+        ["uv", "run", "python", "src/19_run_trend_graph_feature_ablation.py"],
+    )
+
+    assert "非 stable 独立实验" in document
+    assert "不覆盖 `outputs/models/lightgbm/`" in document
+    assert "不写 `outputs/reports/manifest.json`" in document
+    assert "不改变 defense app 数据源" in document
+    assert "reports experimental" in document
+    assert "src/19_run_trend_graph_feature_ablation.py" in document
+
+
+def test_run_trend_graph_feature_ablation_publishes_expected_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_root = tmp_path / ABLATION_EXPERIMENT_ID
+    monkeypatch.setattr(
+        ablation_runner,
+        "_load_input_frames",
+        _fake_runner_inputs,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "_build_input_hashes",
+        _fake_input_hashes,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "build_enhanced_sample_frames",
+        _fake_enhanced_sample_frames,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "run_single_variant",
+        _fake_run_single_variant,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "evaluate_variant_predictions",
+        _fake_evaluate_variant_predictions,
+    )
+
+    payload = ablation_runner.run_trend_graph_feature_ablation(
+        command=["uv", "run", "python", "src/19_run_trend_graph_feature_ablation.py"],
+        experiment_root=experiment_root,
+    )
+
+    assert payload["schema_version"] == SCHEMA_VERSION
+    assert payload["experiment_id"] == ABLATION_EXPERIMENT_ID
+    assert payload["metrics_summary_path"] == str(
+        experiment_root / "metrics_summary.md"
+    )
+    assert not (experiment_root / ".staging").exists()
+
+    expected_paths = [
+        experiment_root / "features" / f"enhanced_samples_{split}.parquet"
+        for split in ("all", "train", "valid", "test")
+    ]
+    expected_paths.extend(
+        [
+            experiment_root / "features" / "feature_groups.json",
+            experiment_root / "features" / "feature_schema.json",
+            experiment_root / "features" / "row_alignment_check.json",
+            experiment_root / "features" / "input_hashes.json",
+            experiment_root / "metrics_summary.csv",
+            experiment_root / "metrics_summary.md",
+            experiment_root / "experiment.md",
+            experiment_root / "manifest.json",
+        ]
+    )
+    for variant in ABLATION_VARIANTS:
+        expected_paths.extend(
+            experiment_root / "runs" / variant / filename
+            for filename in RUN_ARTIFACT_FILENAMES
+        )
+    missing = [path for path in expected_paths if not path.exists()]
+    assert missing == []
+
+    input_hashes = json.loads(
+        (experiment_root / "features" / "input_hashes.json").read_text(encoding="utf-8")
+    )
+    assert input_hashes["stable_lightgbm_params"]["exists"] is False
+    assert input_hashes["stable_lightgbm_params"]["required"] is False
+
+    feature_schema = json.loads(
+        (experiment_root / "features" / "feature_schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert feature_schema["schema_version"] == SCHEMA_VERSION
+    assert isinstance(feature_schema["features"], list)
+
+    manifest = json.loads(
+        (experiment_root / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["schema_version"] == SCHEMA_VERSION
+    assert manifest["experiment_id"] == ABLATION_EXPERIMENT_ID
+    assert manifest["command"] == [
+        "uv",
+        "run",
+        "python",
+        "src/19_run_trend_graph_feature_ablation.py",
+    ]
+    assert manifest["variants"] == list(ABLATION_VARIANTS)
+    assert manifest["warnings"] == []
+    assert manifest["row_alignment"] == {"passed": True}
+    assert manifest["metrics_summary_path"] == str(
+        experiment_root / "metrics_summary.md"
+    )
+
+    rendered_doc = (experiment_root / "experiment.md").read_text(encoding="utf-8")
+    assert "不覆盖 `outputs/models/lightgbm/`" in rendered_doc
+    assert "不写 `outputs/reports/manifest.json`" in rendered_doc
+
+
+def test_run_trend_graph_feature_ablation_does_not_publish_on_stage_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_root = tmp_path / ABLATION_EXPERIMENT_ID
+    monkeypatch.setattr(
+        ablation_runner,
+        "_load_input_frames",
+        _fake_runner_inputs,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "_build_input_hashes",
+        _fake_input_hashes,
+    )
+
+    def fail_build(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        ablation_runner,
+        "build_enhanced_sample_frames",
+        fail_build,
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        ablation_runner.run_trend_graph_feature_ablation(
+            command="test command",
+            experiment_root=experiment_root,
+        )
+
+    assert not (experiment_root / "manifest.json").exists()
+    assert not (experiment_root / "metrics_summary.md").exists()
+
+
+def test_trend_graph_feature_ablation_cli_success_and_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cli = _load_ablation_cli_module()
+    observed: dict[str, object] = {}
+
+    def fake_success(*, command):
+        observed["command"] = command
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "metrics_summary_path": "outputs/experiments/x/metrics_summary.md",
+        }
+
+    monkeypatch.setattr(cli, "run_trend_graph_feature_ablation", fake_success)
+
+    assert cli.main([]) == 0
+    assert observed["command"] == [
+        "uv",
+        "run",
+        "python",
+        "src/19_run_trend_graph_feature_ablation.py",
+    ]
+
+    def fake_failure(*, command):
+        raise RuntimeError("failed")
+
+    monkeypatch.setattr(cli, "run_trend_graph_feature_ablation", fake_failure)
+
+    assert cli.main([]) == 1
+
+
+def test_trend_graph_feature_ablation_manifest_stays_under_experiment_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_root = tmp_path / ABLATION_EXPERIMENT_ID
+    monkeypatch.setattr(
+        ablation_runner,
+        "_load_input_frames",
+        _fake_runner_inputs,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "_build_input_hashes",
+        _fake_input_hashes,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "build_enhanced_sample_frames",
+        _fake_enhanced_sample_frames,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "run_single_variant",
+        _fake_run_single_variant,
+    )
+    monkeypatch.setattr(
+        ablation_runner,
+        "evaluate_variant_predictions",
+        _fake_evaluate_variant_predictions,
+    )
+
+    ablation_runner.run_trend_graph_feature_ablation(
+        command="test command",
+        experiment_root=experiment_root,
+    )
+
+    manifest = json.loads(
+        (experiment_root / "manifest.json").read_text(encoding="utf-8")
+    )
+    artifact_paths = [
+        Path(value)
+        for value in _flatten_manifest_values(manifest["artifacts"])
+        if isinstance(value, str)
+    ]
+    assert artifact_paths
+    assert all(
+        path.resolve(strict=False).is_relative_to(experiment_root.resolve(strict=False))
+        for path in artifact_paths
+    )
+    forbidden_fragments = (
+        "outputs/models/lightgbm",
+        "outputs/reports",
+        "outputs/defense_app",
+        "apps/defense_app",
+        "data/processed/features",
+    )
+    assert not any(
+        fragment in str(path)
+        for path in artifact_paths
+        for fragment in forbidden_fragments
+    )
+
+
 def _split_frames() -> dict[str, pd.DataFrame]:
     return build_trend_model_split_frames(
         sample_trend_model_samples_for_split(),
@@ -434,6 +688,166 @@ def _summary_payloads() -> (
 
 def _artifact_names(output_dir: Path) -> list[str]:
     return sorted(path.name for path in output_dir.iterdir() if path.is_file())
+
+
+def _fake_runner_inputs() -> ablation_runner.TrendGraphAblationInputs:
+    samples_all = pd.DataFrame(
+        {
+            "week_id": [1, 2, 3],
+            "attr_id": ["a", "b", "c"],
+            "target_growth": [0.1, 0.2, 0.3],
+            "target_log_heat_t1": [1.0, 1.1, 1.2],
+            "target_rank_in_type_t1": [1, 2, 3],
+        }
+    )
+    split_samples = {
+        split: samples_all.iloc[[index]].copy().assign(split=split)
+        for index, split in enumerate(("train", "valid", "test"))
+    }
+    return ablation_runner.TrendGraphAblationInputs(
+        samples_all=samples_all,
+        split_samples=split_samples,
+        hierarchy_edges=pd.DataFrame(
+            {
+                "parent_attr_id": ["a"],
+                "child_attr_id": ["b"],
+                "edge_weight": [1.0],
+            }
+        ),
+    )
+
+
+def _fake_input_hashes(
+    inputs: ablation_runner.TrendGraphAblationInputs,
+) -> dict[str, dict[str, object]]:
+    return {
+        "trend_model_samples": {"exists": True, "hash": "all", "row_count": 3},
+        "trend_model_samples_train": {"exists": True, "hash": "train", "row_count": 1},
+        "trend_model_samples_valid": {"exists": True, "hash": "valid", "row_count": 1},
+        "trend_model_samples_test": {"exists": True, "hash": "test", "row_count": 1},
+        "graph_edges_attribute_hierarchy": {
+            "exists": True,
+            "hash": "edges",
+            "row_count": 1,
+        },
+        "graph_nodes_attribute": {"exists": True, "hash": "nodes", "row_count": None},
+        "stable_lightgbm_params": {
+            "exists": False,
+            "hash": None,
+            "row_count": None,
+            "required": False,
+        },
+    }
+
+
+def _fake_enhanced_sample_frames(
+    samples_all: pd.DataFrame,
+    split_samples: dict[str, pd.DataFrame],
+    hierarchy_edges: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    return {
+        "all": samples_all.copy().assign(kg_dummy=1.0),
+        **{
+            split: frame.copy().assign(kg_dummy=1.0)
+            for split, frame in split_samples.items()
+        },
+    }
+
+
+def _fake_run_single_variant(
+    variant: str,
+    split_frames,
+    *,
+    output_dir: Path,
+    input_hashes,
+    experiment_root: Path,
+) -> dict[str, object]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    index = ABLATION_VARIANTS.index(variant)
+    pd.DataFrame(
+        {
+            "week_id": [1],
+            "attr_type": ["colour_group_name"],
+            "attr_id": ["a"],
+            "target_growth": [0.1],
+            "prediction": [0.1 + index],
+            "split": ["valid"],
+        }
+    ).to_csv(output_dir / "predictions.csv", index=False)
+    pd.DataFrame(
+        {
+            "feature": ["growth_lag_1"],
+            "split_importance": [1],
+            "gain_importance": [1.0],
+            "normalized_gain_importance": [1.0],
+        }
+    ).to_csv(output_dir / "feature_importance.csv", index=False)
+    metadata = {
+        "schema_version": SCHEMA_VERSION,
+        "variant": variant,
+        "feature_mask": {
+            "numeric_features": ["growth_lag_1", f"feature_{index}"],
+            "categorical_features": ["attr_type"],
+        },
+        "best_iteration": index + 1,
+        "training_elapsed_seconds": float(index) + 0.5,
+    }
+    (output_dir / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (output_dir / "params.json").write_text(
+        json.dumps({"schema_version": SCHEMA_VERSION, "variant": variant}),
+        encoding="utf-8",
+    )
+    (output_dir / "model.txt").write_text("fake model", encoding="utf-8")
+    return metadata
+
+
+def _fake_evaluate_variant_predictions(
+    variant: str,
+    predictions: pd.DataFrame,
+    *,
+    prediction_path: Path,
+    output_path: Path,
+    experiment_root: Path,
+) -> dict[str, object]:
+    index = ABLATION_VARIANTS.index(variant)
+    payload = _metrics_payload(valid_recall=0.1 + index, test_recall=0.2 + index)
+    payload["overall"]["valid"]["ndcg_at_k"]["10"] = 0.3 + index
+    payload["overall"]["test"]["ndcg_at_k"]["10"] = 0.4 + index
+    output_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return payload
+
+
+def _flatten_manifest_values(value: object) -> list[object]:
+    if isinstance(value, dict):
+        flattened: list[object] = []
+        for nested in value.values():
+            flattened.extend(_flatten_manifest_values(nested))
+        return flattened
+    if isinstance(value, list):
+        flattened = []
+        for nested in value:
+            flattened.extend(_flatten_manifest_values(nested))
+        return flattened
+    return [value]
+
+
+def _load_ablation_cli_module():
+    module_name = "_trend_graph_feature_ablation_cli_for_tests"
+    module_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "19_run_trend_graph_feature_ablation.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _patch_lightgbm_fit(monkeypatch: pytest.MonkeyPatch) -> None:

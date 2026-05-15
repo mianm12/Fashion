@@ -609,6 +609,40 @@ def test_presentation_does_not_import_core_runners_or_builders() -> None:
     )
 
 
+def test_trend_graph_feature_ablation_19_is_not_in_default_readme_pipeline() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    marker = "当前已实现流水线可按下面顺序"
+    start = readme.index(marker)
+    block_start = readme.index("```sh", start)
+    block_end = readme.index("```", block_start + 1)
+    default_pipeline_block = readme[block_start:block_end]
+
+    assert "src/18_build_defense_app_db.py" in default_pipeline_block
+    assert "src/19_run_trend_graph_feature_ablation.py" not in default_pipeline_block
+
+
+def test_trend_graph_feature_ablation_runner_has_no_default_output_literals() -> None:
+    runner_path = (
+        PROJECT_ROOT
+        / "src"
+        / "experiments"
+        / "trend_graph_feature_ablation"
+        / "runner.py"
+    )
+    source = runner_path.read_text(encoding="utf-8")
+
+    forbidden_output_literals = (
+        "outputs/models/lightgbm/",
+        "outputs/reports/",
+        "outputs/defense_app/",
+        "apps/defense_app/",
+        "data/processed/features/",
+    )
+    offenders = [literal for literal in forbidden_output_literals if literal in source]
+
+    assert offenders == []
+
+
 def test_historical_root_modules_are_removed() -> None:
     existing = sorted(
         path.name

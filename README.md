@@ -799,6 +799,26 @@ npm run dev
 
 前端页面覆盖趋势看板、属性详情、商品属性图、推荐展示和推荐解释。详细说明见 `apps/defense_app/README.md`。
 
+### 17. 趋势图特征消融独立实验
+
+`src/19_run_trend_graph_feature_ablation.py` 是非默认主流程实验入口，不属于上面的
+`00` 到 `18` stable pipeline。它只读取默认趋势样本、时间切分样本、属性层级图和
+可选的 stable LightGBM 参数，输出统一写入：
+
+```text
+outputs/experiments/trend_graph_feature_ablation/
+```
+
+该实验不会覆盖 `outputs/models/lightgbm/`，不会写入 `outputs/reports/manifest.json`，
+也不会改变 defense app 数据源。运行方式：
+
+```sh
+uv run python src/19_run_trend_graph_feature_ablation.py
+```
+
+如果后续确认采用该实验结论，应再通过显式的非默认导出流程把结果复制到 reports
+experimental 产物，而不是让默认 reports 或答辩展示应用自动读取本实验目录。
+
 ## 后续阶段
 
 趋势模型训练与评价框架已经落地到 `last_week`、`previous_growth`、`moving_average`
