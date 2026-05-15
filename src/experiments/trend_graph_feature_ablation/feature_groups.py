@@ -77,17 +77,10 @@ _INTEGER_FEATURES = frozenset(
         "kg_has_child",
         "kg_is_root_attr",
         "kg_is_leaf_attr",
-        "is_core_attr",
-        "parent_count",
-        "child_count",
-        "degree",
-        "article_count",
-        "history_active_weeks_t",
-        "is_trend_eligible_t",
-        "week_index",
-        "week_mod_52",
-        "rank_in_type_t",
     }
+)
+_SCHEMA_GROUPS = frozenset(
+    {"hierarchy_context", "sibling_competition", "light_structure"}
 )
 
 
@@ -147,7 +140,13 @@ def validate_variant_masks(masks: dict[str, dict[str, list[str]]]) -> None:
 
     known_features = _known_features()
     for variant, mask in masks.items():
-        for feature in _mask_features(mask, variant):
+        numeric_features, categorical_features = _mask_parts(mask, variant)
+        _validate_mask_shape(
+            variant,
+            numeric_features=numeric_features,
+            categorical_features=categorical_features,
+        )
+        for feature in [*numeric_features, *categorical_features]:
             if feature in FORBIDDEN_FEATURES:
                 raise ValueError(f"forbidden feature in {variant}: {feature}")
             if feature not in known_features:
@@ -187,6 +186,8 @@ def build_feature_schema() -> list[dict[str, Any]]:
 
     rows: list[dict[str, Any]] = []
     for group, features in build_feature_groups().items():
+        if group not in _SCHEMA_GROUPS:
+            continue
         for feature in features:
             rows.append(_schema_row(feature, group))
     return rows
@@ -235,13 +236,43 @@ def _known_features() -> set[str]:
     }
 
 
-def _mask_features(mask: dict[str, list[str]], variant: str) -> list[str]:
+def _mask_parts(
+    mask: dict[str, list[str]], variant: str
+) -> tuple[list[str], list[str]]:
     try:
-        return [*mask["numeric_features"], *mask["categorical_features"]]
+        return list(mask["numeric_features"]), list(mask["categorical_features"])
     except KeyError as exc:
         raise ValueError(
             f"feature mask missing key in {variant}: {exc.args[0]}"
         ) from exc
+
+
+def _validate_mask_shape(
+    variant: str,
+    *,
+    numeric_features: list[str],
+    categorical_features: list[str],
+) -> None:
+    if not numeric_features:
+        raise ValueError(f"empty numeric_features in {variant}")
+    if not categorical_features:
+        raise ValueError(f"empty categorical_features in {variant}")
+    if _has_duplicates(numeric_features):
+        raise ValueError(f"duplicate numeric feature in {variant}")
+    if _has_duplicates(categorical_features):
+        raise ValueError(f"duplicate categorical feature in {variant}")
+    if set(numeric_features) & set(categorical_features):
+        raise ValueError(
+            f"feature appears in both numeric and categorical in {variant}"
+        )
+    if not set(BASE_NUMERIC_NON_GRAPH_FEATURES).issubset(numeric_features):
+        raise ValueError(f"missing base numeric feature in {variant}")
+    if not set(LIGHTGBM_CATEGORICAL_FEATURES).issubset(categorical_features):
+        raise ValueError(f"missing categorical feature in {variant}")
+
+
+def _has_duplicates(features: list[str]) -> bool:
+    return len(features) != len(set(features))
 
 
 def _schema_row(feature: str, group: str) -> dict[str, Any]:

@@ -4,6 +4,7 @@ import pytest
 
 from experiments.trend_graph_feature_ablation import contracts
 from experiments.trend_graph_feature_ablation.feature_groups import (
+    build_feature_groups,
     build_feature_groups_payload,
     build_feature_mask_digest,
     build_feature_schema,
@@ -84,6 +85,22 @@ def test_feature_schema_covers_kg_features_with_required_metadata() -> None:
     assert schema["kg_has_parent"]["dynamic"] is False
 
 
+def test_feature_schema_only_contains_new_kg_features() -> None:
+    groups = build_feature_groups()
+    expected_kg_features = {
+        *groups["hierarchy_context"],
+        *groups["sibling_competition"],
+        *groups["light_structure"],
+    }
+    schema_features = {row["feature"] for row in build_feature_schema()}
+
+    assert schema_features == expected_kg_features
+    assert all(feature.startswith("kg_") for feature in schema_features)
+    assert "heat_t" not in schema_features
+    assert "attr_type" not in schema_features
+    assert "article_count" not in schema_features
+
+
 def test_validate_variant_masks_rejects_target_columns() -> None:
     masks = build_variant_feature_masks()
     masks["no_graph"]["numeric_features"].append("target_growth")
@@ -103,6 +120,51 @@ def test_validate_variant_masks_rejects_identifiers_and_unknown_features() -> No
     masks["no_graph"]["numeric_features"].append("does_not_exist")
 
     with pytest.raises(ValueError, match="unknown feature"):
+        validate_variant_masks(masks)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    (
+        (
+            lambda mask: mask["numeric_features"].append(mask["numeric_features"][0]),
+            "duplicate numeric feature",
+        ),
+        (
+            lambda mask: mask["categorical_features"].append(
+                mask["categorical_features"][0]
+            ),
+            "duplicate categorical feature",
+        ),
+        (
+            lambda mask: mask["categorical_features"].append(
+                mask["numeric_features"][0]
+            ),
+            "feature appears in both numeric and categorical",
+        ),
+        (
+            lambda mask: mask.update({"numeric_features": []}),
+            "empty numeric_features",
+        ),
+        (
+            lambda mask: mask.update({"categorical_features": []}),
+            "empty categorical_features",
+        ),
+        (
+            lambda mask: mask["numeric_features"].remove("heat_t"),
+            "missing base numeric feature",
+        ),
+        (
+            lambda mask: mask.update({"categorical_features": ["attr_type_alias"]}),
+            "missing categorical feature",
+        ),
+    ),
+)
+def test_validate_variant_masks_rejects_invalid_mask_shapes(mutate, message) -> None:
+    masks = build_variant_feature_masks()
+    mutate(masks["full_enhanced"])
+
+    with pytest.raises(ValueError, match=message):
         validate_variant_masks(masks)
 
 
