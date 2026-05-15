@@ -44,18 +44,21 @@ from fashion_trend.catalog.paths import (
     GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH,
     GRAPH_NODES_ATTRIBUTE_PATH,
 )
+from fashion_trend.catalog.readers import read_attribute_hierarchy_edges
 from fashion_trend.foundation.io import (
     write_csv_atomic,
     write_json_atomic,
     write_parquet_atomic,
     write_text_atomic,
 )
+from fashion_trend.trend.features.samples import validate_trend_model_samples
 from fashion_trend.trend.paths import (
     TREND_MODEL_SAMPLES_PATH,
     TREND_MODEL_SAMPLES_TEST_PATH,
     TREND_MODEL_SAMPLES_TRAIN_PATH,
     TREND_MODEL_SAMPLES_VALID_PATH,
 )
+from fashion_trend.trend.splits import read_trend_model_split
 
 EXPERIMENT_ROOT = ablation_paths.EXPERIMENT_ROOT
 
@@ -214,12 +217,21 @@ def run_trend_graph_feature_ablation(
 
 def _load_input_frames() -> TrendGraphAblationInputs:
     samples_all = pd.read_parquet(TREND_MODEL_SAMPLES_PATH)
+    validate_trend_model_samples(samples_all)
+    _validate_sample_identifier_columns(
+        samples_all, source_name="趋势图消融 all samples"
+    )
     split_samples = {
-        split_name: pd.read_parquet(path) for split_name, path in _SPLIT_PATHS.items()
+        split_name: read_trend_model_split(path)
+        for split_name, path in _SPLIT_PATHS.items()
     }
-    hierarchy_edges = pd.read_csv(
-        GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH,
-        dtype={"parent_attr_id": str, "child_attr_id": str},
+    for split_name, split_frame in split_samples.items():
+        _validate_sample_identifier_columns(
+            split_frame,
+            source_name=f"趋势图消融 {split_name} samples",
+        )
+    hierarchy_edges = read_attribute_hierarchy_edges(
+        GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH
     )
     return TrendGraphAblationInputs(
         samples_all=samples_all,
@@ -403,13 +415,13 @@ def _publish_staged_outputs(
     *,
     root: Path,
 ) -> list[Path]:
+    publish_pairs = _preflight_publish_outputs(
+        staging_paths,
+        final_paths,
+        root=root,
+    )
     published: list[Path] = []
-    for relative_path in _expected_relative_paths():
-        source = staging_paths.root / relative_path
-        destination = final_paths.root / relative_path
-        _assert_publish_paths(source, destination, root=root)
-        if not source.exists():
-            raise RuntimeError(f"趋势图特征消融 staging 产物缺失: {source}")
+    for source, destination in publish_pairs:
         destination.parent.mkdir(parents=True, exist_ok=True)
         source.replace(destination)
         published.append(destination)
@@ -452,9 +464,43 @@ def _expected_relative_paths() -> list[Path]:
     return paths
 
 
+def _preflight_publish_outputs(
+    staging_paths: ExperimentOutputPaths,
+    final_paths: ExperimentOutputPaths,
+    *,
+    root: Path,
+) -> list[tuple[Path, Path]]:
+    publish_pairs: list[tuple[Path, Path]] = []
+    missing_sources: list[Path] = []
+    for relative_path in _expected_relative_paths():
+        source = staging_paths.root / relative_path
+        destination = final_paths.root / relative_path
+        _assert_publish_paths(source, destination, root=root)
+        _assert_publish_auxiliary_paths(destination, root=root)
+        if not source.exists():
+            missing_sources.append(source)
+        publish_pairs.append((source, destination))
+    if missing_sources:
+        examples = ", ".join(str(path) for path in missing_sources[:3])
+        raise RuntimeError("趋势图特征消融 staging 产物缺失，取消发布: " f"{examples}")
+    return publish_pairs
+
+
 def _assert_publish_paths(source: Path, destination: Path, *, root: Path) -> None:
     assert_experiment_write_path(source, root=root)
     assert_experiment_write_path(destination, root=root)
+
+
+def _assert_publish_auxiliary_paths(destination: Path, *, root: Path) -> None:
+    assert_experiment_write_path(destination.parent, root=root)
+    assert_experiment_write_path(
+        destination.with_suffix(destination.suffix + ".tmp"),
+        root=root,
+    )
+    assert_experiment_write_path(
+        destination.with_suffix(destination.suffix + ".backup"),
+        root=root,
+    )
 
 
 def _write_parquet_guarded(
@@ -498,3 +544,15 @@ def _command_payload(command: str | Sequence[str] | None) -> str | list[str]:
     if isinstance(command, str):
         return command
     return [str(part) for part in command]
+
+
+def _validate_sample_identifier_columns(
+    samples: pd.DataFrame,
+    *,
+    source_name: str,
+) -> None:
+    for column in ("attr_id", "attr_type", "attr_value"):
+        if samples[column].isna().any():
+            raise ValueError(f"{source_name} {column} 存在空值")
+        if not samples[column].map(lambda value: isinstance(value, str)).all():
+            raise ValueError(f"{source_name} {column} 必须保持字符串语义")

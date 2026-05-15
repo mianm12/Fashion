@@ -378,6 +378,24 @@ def test_render_experiment_doc_contains_non_stable_boundaries() -> None:
         ["uv", "run", "python", "src/19_run_trend_graph_feature_ablation.py"],
     )
 
+    assert "## 实验目的" in document
+    assert "## 输入 artifact" in document
+    assert "## feature groups 定义" in document
+    assert "## 五个消融版本" in document
+    assert "## 运行命令" in document
+    assert "## 指标汇总" in document
+    assert "## 论文使用注意事项" in document
+    for variant in ABLATION_VARIANTS:
+        assert f"`{variant}`" in document
+    for group_name in (
+        "base_numeric_non_graph",
+        "categorical",
+        "coarse_graph",
+        "hierarchy_context",
+        "sibling_competition",
+        "light_structure",
+    ):
+        assert f"`{group_name}`" in document
     assert "非 stable 独立实验" in document
     assert "不覆盖 `outputs/models/lightgbm/`" in document
     assert "不写 `outputs/reports/manifest.json`" in document
@@ -523,6 +541,112 @@ def test_run_trend_graph_feature_ablation_does_not_publish_on_stage_failure(
 
     assert not (experiment_root / "manifest.json").exists()
     assert not (experiment_root / "metrics_summary.md").exists()
+
+
+def test_publish_staged_outputs_preflights_all_sources_before_replace(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / ABLATION_EXPERIMENT_ID
+    staging_paths = ablation_runner.ExperimentOutputPaths(root=root / ".staging" / "x")
+    final_paths = ablation_runner.ExperimentOutputPaths(root=root)
+    expected_paths = ablation_runner._expected_relative_paths()
+    missing_relative = expected_paths[1]
+    first_destination = root / expected_paths[0]
+    first_destination.parent.mkdir(parents=True)
+    first_destination.write_text("existing official artifact", encoding="utf-8")
+
+    for relative_path in expected_paths:
+        if relative_path == missing_relative:
+            continue
+        source = staging_paths.root / relative_path
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(f"staged {relative_path}", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="取消发布"):
+        ablation_runner._publish_staged_outputs(
+            staging_paths,
+            final_paths,
+            root=root,
+        )
+
+    assert first_destination.read_text(encoding="utf-8") == "existing official artifact"
+    assert not (root / expected_paths[2]).exists()
+
+
+def test_load_input_frames_uses_readers_and_preserves_string_identifiers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    samples = sample_trend_model_samples_for_split()
+    split_frames = build_trend_model_split_frames(
+        samples,
+        valid_weeks=4,
+        test_weeks=4,
+    )
+    samples_path = tmp_path / "trend_model_samples.parquet"
+    split_paths = {
+        split: tmp_path / f"trend_model_samples_{split}.parquet"
+        for split in ("train", "valid", "test")
+    }
+    hierarchy_path = tmp_path / "edges_attribute_hierarchy.csv"
+    samples.to_parquet(samples_path, index=False)
+    for split, split_frame in split_frames.items():
+        split_frame.to_parquet(split_paths[split], index=False)
+    _valid_hierarchy_edges().to_csv(hierarchy_path, index=False)
+    monkeypatch.setattr(ablation_runner, "TREND_MODEL_SAMPLES_PATH", samples_path)
+    monkeypatch.setattr(ablation_runner, "_SPLIT_PATHS", split_paths)
+    monkeypatch.setattr(
+        ablation_runner,
+        "GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH",
+        hierarchy_path,
+    )
+
+    inputs = ablation_runner._load_input_frames()
+
+    assert len(inputs.samples_all) == len(samples)
+    assert set(inputs.split_samples) == {"train", "valid", "test"}
+    assert inputs.hierarchy_edges.columns.tolist() == [
+        "parent_attr_id",
+        "child_attr_id",
+        "parent_attr_type",
+        "child_attr_type",
+        "relation_type",
+        "edge_weight",
+    ]
+
+
+def test_load_input_frames_rejects_non_string_identifiers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    samples = sample_trend_model_samples_for_split()
+    samples = samples.copy()
+    samples["attr_id"] = range(len(samples))
+    split_frames = build_trend_model_split_frames(
+        sample_trend_model_samples_for_split(),
+        valid_weeks=4,
+        test_weeks=4,
+    )
+    samples_path = tmp_path / "trend_model_samples.parquet"
+    split_paths = {
+        split: tmp_path / f"trend_model_samples_{split}.parquet"
+        for split in ("train", "valid", "test")
+    }
+    hierarchy_path = tmp_path / "edges_attribute_hierarchy.csv"
+    samples.to_parquet(samples_path, index=False)
+    for split, split_frame in split_frames.items():
+        split_frame.to_parquet(split_paths[split], index=False)
+    _valid_hierarchy_edges().to_csv(hierarchy_path, index=False)
+    monkeypatch.setattr(ablation_runner, "TREND_MODEL_SAMPLES_PATH", samples_path)
+    monkeypatch.setattr(ablation_runner, "_SPLIT_PATHS", split_paths)
+    monkeypatch.setattr(
+        ablation_runner,
+        "GRAPH_EDGES_ATTRIBUTE_HIERARCHY_PATH",
+        hierarchy_path,
+    )
+
+    with pytest.raises(ValueError, match="attr_id.*字符串语义"):
+        ablation_runner._load_input_frames()
 
 
 def test_trend_graph_feature_ablation_cli_success_and_failure(
@@ -714,6 +838,19 @@ def _fake_runner_inputs() -> ablation_runner.TrendGraphAblationInputs:
                 "edge_weight": [1.0],
             }
         ),
+    )
+
+
+def _valid_hierarchy_edges() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "parent_attr_id": ["colour_group_name::Black"],
+            "child_attr_id": ["colour_group_name::Blue"],
+            "parent_attr_type": ["colour_group_name"],
+            "child_attr_type": ["colour_group_name"],
+            "relation_type": ["sibling"],
+            "edge_weight": [1],
+        }
     )
 
 

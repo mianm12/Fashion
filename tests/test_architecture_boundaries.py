@@ -621,15 +621,19 @@ def test_trend_graph_feature_ablation_19_is_not_in_default_readme_pipeline() -> 
     assert "src/19_run_trend_graph_feature_ablation.py" not in default_pipeline_block
 
 
-def test_trend_graph_feature_ablation_runner_has_no_default_output_literals() -> None:
-    runner_path = (
-        PROJECT_ROOT
-        / "src"
-        / "experiments"
-        / "trend_graph_feature_ablation"
-        / "runner.py"
-    )
-    source = runner_path.read_text(encoding="utf-8")
+def test_trend_graph_feature_ablation_write_modules_have_no_default_output_literals() -> (
+    None
+):
+    module_paths = [
+        PROJECT_ROOT / "src" / "experiments" / "trend_graph_feature_ablation" / filename
+        for filename in (
+            "runner.py",
+            "train_runs.py",
+            "evaluate.py",
+            "artifact_io.py",
+        )
+    ]
+    module_paths.append(PROJECT_ROOT / "src" / "19_run_trend_graph_feature_ablation.py")
 
     forbidden_output_literals = (
         "outputs/models/lightgbm/",
@@ -638,7 +642,60 @@ def test_trend_graph_feature_ablation_runner_has_no_default_output_literals() ->
         "apps/defense_app/",
         "data/processed/features/",
     )
-    offenders = [literal for literal in forbidden_output_literals if literal in source]
+    offenders: list[str] = []
+    for module_path in module_paths:
+        source = module_path.read_text(encoding="utf-8")
+        for literal in forbidden_output_literals:
+            if literal in source:
+                offenders.append(f"{module_path.relative_to(PROJECT_ROOT)}: {literal}")
+
+    assert offenders == []
+
+
+def test_trend_graph_feature_ablation_default_path_semantics_are_guarded() -> None:
+    module_paths = [
+        PROJECT_ROOT / "src" / "experiments" / "trend_graph_feature_ablation" / filename
+        for filename in (
+            "runner.py",
+            "train_runs.py",
+            "evaluate.py",
+            "artifact_io.py",
+        )
+    ]
+    module_paths.append(PROJECT_ROOT / "src" / "19_run_trend_graph_feature_ablation.py")
+    forbidden_path_semantics = (
+        'OUTPUT_DIR / "models" / "lightgbm"',
+        'OUTPUT_DIR / "metrics" / "lightgbm"',
+        'OUTPUT_DIR / "reports"',
+        'OUTPUT_DIR / "defense_app"',
+        'PROJECT_ROOT / "apps" / "defense_app"',
+        'DATA_DIR / "processed" / "features"',
+    )
+    allowed_lines = {
+        "src/experiments/trend_graph_feature_ablation/train_runs.py": {
+            'STABLE_LIGHTGBM_PARAMS_PATH = OUTPUT_DIR / "models" / "lightgbm" / "params.json"'
+        },
+        "src/experiments/trend_graph_feature_ablation/artifact_io.py": {
+            'OUTPUT_DIR / "models" / "lightgbm",',
+            'OUTPUT_DIR / "metrics" / "lightgbm",',
+            'OUTPUT_DIR / "reports",',
+            'OUTPUT_DIR / "defense_app",',
+            'PROJECT_ROOT / "apps" / "defense_app",',
+            'DATA_DIR / "processed" / "features",',
+        },
+    }
+
+    offenders: list[str] = []
+    for module_path in module_paths:
+        relative_path = str(module_path.relative_to(PROJECT_ROOT))
+        source_lines = module_path.read_text(encoding="utf-8").splitlines()
+        for line_number, line in enumerate(source_lines, start=1):
+            stripped = line.strip()
+            if not any(semantic in stripped for semantic in forbidden_path_semantics):
+                continue
+            if stripped in allowed_lines.get(relative_path, set()):
+                continue
+            offenders.append(f"{relative_path}:{line_number}: {stripped}")
 
     assert offenders == []
 
