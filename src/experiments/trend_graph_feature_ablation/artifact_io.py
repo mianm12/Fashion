@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from experiments.trend_graph_feature_ablation.paths import EXPERIMENT_ROOT
 from fashion_trend.foundation.paths import DATA_DIR, OUTPUT_DIR, PROJECT_ROOT
 from fashion_trend.trend.paths import (
@@ -28,6 +30,26 @@ def digest_json_payload(payload: Mapping[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def digest_dataframe_columns(dataframe: pd.DataFrame, columns: tuple[str, ...]) -> str:
+    """返回 DataFrame 指定列按当前行序和值序列计算的稳定 SHA-256 摘要。"""
+
+    missing_columns = [column for column in columns if column not in dataframe.columns]
+    if missing_columns:
+        raise ValueError(f"DataFrame 缺少 checksum 列: {missing_columns}")
+
+    digest = hashlib.sha256()
+    for column in columns:
+        column_bytes = column.encode("utf-8")
+        digest.update(len(column_bytes).to_bytes(8, byteorder="big"))
+        digest.update(column_bytes)
+        values = dataframe[column].astype("string").fillna("<NA>")
+        for value in values:
+            value_bytes = str(value).encode("utf-8")
+            digest.update(len(value_bytes).to_bytes(8, byteorder="big"))
+            digest.update(value_bytes)
+    return digest.hexdigest()
 
 
 def digest_file(path: Path) -> str:

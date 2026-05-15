@@ -6,8 +6,18 @@ import pandas as pd
 import pytest
 
 import experiments.trend_graph_feature_ablation.build_features as build_features_module
+from experiments.trend_graph_feature_ablation.artifact_io import (
+    digest_dataframe_columns,
+)
 from experiments.trend_graph_feature_ablation.build_features import (
+    build_enhanced_sample_frames,
     build_graph_context_features,
+    build_row_alignment_check,
+)
+from experiments.trend_graph_feature_ablation.contracts import (
+    ALL_SAMPLE_KEY_COLUMNS,
+    SPLIT_SAMPLE_KEY_COLUMNS,
+    TARGET_COLUMNS,
 )
 from experiments.trend_graph_feature_ablation.feature_groups import (
     HIERARCHY_CONTEXT_FEATURES,
@@ -69,6 +79,15 @@ def _sample_edges() -> pd.DataFrame:
             "edge_weight": [2.0, 6.0, 2.0, 4.0, 1.0],
         }
     )
+
+
+def _split_samples() -> dict[str, pd.DataFrame]:
+    samples = _sample_graph_samples()
+    return {
+        "train": samples.iloc[[0, 1]].copy().assign(split="train"),
+        "valid": samples.iloc[[2, 3]].copy().assign(split="valid"),
+        "test": samples.iloc[[4, 5]].copy().assign(split="test"),
+    }
 
 
 def _features_by_attr() -> pd.DataFrame:
@@ -168,6 +187,130 @@ def test_output_keeps_sample_order_and_expected_columns_only() -> None:
     assert list(features["attr_id"]) == list(samples["attr_id"])
     assert len(features) == len(samples)
     assert "rank_pct_t" not in features.columns
+
+
+def test_enhanced_sample_frames_keep_all_and_split_row_alignment() -> None:
+    samples_all = _sample_graph_samples()
+    split_samples = _split_samples()
+
+    frames = build_enhanced_sample_frames(samples_all, split_samples, _sample_edges())
+
+    assert set(frames) == {"all", "train", "valid", "test"}
+    assert "split" not in frames["all"].columns
+    assert list(frames["all"].columns[: len(samples_all.columns)]) == list(
+        samples_all.columns
+    )
+    pd.testing.assert_frame_equal(
+        frames["all"].loc[:, list(ALL_SAMPLE_KEY_COLUMNS)].reset_index(drop=True),
+        samples_all.loc[:, list(ALL_SAMPLE_KEY_COLUMNS)].reset_index(drop=True),
+    )
+    assert digest_dataframe_columns(frames["all"], TARGET_COLUMNS) == (
+        digest_dataframe_columns(samples_all, TARGET_COLUMNS)
+    )
+
+    for split_name, split_frame in split_samples.items():
+        enhanced = frames[split_name]
+        assert list(enhanced.columns[: len(split_frame.columns)]) == list(
+            split_frame.columns
+        )
+        pd.testing.assert_frame_equal(
+            enhanced.loc[:, list(SPLIT_SAMPLE_KEY_COLUMNS)].reset_index(drop=True),
+            split_frame.loc[:, list(SPLIT_SAMPLE_KEY_COLUMNS)].reset_index(drop=True),
+        )
+        assert digest_dataframe_columns(enhanced, TARGET_COLUMNS) == (
+            digest_dataframe_columns(split_frame, TARGET_COLUMNS)
+        )
+
+    for frame in frames.values():
+        assert "rank_pct_t" not in frame.columns
+        assert any(column.startswith("kg_") for column in frame.columns)
+
+
+def test_row_alignment_check_detects_target_drift_without_raising() -> None:
+    samples_all = _sample_graph_samples()
+    split_samples = _split_samples()
+    frames = build_enhanced_sample_frames(samples_all, split_samples, _sample_edges())
+    frames["valid"] = frames["valid"].copy()
+    frames["valid"].loc[frames["valid"].index[0], "target_growth"] = -123.0
+
+    check = build_row_alignment_check(samples_all, split_samples, frames)
+
+    assert check["passed"] is False
+    assert check["all"]["passed"] is True
+    assert check["valid"]["order_matches"] is True
+    assert check["valid"]["target_matches"] is False
+    assert check["valid"]["passed"] is False
+
+
+def test_enhanced_sample_frames_reject_missing_split() -> None:
+    split_samples = _split_samples()
+    del split_samples["valid"]
+
+    with pytest.raises(ValueError, match="缺少必需 split"):
+        build_enhanced_sample_frames(
+            _sample_graph_samples(),
+            split_samples,
+            _sample_edges(),
+        )
+
+
+def test_enhanced_sample_frames_reject_split_value_mismatch() -> None:
+    split_samples = _split_samples()
+    split_samples["train"] = split_samples["train"].copy()
+    split_samples["train"].loc[split_samples["train"].index[0], "split"] = "valid"
+
+    with pytest.raises(ValueError, match="split 列值不匹配"):
+        build_enhanced_sample_frames(
+            _sample_graph_samples(),
+            split_samples,
+            _sample_edges(),
+        )
+
+
+def test_enhanced_sample_frames_reject_output_row_order_drift(monkeypatch) -> None:
+    original_join = build_features_module._left_join_graph_features
+
+    def reverse_all_rows(*args, **kwargs) -> pd.DataFrame:
+        frame = original_join(*args, **kwargs)
+        if kwargs["frame_name"] == "all samples":
+            return frame.iloc[::-1].reset_index(drop=True)
+        return frame
+
+    monkeypatch.setattr(
+        build_features_module,
+        "_left_join_graph_features",
+        reverse_all_rows,
+    )
+
+    with pytest.raises(ValueError, match="row alignment"):
+        build_enhanced_sample_frames(
+            _sample_graph_samples(),
+            _split_samples(),
+            _sample_edges(),
+        )
+
+
+def test_digest_dataframe_columns_tracks_row_order_and_values() -> None:
+    frame = pd.DataFrame(
+        {
+            "week_id": [1, 2],
+            "attr_id": ["a", None],
+            "target_growth": [0.1, None],
+        }
+    )
+
+    baseline = digest_dataframe_columns(frame, ("week_id", "attr_id"))
+    reordered = digest_dataframe_columns(
+        frame.iloc[::-1].reset_index(drop=True),
+        ("week_id", "attr_id"),
+    )
+    mutated = frame.copy()
+    mutated.loc[1, "attr_id"] = "b"
+
+    assert baseline != reordered
+    assert baseline != digest_dataframe_columns(mutated, ("week_id", "attr_id"))
+    with pytest.raises(ValueError, match="缺少 checksum 列"):
+        digest_dataframe_columns(frame, ("missing",))
 
 
 def test_target_week_columns_do_not_affect_graph_features() -> None:

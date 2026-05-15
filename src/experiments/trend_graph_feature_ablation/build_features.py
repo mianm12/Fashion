@@ -3,6 +3,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from experiments.trend_graph_feature_ablation.artifact_io import (
+    digest_dataframe_columns,
+)
+from experiments.trend_graph_feature_ablation.contracts import (
+    ALL_SAMPLE_KEY_COLUMNS,
+    SPLIT_SAMPLE_KEY_COLUMNS,
+    TARGET_COLUMNS,
+)
 from experiments.trend_graph_feature_ablation.feature_groups import (
     HIERARCHY_CONTEXT_FEATURES,
     LIGHT_STRUCTURE_FEATURES,
@@ -36,6 +44,89 @@ _NUMERIC_SOURCE_COLUMNS: tuple[str, ...] = (
     "growth_lag_1",
     "rank_in_type_t",
 )
+_SPLIT_NAMES: tuple[str, ...] = ("train", "valid", "test")
+_KG_FEATURE_COLUMNS: tuple[str, ...] = (
+    *HIERARCHY_CONTEXT_FEATURES,
+    *SIBLING_COMPETITION_FEATURES,
+    *LIGHT_STRUCTURE_FEATURES,
+)
+
+
+def build_enhanced_sample_frames(
+    samples_all: pd.DataFrame,
+    split_samples: dict[str, pd.DataFrame],
+    hierarchy_edges: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    """按默认样本行基准拼接图谱上下文特征，返回 all/train/valid/test frame。"""
+
+    _validate_all_samples(samples_all)
+    _validate_split_samples(split_samples)
+    graph_features = build_graph_context_features(samples_all, hierarchy_edges)
+    graph_features = graph_features.loc[
+        :, [*ALL_SAMPLE_KEY_COLUMNS, *_KG_FEATURE_COLUMNS]
+    ]
+    _validate_unique_keys(graph_features, ALL_SAMPLE_KEY_COLUMNS, "graph features")
+
+    enhanced_frames = {
+        "all": _left_join_graph_features(
+            samples_all,
+            graph_features,
+            key_columns=ALL_SAMPLE_KEY_COLUMNS,
+            frame_name="all samples",
+        )
+    }
+    _validate_enhanced_frame_alignment(
+        samples_all,
+        enhanced_frames["all"],
+        key_columns=ALL_SAMPLE_KEY_COLUMNS,
+        frame_name="all samples",
+    )
+
+    for split_name in _SPLIT_NAMES:
+        frame = split_samples[split_name]
+        enhanced = _left_join_graph_features(
+            frame,
+            graph_features,
+            key_columns=SPLIT_SAMPLE_KEY_COLUMNS,
+            frame_name=f"{split_name} samples",
+        )
+        _validate_enhanced_frame_alignment(
+            frame,
+            enhanced,
+            key_columns=SPLIT_SAMPLE_KEY_COLUMNS,
+            frame_name=f"{split_name} samples",
+        )
+        enhanced_frames[split_name] = enhanced
+
+    return enhanced_frames
+
+
+def build_row_alignment_check(
+    samples_all: pd.DataFrame,
+    split_samples: dict[str, pd.DataFrame],
+    enhanced_frames: dict[str, pd.DataFrame],
+) -> dict[str, object]:
+    """返回增强样本和默认样本的行序、主键和目标列对齐校验结果。"""
+
+    _validate_split_samples(split_samples)
+    sections = {
+        "all": _build_single_alignment_check(
+            samples_all,
+            enhanced_frames["all"],
+            key_columns=ALL_SAMPLE_KEY_COLUMNS,
+        )
+    }
+    for split_name in _SPLIT_NAMES:
+        sections[split_name] = _build_single_alignment_check(
+            split_samples[split_name],
+            enhanced_frames[split_name],
+            key_columns=SPLIT_SAMPLE_KEY_COLUMNS,
+        )
+
+    return {
+        "passed": all(bool(section["passed"]) for section in sections.values()),
+        **sections,
+    }
 
 
 def build_graph_context_features(
@@ -104,6 +195,138 @@ def build_graph_context_features(
     _validate_output_alignment(features, samples_all)
     _validate_kg_features(features, kg_columns)
     return features
+
+
+def _validate_all_samples(samples_all: pd.DataFrame) -> None:
+    validate_required_columns(
+        samples_all,
+        (*ALL_SAMPLE_KEY_COLUMNS, *TARGET_COLUMNS),
+        source_name="all trend samples",
+    )
+    _validate_unique_keys(samples_all, ALL_SAMPLE_KEY_COLUMNS, "all trend samples")
+
+
+def _validate_split_samples(split_samples: dict[str, pd.DataFrame]) -> None:
+    if not isinstance(split_samples, dict):
+        raise ValueError("split samples must be a dict")
+    missing_splits = [
+        split_name for split_name in _SPLIT_NAMES if split_name not in split_samples
+    ]
+    if missing_splits:
+        raise ValueError(f"split samples 缺少必需 split: {missing_splits}")
+
+    for split_name in _SPLIT_NAMES:
+        frame = split_samples[split_name]
+        validate_required_columns(
+            frame,
+            (*SPLIT_SAMPLE_KEY_COLUMNS, *TARGET_COLUMNS),
+            source_name=f"{split_name} trend samples",
+        )
+        mismatched_split = frame["split"].ne(split_name)
+        if bool(mismatched_split.any()):
+            bad_values = sorted(
+                frame.loc[mismatched_split, "split"].astype(str).unique()
+            )
+            raise ValueError(f"{split_name} samples split 列值不匹配: {bad_values}")
+        _validate_unique_keys(
+            frame,
+            SPLIT_SAMPLE_KEY_COLUMNS,
+            f"{split_name} trend samples",
+        )
+
+
+def _left_join_graph_features(
+    samples: pd.DataFrame,
+    graph_features: pd.DataFrame,
+    *,
+    key_columns: tuple[str, ...],
+    frame_name: str,
+) -> pd.DataFrame:
+    overlapping_kg_columns = [
+        column for column in _KG_FEATURE_COLUMNS if column in samples.columns
+    ]
+    if overlapping_kg_columns:
+        raise ValueError(f"{frame_name} 已包含 kg_* 特征列: {overlapping_kg_columns}")
+
+    output_base_columns = [
+        column for column in samples.columns if column != "rank_pct_t"
+    ]
+    enhanced = samples.merge(
+        graph_features,
+        on=list(ALL_SAMPLE_KEY_COLUMNS),
+        how="left",
+        sort=False,
+        validate=(
+            "one_to_one" if key_columns == ALL_SAMPLE_KEY_COLUMNS else "many_to_one"
+        ),
+    )
+    output_columns = [*output_base_columns, *_KG_FEATURE_COLUMNS]
+    enhanced = enhanced.loc[:, output_columns]
+    if "rank_pct_t" in enhanced.columns:
+        raise ValueError(f"{frame_name} enhanced samples must not output rank_pct_t")
+    if enhanced.loc[:, list(_KG_FEATURE_COLUMNS)].isna().any().any():
+        raise ValueError(f"{frame_name} enhanced samples contain missing kg_* features")
+    return enhanced
+
+
+def _validate_enhanced_frame_alignment(
+    samples: pd.DataFrame,
+    enhanced: pd.DataFrame,
+    *,
+    key_columns: tuple[str, ...],
+    frame_name: str,
+) -> None:
+    check = _build_single_alignment_check(samples, enhanced, key_columns=key_columns)
+    if not check["passed"]:
+        raise ValueError(f"{frame_name} enhanced row alignment mismatch: {check}")
+
+
+def _build_single_alignment_check(
+    samples: pd.DataFrame,
+    enhanced: pd.DataFrame,
+    *,
+    key_columns: tuple[str, ...],
+) -> dict[str, object]:
+    validate_required_columns(
+        samples,
+        (*key_columns, *TARGET_COLUMNS),
+        source_name="alignment input samples",
+    )
+    validate_required_columns(
+        enhanced,
+        (*key_columns, *TARGET_COLUMNS),
+        source_name="alignment enhanced samples",
+    )
+    input_keys = samples.loc[:, list(key_columns)].reset_index(drop=True)
+    output_keys = enhanced.loc[:, list(key_columns)].reset_index(drop=True)
+    input_targets = samples.loc[:, list(TARGET_COLUMNS)].reset_index(drop=True)
+    output_targets = enhanced.loc[:, list(TARGET_COLUMNS)].reset_index(drop=True)
+    input_rows = int(len(samples))
+    output_rows = int(len(enhanced))
+    order_matches = input_rows == output_rows and input_keys.equals(output_keys)
+    target_matches = input_rows == output_rows and input_targets.equals(output_targets)
+    return {
+        "input_rows": input_rows,
+        "output_rows": output_rows,
+        "key_columns": list(key_columns),
+        "input_key_checksum": digest_dataframe_columns(samples, key_columns),
+        "output_key_checksum": digest_dataframe_columns(enhanced, key_columns),
+        "input_target_checksum": digest_dataframe_columns(samples, TARGET_COLUMNS),
+        "output_target_checksum": digest_dataframe_columns(enhanced, TARGET_COLUMNS),
+        "order_matches": bool(order_matches),
+        "target_matches": bool(target_matches),
+        "passed": bool(order_matches and target_matches),
+    }
+
+
+def _validate_unique_keys(
+    frame: pd.DataFrame,
+    key_columns: tuple[str, ...],
+    source_name: str,
+) -> None:
+    duplicated = frame.duplicated(subset=list(key_columns), keep=False)
+    if bool(duplicated.any()):
+        raise ValueError(f"{source_name} primary key contains duplicate rows")
 
 
 def _prepare_hierarchy_edges(hierarchy_edges: pd.DataFrame) -> pd.DataFrame:
