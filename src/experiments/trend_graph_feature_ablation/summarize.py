@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
+from numbers import Integral, Real
 
 import pandas as pd
 
@@ -20,7 +22,7 @@ def build_metrics_summary_frame(
         _build_variant_summary_row(variant, metrics_payloads, metadata_payloads)
         for variant in ABLATION_VARIANTS
     ]
-    return pd.DataFrame(rows, columns=list(SUMMARY_COLUMNS))
+    return pd.DataFrame(rows, columns=list(SUMMARY_COLUMNS), dtype=object)
 
 
 def render_metrics_summary_markdown(summary: pd.DataFrame) -> str:
@@ -46,17 +48,12 @@ def _build_variant_summary_row(
     return {
         "variant": variant,
         "feature_count": _read_feature_count(metadata_payload, variant),
-        "best_iteration": _require_key(
-            metadata_payload,
-            "best_iteration",
-            variant=variant,
-            source_name="metadata",
-        ),
-        "training_elapsed_seconds": _require_key(
+        "best_iteration": _read_best_iteration(metadata_payload, variant),
+        "training_elapsed_seconds": _read_finite_number(
             metadata_payload,
             "training_elapsed_seconds",
             variant=variant,
-            source_name="metadata",
+            field_path="metadata.training_elapsed_seconds",
         ),
         "valid_ndcg_at_10": _read_metric(
             metrics_payload,
@@ -146,6 +143,28 @@ def _read_feature_count(metadata_payload: Mapping[str, object], variant: str) ->
     return len(numeric_features) + len(categorical_features)
 
 
+def _read_best_iteration(
+    metadata_payload: Mapping[str, object],
+    variant: str,
+) -> int | None:
+    value = _require_key(
+        metadata_payload,
+        "best_iteration",
+        variant=variant,
+        source_name="metadata",
+    )
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{variant} metadata.best_iteration 必须为整数或 None")
+    number = float(value)
+    if not math.isfinite(number) or not number.is_integer():
+        raise ValueError(f"{variant} metadata.best_iteration 必须为整数或 None")
+    if isinstance(value, Integral):
+        return int(value)
+    return int(number)
+
+
 def _read_feature_list(
     feature_mask: Mapping[str, object],
     key: str,
@@ -193,15 +212,61 @@ def _read_metric(
         source_name=f"metrics overall.{split}",
     )
     if key is None:
-        return metric_value
+        return _read_nullable_finite_number(
+            metric_value,
+            variant=variant,
+            field_path=f"metrics.overall.{split}.{metric_name}",
+        )
     if not isinstance(metric_value, Mapping):
         raise ValueError(f"metrics {split}.{metric_name} 必须为对象: {variant}")
-    return _require_key(
+    nested_value = _require_key(
         metric_value,
         key,
         variant=variant,
         source_name=f"metrics {split}.{metric_name}",
     )
+    return _read_nullable_finite_number(
+        nested_value,
+        variant=variant,
+        field_path=f"metrics.overall.{split}.{metric_name}.{key}",
+    )
+
+
+def _read_finite_number(
+    payload: Mapping[str, object],
+    key: str,
+    *,
+    variant: str,
+    field_path: str,
+) -> float:
+    value = _require_key(
+        payload,
+        key,
+        variant=variant,
+        source_name=field_path.rsplit(".", maxsplit=1)[0],
+    )
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{variant} {field_path} 必须为有限数值")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{variant} {field_path} 必须为有限数值")
+    return number
+
+
+def _read_nullable_finite_number(
+    value: object,
+    *,
+    variant: str,
+    field_path: str,
+) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{variant} {field_path} 必须为有限数值或 None")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{variant} {field_path} 必须为有限数值或 None")
+    return number
 
 
 def _require_key(
@@ -212,7 +277,7 @@ def _require_key(
     source_name: str,
 ) -> object:
     if key not in payload:
-        raise ValueError(f"{source_name} 缺少指标或字段: {variant}.{key}")
+        raise ValueError(f"{variant} 缺少指标或字段 {source_name}.{key}")
     return payload[key]
 
 

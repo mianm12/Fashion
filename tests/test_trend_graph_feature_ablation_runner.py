@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -259,6 +260,74 @@ def test_build_metrics_summary_frame_rejects_missing_variant_or_recall() -> None
         build_metrics_summary_frame(missing_recall, metadata_payloads)
 
 
+def test_build_metrics_summary_frame_validates_metadata_scalars() -> None:
+    metrics_payloads, metadata_payloads = _summary_payloads()
+    metadata_payloads["no_graph"]["best_iteration"] = None
+    metadata_payloads["current_coarse_graph"]["best_iteration"] = 7.0
+
+    summary = build_metrics_summary_frame(metrics_payloads, metadata_payloads)
+
+    assert (
+        summary.loc[summary["variant"] == "no_graph", "best_iteration"].item() is None
+    )
+    assert (
+        summary.loc[
+            summary["variant"] == "current_coarse_graph",
+            "best_iteration",
+        ].item()
+        == 7
+    )
+
+    bad_best_iteration = dict(metadata_payloads)
+    bad_best_iteration["no_graph"] = dict(metadata_payloads["no_graph"])
+    bad_best_iteration["no_graph"]["best_iteration"] = "7"
+    with pytest.raises(ValueError, match="no_graph.*best_iteration"):
+        build_metrics_summary_frame(metrics_payloads, bad_best_iteration)
+
+    bad_elapsed = dict(metadata_payloads)
+    bad_elapsed["no_graph"] = dict(metadata_payloads["no_graph"])
+    bad_elapsed["no_graph"]["training_elapsed_seconds"] = math.inf
+    with pytest.raises(ValueError, match="no_graph.*training_elapsed_seconds"):
+        build_metrics_summary_frame(metrics_payloads, bad_elapsed)
+
+
+def test_build_metrics_summary_frame_validates_metric_values_and_keys() -> None:
+    metrics_payloads, metadata_payloads = _summary_payloads()
+
+    string_spearman = _summary_payloads()[0]
+    string_spearman["no_graph"]["overall"]["valid"]["spearman"] = "0.5"
+    with pytest.raises(ValueError, match="no_graph.*valid.*spearman"):
+        build_metrics_summary_frame(string_spearman, metadata_payloads)
+
+    nan_recall = _summary_payloads()[0]
+    nan_recall["no_graph"]["overall"]["valid"]["recall_at_k"]["10"] = np.nan
+    with pytest.raises(ValueError, match="no_graph.*valid.*recall_at_k.*10"):
+        build_metrics_summary_frame(nan_recall, metadata_payloads)
+
+    missing_nested_key = _summary_payloads()[0]
+    del missing_nested_key["no_graph"]["overall"]["valid"]["recall_at_k"]["10"]
+    with pytest.raises(ValueError, match="no_graph.*valid.*recall_at_k.*10"):
+        build_metrics_summary_frame(missing_nested_key, metadata_payloads)
+
+    missing_valid_split = _summary_payloads()[0]
+    del missing_valid_split["no_graph"]["overall"]["valid"]
+    with pytest.raises(ValueError, match="no_graph.*valid"):
+        build_metrics_summary_frame(missing_valid_split, metadata_payloads)
+
+    missing_test_split = _summary_payloads()[0]
+    del missing_test_split["no_graph"]["overall"]["test"]
+    with pytest.raises(ValueError, match="no_graph.*test"):
+        build_metrics_summary_frame(missing_test_split, metadata_payloads)
+
+    none_metrics = _summary_payloads()[0]
+    none_metrics["no_graph"]["overall"]["valid"]["spearman"] = None
+    none_metrics["no_graph"]["overall"]["valid"]["recall_at_k"]["10"] = None
+    summary = build_metrics_summary_frame(none_metrics, metadata_payloads)
+    row = summary.loc[summary["variant"] == "no_graph"].iloc[0]
+    assert row["valid_spearman"] is None
+    assert row["valid_recall_at_10"] is None
+
+
 def test_render_metrics_summary_markdown_contains_recall_and_trailing_newline() -> None:
     summary = pd.DataFrame(
         [{column: "value" if column == "variant" else 1 for column in SUMMARY_COLUMNS}],
@@ -268,6 +337,31 @@ def test_render_metrics_summary_markdown_contains_recall_and_trailing_newline() 
     markdown = render_metrics_summary_markdown(summary)
 
     assert "valid_recall_at_10" in markdown
+    assert markdown.endswith("\n")
+
+
+def test_render_metrics_summary_markdown_falls_back_without_tabulate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary = pd.DataFrame(
+        [
+            {
+                column: "no_graph" if column == "variant" else 1
+                for column in SUMMARY_COLUMNS
+            }
+        ],
+        columns=SUMMARY_COLUMNS,
+    )
+
+    def raise_import_error(self, *args, **kwargs):
+        raise ImportError("missing optional dependency")
+
+    monkeypatch.setattr(pd.DataFrame, "to_markdown", raise_import_error)
+
+    markdown = render_metrics_summary_markdown(summary)
+
+    assert "valid_recall_at_10" in markdown
+    assert "no_graph" in markdown
     assert markdown.endswith("\n")
 
 
@@ -322,6 +416,20 @@ def _metadata_payload(index: int) -> dict[str, object]:
         "best_iteration": index + 1,
         "training_elapsed_seconds": float(index) + 0.5,
     }
+
+
+def _summary_payloads() -> (
+    tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]
+):
+    metrics_payloads = {
+        variant: _metrics_payload(valid_recall=0.1, test_recall=0.2)
+        for variant in ABLATION_VARIANTS
+    }
+    metadata_payloads = {
+        variant: _metadata_payload(index)
+        for index, variant in enumerate(ABLATION_VARIANTS)
+    }
+    return metrics_payloads, metadata_payloads
 
 
 def _artifact_names(output_dir: Path) -> list[str]:
