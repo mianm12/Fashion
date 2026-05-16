@@ -189,6 +189,29 @@ def test_output_keeps_sample_order_and_expected_columns_only() -> None:
     assert "rank_pct_t" not in features.columns
 
 
+def test_output_keeps_alignment_with_parquet_string_identifier_dtype() -> None:
+    samples = _sample_graph_samples()
+    samples["attr_id"] = samples["attr_id"].astype("string")
+    samples["attr_type"] = samples["attr_type"].astype("string")
+    samples["attr_value"] = samples["attr_id"].astype("string")
+    edges = _sample_edges()
+    for column in (
+        "parent_attr_id",
+        "child_attr_id",
+        "parent_attr_type",
+        "child_attr_type",
+    ):
+        edges[column] = edges[column].astype("string")
+
+    features = build_graph_context_features(samples, edges)
+
+    assert (
+        features.loc[:, ["week_id", "attr_id"]]
+        .reset_index(drop=True)
+        .equals(samples.loc[:, ["week_id", "attr_id"]].reset_index(drop=True))
+    )
+
+
 def test_enhanced_sample_frames_keep_all_and_split_row_alignment() -> None:
     samples_all = _sample_graph_samples()
     split_samples = _split_samples()

@@ -191,6 +191,7 @@ def build_graph_context_features(
             features[column] = 0.0
     features[kg_columns] = features[kg_columns].fillna(0.0)
     _add_hierarchy_gap_features(features)
+    _restore_key_dtypes(features, samples_all, key_columns=ALL_SAMPLE_KEY_COLUMNS)
     features = features.loc[:, output_columns]
     _validate_output_alignment(features, samples_all)
     _validate_kg_features(features, kg_columns)
@@ -336,6 +337,16 @@ def _validate_unique_keys(
     duplicated = frame.duplicated(subset=list(key_columns), keep=False)
     if bool(duplicated.any()):
         raise ValueError(f"{source_name} primary key contains duplicate rows")
+
+
+def _restore_key_dtypes(
+    frame: pd.DataFrame,
+    reference: pd.DataFrame,
+    *,
+    key_columns: tuple[str, ...],
+) -> None:
+    for column in key_columns:
+        frame[column] = frame[column].astype(reference[column].dtype)
 
 
 def _prepare_hierarchy_edges(hierarchy_edges: pd.DataFrame) -> pd.DataFrame:
